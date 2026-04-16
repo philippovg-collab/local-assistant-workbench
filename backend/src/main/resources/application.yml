@@ -1,0 +1,38 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: spring-backend
+  servlet:
+    multipart:
+      max-file-size: "${app.materials.max-upload-bytes:2000000}B"
+      max-request-size: "${app.materials.max-upload-bytes:2000000}B"
+
+app:
+  cors:
+    allowed-origins: http://127.0.0.1:5173,http://localhost:5173,http://127.0.0.1:4173,http://localhost:4173
+  llm:
+    base-url: http://127.0.0.1:11434
+    model: qwen2.5:7b
+    temperature: 0.2
+    timeout-seconds: 120
+    system-prompt: Ты локальная LLM модель. Отвечай по делу и понятно на русском языке.
+  materials:
+    max-upload-bytes: 2000000
+    max-text-chars: 200000
+    chunk-size: 900
+    chunk-overlap: 180
+    max-chunks: 24
+    extraction-timeout-seconds: 10
+  ocr:
+    enabled: true
+    binary-path: tesseract
+    languages: kaz+rus+eng
+    timeout-seconds: 20
+    max-pages: 12
+    render-dpi: 200
+    min-text-threshold: 5
+    max-rendered-image-bytes: 15000000
+    max-temp-file-bytes: 15000000
+  storage-dir: ./storage
