@@ -4,6 +4,11 @@ server:
 spring:
   application:
     name: spring-backend
+  datasource:
+    url: "${SPRING_DATASOURCE_URL:jdbc:postgresql://127.0.0.1:5432/ragstudio}"
+    username: "${SPRING_DATASOURCE_USERNAME:ragstudio}"
+    password: "${SPRING_DATASOURCE_PASSWORD:ragstudio}"
+    driver-class-name: org.postgresql.Driver
   servlet:
     multipart:
       max-file-size: "${app.materials.max-upload-bytes:2000000}B"
@@ -25,6 +30,13 @@ app:
     chunk-overlap: 180
     max-chunks: 24
     extraction-timeout-seconds: 10
+    legacy-import-enabled: false
+    indexing-lease-seconds: 120
+    indexing-max-attempts: 3
+    indexing-retry-base-seconds: 5
+    indexing-retry-max-seconds: 60
+  instructions:
+    legacy-import-enabled: false
   ocr:
     enabled: true
     binary-path: tesseract
@@ -35,4 +47,14 @@ app:
     min-text-threshold: 5
     max-rendered-image-bytes: 15000000
     max-temp-file-bytes: 15000000
+  embeddings:
+    model: nomic-embed-text
+    timeout-seconds: 60
+  rag:
+    semantic-candidate-limit: 12
+    lexical-candidate-limit: 12
+    final-context-limit: 4
+    max-semantic-distance: 0.72
+  health:
+    readiness-cache-seconds: 30
   storage-dir: ./storage

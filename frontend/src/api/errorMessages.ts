@@ -22,6 +22,17 @@ export const translateCommonApiError = (error: unknown, fallback: string) => {
         return "Запрос к локальной LLM был прерван. Попробуй снова.";
       case "llm.invalid_configuration":
         return "Конфигурация локальной LLM выглядит некорректной. Проверь настройки backend.";
+      case "embedding.provider_unavailable":
+        return "Не удалось связаться с локальным embedding runtime. Проверь Ollama и модель embeddings.";
+      case "embedding.provider_bad_response":
+      case "embedding.provider_parse_failed":
+      case "embedding.provider_empty_embedding":
+      case "embedding.provider_dimension_mismatch":
+      case "embedding.provider_interrupted":
+      case "embedding.invalid_configuration":
+        return "Embedding runtime backend сейчас работает некорректно. Проверь readiness и повтори попытку позже.";
+      case "chat.invalid_request":
+      case "chat.invalid_prompt":
       case "request.invalid_payload":
         return "Запрос заполнен некорректно. Обнови форму и попробуй ещё раз.";
       default:

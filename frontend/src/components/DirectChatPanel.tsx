@@ -1,6 +1,8 @@
-import type { FormEvent } from "react";
 import { apiClient } from "../api/client";
-import type { ChatExecutionRequest, ChatExecutionResponse, ModelInfo } from "../types";
+import { AppliedInstructionList } from "./AppliedInstructionList";
+import { ChatForm } from "./ChatForm";
+import { ChatWorkspace } from "./ChatWorkspace";
+import type { ChatExecutionRequest, ChatExecutionResponse, InstructionSummary, ModelInfo } from "../types";
 import { formatDate } from "../utils/format";
 
 type DirectChatPanelProps = {
@@ -12,9 +14,13 @@ type DirectChatPanelProps = {
   onPromptChange: (value: string) => void;
   systemPrompt: string;
   onSystemPromptChange: (value: string) => void;
+  instructions: InstructionSummary[];
+  selectedInstructionIds: string[];
+  onToggleInstruction: (instructionId: string) => void;
   isSubmitting: boolean;
   error: string | null;
   response: ChatExecutionResponse | null;
+  requestPreview: ChatExecutionRequest;
   onSubmit: () => Promise<unknown>;
 };
 
@@ -27,73 +33,49 @@ export function DirectChatPanel({
   onPromptChange,
   systemPrompt,
   onSystemPromptChange,
+  instructions,
+  selectedInstructionIds,
+  onToggleInstruction,
   isSubmitting,
   error,
   response,
+  requestPreview,
   onSubmit,
 }: DirectChatPanelProps) {
-  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    await onSubmit();
-  };
-
-  const curlRequest: ChatExecutionRequest = {
-    mode: "direct",
-    model: selectedModel,
-    prompt,
-    instructionIds: [],
-    ...(systemPrompt.trim() ? { systemPrompt: systemPrompt.trim() } : {}),
-  };
-
   return (
     <section className="workspace-grid">
-      <article className="panel">
-        <div className="panel-header">
-          <div>
-            <p className="eyebrow">Direct Playground</p>
-            <h2>Прямой запрос к модели</h2>
-          </div>
-          <span className="badge">POST /api/chat mode=direct</span>
-        </div>
-
-        <p className="section-copy">
-          Direct-режим использует тот же execution contract, но без retrieval. Здесь остаются только модель, system prompt и прямой пользовательский запрос.
-        </p>
-
-        <form className="form-card" onSubmit={handleSubmit}>
-          <label className="field">
-            <span>Модель</span>
-            <select value={selectedModel} onChange={(event) => onModelChange(event.target.value)}>
-              {models.length > 0 ? (
-                models.map((model) => (
-                  <option key={model.name} value={model.name}>
-                    {model.name}
-                  </option>
-                ))
-              ) : (
-                <option value={selectedModel}>{selectedModel}</option>
-              )}
-            </select>
-          </label>
-
-          <label className="field">
-            <span>System prompt</span>
-            <textarea rows={4} value={systemPrompt} onChange={(event) => onSystemPromptChange(event.target.value)} />
-          </label>
-
-          <label className="field">
-            <span>User prompt</span>
-            <textarea required rows={7} value={prompt} onChange={(event) => onPromptChange(event.target.value)} />
-          </label>
-
-          <button className="primary-button" disabled={isSubmitting || !prompt.trim()} type="submit">
-            {isSubmitting ? "Отправляем..." : "Отправить напрямую"}
-          </button>
-
-          {modelsError ? <p className="helper">Список моделей сейчас недоступен: {modelsError}</p> : null}
-          {error ? <p className="inline-error">{error}</p> : null}
-        </form>
-      </article>
+      <ChatWorkspace
+        badge="POST /api/chat mode=direct"
+        description="Direct-режим использует тот же execution contract, но без retrieval. Здесь остаются только модель, system prompt и прямой пользовательский запрос."
+        eyebrow="Direct Playground"
+        title="Прямой запрос к модели"
+      >
+        <ChatForm
+          error={error}
+          helperText="Direct-режим уходит в unified `/api/chat` без retrieval-контекста и использует только модель, prompt policy и пользовательский запрос."
+          instructionEmptyStateMessage="Сначала создай инструкцию во вкладке библиотеки, чтобы затем применять её в direct-режиме."
+          instructions={instructions}
+          isSubmitDisabled={isSubmitting || !prompt.trim()}
+          isSubmitting={isSubmitting}
+          models={models}
+          modelsError={modelsError}
+          onModelChange={onModelChange}
+          onPromptChange={onPromptChange}
+          onSubmit={onSubmit}
+          onSystemPromptChange={onSystemPromptChange}
+          onToggleInstruction={onToggleInstruction}
+          prompt={prompt}
+          promptLabel="User prompt"
+          promptRows={7}
+          selectedInstructionIds={selectedInstructionIds}
+          selectedModel={selectedModel}
+          submitBusyLabel="Отправляем..."
+          submitIdleLabel="Отправить напрямую"
+          systemPrompt={systemPrompt}
+          systemPromptLabel="System prompt"
+          systemPromptRows={4}
+        />
+      </ChatWorkspace>
 
       <aside className="panel">
         <div className="panel-header">
@@ -109,7 +91,7 @@ export function DirectChatPanel({
               <h3>curl</h3>
               <span className="badge subtle">unified chat contract</span>
             </div>
-            <pre className="code-block">{apiClient.buildCurlExample(curlRequest)}</pre>
+            <pre className="code-block">{apiClient.buildCurlExample(requestPreview)}</pre>
           </article>
 
           {response ? (
@@ -129,6 +111,8 @@ export function DirectChatPanel({
                 </div>
                 <p>{response.answer}</p>
               </article>
+
+              <AppliedInstructionList appliedInstructions={response.appliedInstructions} />
             </>
           ) : (
             <div className="empty-state">

@@ -6,10 +6,7 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.stereotype.Repository;
-
-@Repository
-public class FileInstructionRepository {
+public class FileInstructionRepository implements InstructionRepository {
 
     private final AtomicJsonFileStore<StoredInstructionRecord> store;
 
@@ -22,22 +19,39 @@ public class FileInstructionRepository {
             StoredInstructionRecord.class,
             StoredInstructionRecord::id,
             Path.of(storageDir).toAbsolutePath().normalize(),
-            "instructions"
+            "instructions",
+            "instruction"
         );
     }
 
+    @Override
     public List<StoredInstructionRecord> findAll() {
         return store.readAll();
     }
 
+    @Override
     public Optional<StoredInstructionRecord> findById(String id) {
         return store.readById(id);
     }
 
+    @Override
+    public List<StoredInstructionRecord> findAllByIds(List<String> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return List.of();
+        }
+
+        return ids.stream()
+            .map(store::readById)
+            .flatMap(Optional::stream)
+            .toList();
+    }
+
+    @Override
     public void save(StoredInstructionRecord record) {
         store.write(record);
     }
 
+    @Override
     public void delete(String id) {
         store.delete(id);
     }

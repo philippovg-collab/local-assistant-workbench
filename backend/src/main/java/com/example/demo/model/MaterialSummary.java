@@ -7,9 +7,45 @@ public record MaterialSummary(
     String title,
     String sourceType,
     String originalFileName,
-    boolean extractable,
+    MaterialIndexingStatus status,
+    MaterialVersionState versionState,
+    String statusReasonCode,
+    String statusReasonMessage,
     Instant createdAt,
+    Instant updatedAt,
+    int indexingAttempts,
+    Instant nextRetryAt,
     int contentLength,
     String preview
 ) {
+    public MaterialSummary(
+        String id,
+        String title,
+        String sourceType,
+        String originalFileName,
+        MaterialIndexingStatus status,
+        MaterialVersionState versionState,
+        String statusReasonCode,
+        String statusReasonMessage,
+        Instant createdAt,
+        int contentLength,
+        String preview
+    ) {
+        this(
+            id,
+            title,
+            sourceType,
+            originalFileName,
+            status,
+            versionState,
+            statusReasonCode,
+            statusReasonMessage,
+            createdAt,
+            createdAt,
+            0,
+            null,
+            contentLength,
+            preview
+        );
+    }
 }

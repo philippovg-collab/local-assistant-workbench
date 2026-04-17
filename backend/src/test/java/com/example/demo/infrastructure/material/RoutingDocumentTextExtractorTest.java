@@ -46,6 +46,8 @@ class RoutingDocumentTextExtractorTest {
                 List.of(new ExtractedDocumentSegment("ok", null, extractorName, false)),
                 extractorName,
                 false,
+                null,
+                null,
                 null
             );
         }

@@ -1,5 +1,7 @@
-import type { FormEvent } from "react";
-import type { ChatExecutionResponse, ModelInfo } from "../types";
+import { AppliedInstructionList } from "./AppliedInstructionList";
+import { ChatForm } from "./ChatForm";
+import { ChatWorkspace } from "./ChatWorkspace";
+import type { ChatExecutionResponse, InstructionSummary, ModelInfo } from "../types";
 
 type RagChatPanelProps = {
   models: ModelInfo[];
@@ -10,6 +12,9 @@ type RagChatPanelProps = {
   onPromptChange: (value: string) => void;
   systemPrompt: string;
   onSystemPromptChange: (value: string) => void;
+  instructions: InstructionSummary[];
+  selectedInstructionIds: string[];
+  onToggleInstruction: (instructionId: string) => void;
   helperText: string;
   isBlocked: boolean;
   isSubmitting: boolean;
@@ -27,6 +32,9 @@ export function RagChatPanel({
   onPromptChange,
   systemPrompt,
   onSystemPromptChange,
+  instructions,
+  selectedInstructionIds,
+  onToggleInstruction,
   helperText,
   isBlocked,
   isSubmitting,
@@ -34,77 +42,40 @@ export function RagChatPanel({
   response,
   onSubmit,
 }: RagChatPanelProps) {
-  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    await onSubmit();
-  };
-
   return (
-    <article className="panel">
-      <div className="panel-header">
-        <div>
-          <p className="eyebrow">RAG Chat</p>
-          <h2>Ответ по материалам</h2>
-        </div>
-        <span className="badge">POST /api/chat mode=rag</span>
-      </div>
-
-      <p className="section-copy">
-        В этом режиме модель отвечает только по найденному локальному контексту из материалов и не выходит за его пределы.
-      </p>
-
-      <form className="form-card" onSubmit={handleSubmit}>
-        <label className="field">
-          <span>Модель</span>
-          <select value={selectedModel} onChange={(event) => onModelChange(event.target.value)}>
-            {models.length > 0 ? (
-              models.map((model) => (
-                <option key={model.name} value={model.name}>
-                  {model.name}
-                </option>
-              ))
-            ) : (
-              <option value={selectedModel}>{selectedModel}</option>
-            )}
-          </select>
-        </label>
-
-        <label className="field">
-          <span>System override</span>
-          <textarea
-            placeholder="Опционально переопредели базовый system prompt для этого RAG-запроса."
-            rows={4}
-            value={systemPrompt}
-            onChange={(event) => onSystemPromptChange(event.target.value)}
-          />
-        </label>
-
-        <label className="field">
-          <span>Вопрос</span>
-          <textarea
-            placeholder="Например: Какие условия тарифа Премиум?"
-            required
-            rows={6}
-            value={prompt}
-            onChange={(event) => onPromptChange(event.target.value)}
-          />
-        </label>
-
-        <div className="form-actions">
-          <button
-            className="primary-button"
-            disabled={isSubmitting || !prompt.trim() || isBlocked}
-            type="submit"
-          >
-            {isSubmitting ? "Ищем контекст..." : "Спросить по материалам"}
-          </button>
-          <p className="helper">
-            {modelsError ? `Список моделей сейчас недоступен: ${modelsError}` : helperText}
-          </p>
-        </div>
-
-        {error ? <p className="inline-error">{error}</p> : null}
-      </form>
+    <ChatWorkspace
+      badge="POST /api/chat mode=rag"
+      description="В этом режиме модель отвечает только по найденному локальному контексту из материалов и не выходит за его пределы."
+      eyebrow="RAG Chat"
+      title="Ответ по материалам"
+    >
+      <ChatForm
+        error={error}
+        helperText={helperText}
+        instructionEmptyStateMessage="Сначала создай инструкцию во вкладке библиотеки, чтобы затем применять её в RAG-режиме."
+        instructions={instructions}
+        isSubmitDisabled={isSubmitting || !prompt.trim() || isBlocked}
+        isSubmitting={isSubmitting}
+        models={models}
+        modelsError={modelsError}
+        onModelChange={onModelChange}
+        onPromptChange={onPromptChange}
+        onSubmit={onSubmit}
+        onSystemPromptChange={onSystemPromptChange}
+        onToggleInstruction={onToggleInstruction}
+        prompt={prompt}
+        promptLabel="Вопрос"
+        promptPlaceholder="Например: Какие условия тарифа Премиум?"
+        promptRows={6}
+        selectedInstructionIds={selectedInstructionIds}
+        selectedModel={selectedModel}
+        submitBusyLabel="Ищем контекст..."
+        submitIdleLabel="Спросить по материалам"
+        systemPrompt={systemPrompt}
+        systemPromptLabel="System override"
+        systemPromptPlaceholder="Опционально переопредели базовый system prompt для этого RAG-запроса."
+        systemPromptRows={4}
+      />
 
       {response ? (
         <div className="response-stack">
@@ -149,6 +120,8 @@ export function RagChatPanel({
               </div>
             )}
           </article>
+
+          <AppliedInstructionList appliedInstructions={response.appliedInstructions} />
         </div>
       ) : (
         <div className="empty-state">
@@ -156,6 +129,6 @@ export function RagChatPanel({
           <span>После первого запроса здесь появятся ответ, применённые инструкции и использованные источники.</span>
         </div>
       )}
-    </article>
+    </ChatWorkspace>
   );
 }

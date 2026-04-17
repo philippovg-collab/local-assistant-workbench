@@ -6,6 +6,8 @@ public record ExtractedDocument(
     List<ExtractedDocumentSegment> segments,
     String extractor,
     boolean ocrUsed,
-    Integer pageCount
+    Integer pageCount,
+    String warningCode,
+    String warningMessage
 ) {
 }

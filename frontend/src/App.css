@@ -452,6 +452,14 @@ code {
   gap: 16px;
 }
 
+.item-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
 .panel-header.compact {
   margin-top: 26px;
   align-items: center;
@@ -482,6 +490,13 @@ code {
 .selection-list {
   display: grid;
   gap: 16px;
+}
+
+.runtime-grid,
+.lineage-panel {
+  display: grid;
+  gap: 16px;
+  margin-top: 20px;
 }
 
 .split-stack {
@@ -549,7 +564,39 @@ code {
   flex-wrap: wrap;
 }
 
+.filter-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 18px 0;
+}
+
+.filter-chip {
+  border: 1px solid rgba(13, 116, 198, 0.16);
+  border-radius: 999px;
+  background: rgba(13, 116, 198, 0.06);
+  color: var(--accent-strong);
+  padding: 10px 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition:
+    transform 180ms ease,
+    background-color 180ms ease,
+    border-color 180ms ease;
+}
+
+.filter-chip:hover {
+  transform: translateY(-1px);
+}
+
+.filter-chip.active {
+  background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+  color: white;
+  border-color: rgba(69, 192, 255, 0.18);
+}
+
 .primary-button,
+.secondary-button,
 .danger-button {
   border: none;
   border-radius: 999px;
@@ -569,8 +616,15 @@ code {
 }
 
 .primary-button:hover:not(:disabled),
+.secondary-button:hover:not(:disabled),
 .danger-button:hover:not(:disabled) {
   transform: translateY(-1px);
+}
+
+.secondary-button {
+  background: rgba(13, 116, 198, 0.08);
+  color: var(--accent-strong);
+  border: 1px solid rgba(13, 116, 198, 0.16);
 }
 
 .danger-button {
@@ -580,6 +634,7 @@ code {
 }
 
 .primary-button:disabled,
+.secondary-button:disabled,
 .danger-button:disabled {
   opacity: 0.7;
   cursor: progress;
@@ -683,6 +738,31 @@ code {
   overflow-wrap: anywhere;
 }
 
+.signal-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 0;
+  border-top: 1px solid rgba(17, 74, 125, 0.08);
+}
+
+.signal-row:first-child {
+  border-top: none;
+  padding-top: 0;
+}
+
+.signal-row strong {
+  font-size: 0.95rem;
+}
+
+.signal-row span {
+  max-width: 60ch;
+  color: var(--muted);
+  line-height: 1.6;
+  text-align: right;
+}
+
 .selection-card-header {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -709,6 +789,42 @@ code {
 
 .selection-card-copy {
   padding-left: 28px;
+}
+
+.instruction-selector {
+  border: none;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+
+.instruction-selector legend {
+  margin-bottom: 10px;
+  padding: 0;
+  font-size: 0.94rem;
+  font-weight: 700;
+}
+
+.instruction-order-summary {
+  display: grid;
+  gap: 10px;
+}
+
+.instruction-order-list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding-left: 22px;
+}
+
+.instruction-order-item {
+  display: grid;
+  gap: 4px;
+}
+
+.instruction-order-item span {
+  color: var(--muted);
+  font-size: 0.92rem;
 }
 
 @media (max-width: 1180px) {
@@ -744,6 +860,14 @@ code {
   .item-row,
   .form-actions {
     flex-direction: column;
+  }
+
+  .signal-row {
+    flex-direction: column;
+  }
+
+  .signal-row span {
+    text-align: left;
   }
 
   .selection-card-copy {

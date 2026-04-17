@@ -2,70 +2,48 @@ package com.example.demo.llm;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.example.demo.api.ApiException;
 import com.example.demo.config.LlmProperties;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.sun.net.httpserver.HttpExchange;
-import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
-import java.io.OutputStream;
-import java.net.InetSocketAddress;
+import java.time.Duration;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicReference;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 
 class OllamaLlmClientTest {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
-    private HttpServer server;
-
-    @AfterEach
-    void tearDown() {
-        if (server != null) {
-            server.stop(0);
-        }
-    }
 
     @Test
     void chatSendsSystemAndUserMessagesSeparately() throws Exception {
-        AtomicReference<String> requestBody = new AtomicReference<>();
-        startServer(exchange -> {
-            requestBody.set(new String(exchange.getRequestBody().readAllBytes()));
-            byte[] body = """
+        RecordingTransport transport = new RecordingTransport(objectMapper);
+        transport.chatResponseJson = """
+            {
+              "id": "chatcmpl-test",
+              "model": "qwen2.5:7b",
+              "created": 1710000000,
+              "choices": [
                 {
-                  "id": "chatcmpl-test",
-                  "model": "qwen2.5:7b",
-                  "created": 1710000000,
-                  "choices": [
-                    {
-                      "index": 0,
-                      "message": {
-                        "role": "assistant",
-                        "content": "ok"
-                      },
-                      "finish_reason": "stop"
-                    }
-                  ],
-                  "usage": {
-                    "prompt_tokens": 10,
-                    "completion_tokens": 2,
-                    "total_tokens": 12
-                  }
+                  "index": 0,
+                  "message": {
+                    "role": "assistant",
+                    "content": "ok"
+                  },
+                  "finish_reason": "stop"
                 }
-                """.getBytes();
-            exchange.getResponseHeaders().add("Content-Type", "application/json");
-            exchange.sendResponseHeaders(200, body.length);
-            try (OutputStream outputStream = exchange.getResponseBody()) {
-                outputStream.write(body);
+              ],
+              "usage": {
+                "prompt_tokens": 10,
+                "completion_tokens": 2,
+                "total_tokens": 12
+              }
             }
-        });
+            """;
 
-        OllamaLlmClient client = new OllamaLlmClient(objectMapper, propertiesForServer());
+        OllamaLlmClient client = new OllamaLlmClient(transport, defaultProperties());
         client.chat(new LlmClient.ChatRequest(
             "qwen2.5:7b",
             List.of(
@@ -74,26 +52,21 @@ class OllamaLlmClientTest {
             )
         ));
 
-        JsonNode payload = objectMapper.readTree(requestBody.get());
+        JsonNode payload = objectMapper.valueToTree(transport.lastPostPayload);
         JsonNode messages = payload.get("messages");
 
+        assertEquals("/v1/chat/completions", transport.lastPostPath);
         assertEquals(2, messages.size());
         assertEquals("system", messages.get(0).get("role").asText());
         assertEquals("user", messages.get(1).get("role").asText());
     }
 
     @Test
-    void chatMapsMalformedResponsesToBadGateway() throws Exception {
-        startServer(exchange -> {
-            byte[] body = "{bad-json".getBytes();
-            exchange.getResponseHeaders().add("Content-Type", "application/json");
-            exchange.sendResponseHeaders(200, body.length);
-            try (OutputStream outputStream = exchange.getResponseBody()) {
-                outputStream.write(body);
-            }
-        });
+    void chatMapsMalformedResponsesToBadGateway() {
+        RecordingTransport transport = new RecordingTransport(objectMapper);
+        transport.chatResponseJson = "{bad-json";
 
-        OllamaLlmClient client = new OllamaLlmClient(objectMapper, propertiesForServer());
+        OllamaLlmClient client = new OllamaLlmClient(transport, defaultProperties());
 
         ApiException exception = assertThrows(ApiException.class, () -> client.chat(new LlmClient.ChatRequest(
             "qwen2.5:7b",
@@ -106,11 +79,14 @@ class OllamaLlmClientTest {
 
     @Test
     void chatMapsUnavailableProviderToServiceUnavailable() {
-        LlmProperties properties = new LlmProperties();
-        properties.setBaseUrl("http://127.0.0.1:1");
-        properties.setTimeoutSeconds(1);
+        RecordingTransport transport = new RecordingTransport(objectMapper);
+        transport.postFailure = new ApiException(
+            HttpStatus.SERVICE_UNAVAILABLE,
+            "llm.provider_unavailable",
+            "Unable to reach the local LLM provider"
+        );
 
-        OllamaLlmClient client = new OllamaLlmClient(objectMapper, properties);
+        OllamaLlmClient client = new OllamaLlmClient(transport, defaultProperties());
 
         ApiException exception = assertThrows(ApiException.class, () -> client.chat(new LlmClient.ChatRequest(
             "qwen2.5:7b",
@@ -122,46 +98,114 @@ class OllamaLlmClientTest {
     }
 
     @Test
-    void listModelsReadsTagsEndpoint() throws Exception {
-        startServer(exchange -> {
-            byte[] body = """
-                {
-                  "models": [
-                    { "name": "qwen2.5:7b" },
-                    { "name": "qwen2.5:3b" }
-                  ]
-                }
-                """.getBytes();
-            exchange.getResponseHeaders().add("Content-Type", "application/json");
-            exchange.sendResponseHeaders(200, body.length);
-            try (OutputStream outputStream = exchange.getResponseBody()) {
-                outputStream.write(body);
+    void listModelsReadsTagsEndpoint() {
+        RecordingTransport transport = new RecordingTransport(objectMapper);
+        transport.tagsResponseJson = """
+            {
+              "models": [
+                { "name": "qwen2.5:7b" },
+                { "name": "qwen2.5:3b" }
+              ]
             }
-        }, "/api/tags");
+            """;
 
-        OllamaLlmClient client = new OllamaLlmClient(objectMapper, propertiesForServer());
+        OllamaLlmClient client = new OllamaLlmClient(transport, defaultProperties());
+
+        assertEquals("/api/tags", transport.captureNextGetPath(() -> client.listModels()));
         assertEquals(2, client.listModels().size());
     }
 
-    private LlmProperties propertiesForServer() {
+    private LlmProperties defaultProperties() {
         LlmProperties properties = new LlmProperties();
-        properties.setBaseUrl("http://127.0.0.1:" + server.getAddress().getPort());
+        properties.setBaseUrl("http://127.0.0.1:11434");
         properties.setTimeoutSeconds(5);
         return properties;
     }
 
-    private void startServer(ExchangeHandler handler) throws IOException {
-        startServer(handler, "/v1/chat/completions");
-    }
+    private static final class RecordingTransport extends OllamaApiTransport {
 
-    private void startServer(ExchangeHandler handler, String path) throws IOException {
-        server = HttpServer.create(new InetSocketAddress(0), 0);
-        server.createContext(path, handler::handle);
-        server.start();
-    }
+        private final ObjectMapper objectMapper;
+        private Object lastPostPayload;
+        private String lastPostPath;
+        private String lastGetPath;
+        private String chatResponseJson;
+        private String tagsResponseJson;
+        private ApiException postFailure;
 
-    @FunctionalInterface
-    private interface ExchangeHandler {
-        void handle(HttpExchange exchange) throws IOException;
+        private RecordingTransport(ObjectMapper objectMapper) {
+            super(objectMapper);
+            this.objectMapper = objectMapper;
+        }
+
+        @Override
+        public <T> T get(
+            String baseUrl,
+            String path,
+            Duration timeout,
+            Class<T> responseType,
+            String unavailableCode,
+            String unavailableMessage,
+            String badResponseCode,
+            String badResponseMessage,
+            String parseFailedCode,
+            String parseFailedMessage,
+            String interruptedCode,
+            String interruptedMessage,
+            String invalidConfigurationCode,
+            String invalidConfigurationMessage
+        ) {
+            lastGetPath = path;
+            try {
+                return objectMapper.readValue(tagsResponseJson, responseType);
+            } catch (IOException exception) {
+                throw new ApiException(
+                    HttpStatus.BAD_GATEWAY,
+                    parseFailedCode,
+                    parseFailedMessage,
+                    exception
+                );
+            }
+        }
+
+        @Override
+        public <T> T postJson(
+            String baseUrl,
+            String path,
+            Duration timeout,
+            Object payload,
+            Class<T> responseType,
+            String unavailableCode,
+            String unavailableMessage,
+            String badResponseCode,
+            String badResponseMessage,
+            String parseFailedCode,
+            String parseFailedMessage,
+            String interruptedCode,
+            String interruptedMessage,
+            String invalidConfigurationCode,
+            String invalidConfigurationMessage
+        ) {
+            lastPostPath = path;
+            lastPostPayload = payload;
+            if (postFailure != null) {
+                throw postFailure;
+            }
+
+            try {
+                return objectMapper.readValue(chatResponseJson, responseType);
+            } catch (IOException exception) {
+                throw new ApiException(
+                    HttpStatus.BAD_GATEWAY,
+                    parseFailedCode,
+                    parseFailedMessage,
+                    exception
+                );
+            }
+        }
+
+        private String captureNextGetPath(Runnable action) {
+            action.run();
+            return lastGetPath;
+        }
     }
 }

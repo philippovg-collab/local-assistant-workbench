@@ -6,9 +6,7 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.stereotype.Repository;
 
-@Repository
 public class FileMaterialRepository {
 
     private final AtomicJsonFileStore<StoredMaterialRecord> store;
@@ -22,7 +20,8 @@ public class FileMaterialRepository {
             StoredMaterialRecord.class,
             StoredMaterialRecord::id,
             Path.of(storageDir).toAbsolutePath().normalize(),
-            "materials"
+            "materials",
+            "material"
         );
     }
 

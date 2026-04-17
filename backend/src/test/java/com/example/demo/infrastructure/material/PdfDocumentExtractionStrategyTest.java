@@ -65,6 +65,25 @@ class PdfDocumentExtractionStrategyTest {
     }
 
     @Test
+    void usesSelectiveOcrForMixedPdfInsteadOfFailingWholeDocument() throws Exception {
+        CountingOcrClient ocrClient = new CountingOcrClient();
+        PdfDocumentExtractionStrategy strategy = new PdfDocumentExtractionStrategy(
+            new MaterialFormatRegistry(),
+            new OcrProperties(),
+            ocrClient,
+            FULL_OCR_CAPABILITY
+        );
+
+        ExtractedDocument result = strategy.extract("mixed.pdf", "application/pdf", createMixedPdf());
+
+        assertTrue(result.ocrUsed());
+        assertEquals(2, result.segments().size());
+        assertEquals(1, ocrClient.calls);
+        assertEquals("pdfbox", result.segments().get(0).extractor());
+        assertEquals("tesseract", result.segments().get(1).extractor());
+    }
+
+    @Test
     void failsWhenScannedPdfNeedsOcrButCapabilityReportsOcrDisabled() throws Exception {
         PdfDocumentExtractionStrategy strategy = new PdfDocumentExtractionStrategy(
             new MaterialFormatRegistry(),
@@ -158,6 +177,40 @@ class PdfDocumentExtractionStrategyTest {
 
             PDImageXObject xObject = LosslessFactory.createFromImage(document, image);
             try (PDPageContentStream contentStream = new PDPageContentStream(document, page)) {
+                contentStream.drawImage(xObject, 40, 80, 520, 680);
+            }
+
+            document.save(outputStream);
+            return outputStream.toByteArray();
+        }
+    }
+
+    private byte[] createMixedPdf() throws Exception {
+        try (PDDocument document = new PDDocument();
+             ByteArrayOutputStream outputStream = new ByteArrayOutputStream()) {
+            PDPage firstPage = new PDPage(PDRectangle.A4);
+            PDPage secondPage = new PDPage(PDRectangle.A4);
+            document.addPage(firstPage);
+            document.addPage(secondPage);
+
+            try (PDPageContentStream contentStream = new PDPageContentStream(document, firstPage)) {
+                contentStream.beginText();
+                contentStream.setFont(PDType1Font.HELVETICA, 12);
+                contentStream.newLineAtOffset(72, 720);
+                contentStream.showText("Embedded premium price is 12000.");
+                contentStream.endText();
+            }
+
+            BufferedImage image = new BufferedImage(900, 1200, BufferedImage.TYPE_INT_RGB);
+            Graphics2D graphics = image.createGraphics();
+            graphics.setColor(Color.WHITE);
+            graphics.fillRect(0, 0, image.getWidth(), image.getHeight());
+            graphics.setColor(Color.BLACK);
+            graphics.drawString("Scanned appendix", 80, 100);
+            graphics.dispose();
+
+            PDImageXObject xObject = LosslessFactory.createFromImage(document, image);
+            try (PDPageContentStream contentStream = new PDPageContentStream(document, secondPage)) {
                 contentStream.drawImage(xObject, 40, 80, 520, 680);
             }
 

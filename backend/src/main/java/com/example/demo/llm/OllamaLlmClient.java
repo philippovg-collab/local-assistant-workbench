@@ -4,12 +4,6 @@ import com.example.demo.api.ApiException;
 import com.example.demo.config.LlmProperties;
 import com.example.demo.model.OllamaModelInfo;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import java.io.IOException;
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -19,48 +13,33 @@ import org.springframework.stereotype.Component;
 @Component
 public class OllamaLlmClient implements LlmClient {
 
-    private final ObjectMapper objectMapper;
     private final LlmProperties properties;
-    private final HttpClient httpClient;
+    private final OllamaApiTransport transport;
 
-    public OllamaLlmClient(ObjectMapper objectMapper, LlmProperties properties) {
-        this.objectMapper = objectMapper;
+    public OllamaLlmClient(OllamaApiTransport transport, LlmProperties properties) {
+        this.transport = transport;
         this.properties = properties;
-        this.httpClient = HttpClient.newBuilder()
-            .connectTimeout(Duration.ofSeconds(properties.getTimeoutSeconds()))
-            .build();
     }
 
     @Override
     public List<OllamaModelInfo> listModels() {
         try {
-            HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(properties.getBaseUrl() + "/api/tags"))
-                .timeout(Duration.ofSeconds(properties.getTimeoutSeconds()))
-                .GET()
-                .build();
-
-            HttpResponse<String> response;
-            try {
-                response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-            } catch (IOException exception) {
-                throw new ApiException(
-                    HttpStatus.SERVICE_UNAVAILABLE,
-                    "llm.provider_unavailable",
-                    "Unable to reach the local LLM provider",
-                    exception
-                );
-            }
-
-            if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                throw new ApiException(
-                    HttpStatus.BAD_GATEWAY,
-                    "llm.provider_bad_response",
-                    "LLM provider returned status " + response.statusCode() + " while listing models"
-                );
-            }
-
-            OllamaTagsResponse payload = objectMapper.readValue(response.body(), OllamaTagsResponse.class);
+            OllamaTagsResponse payload = transport.get(
+                properties.getBaseUrl(),
+                "/api/tags",
+                Duration.ofSeconds(properties.getTimeoutSeconds()),
+                OllamaTagsResponse.class,
+                "llm.provider_unavailable",
+                "Unable to reach the local LLM provider",
+                "llm.provider_bad_response",
+                "LLM provider returned an invalid status while listing models",
+                "llm.provider_parse_failed",
+                "Unable to parse the model list returned by the LLM provider",
+                "llm.provider_interrupted",
+                "Model list request was interrupted",
+                "llm.invalid_configuration",
+                "Invalid LLM configuration"
+            );
             if (payload == null || payload.models() == null) {
                 return List.of();
             }
@@ -68,21 +47,6 @@ public class OllamaLlmClient implements LlmClient {
             return payload.models().stream()
                 .map(model -> new OllamaModelInfo(model.name()))
                 .toList();
-        } catch (IOException exception) {
-            throw new ApiException(
-                HttpStatus.BAD_GATEWAY,
-                "llm.provider_parse_failed",
-                "Unable to parse the model list returned by the LLM provider",
-                exception
-            );
-        } catch (InterruptedException exception) {
-            Thread.currentThread().interrupt();
-            throw new ApiException(
-                HttpStatus.GATEWAY_TIMEOUT,
-                "llm.provider_interrupted",
-                "Model list request was interrupted",
-                exception
-            );
         } catch (IllegalArgumentException exception) {
             throw new ApiException(
                 HttpStatus.INTERNAL_SERVER_ERROR,
@@ -105,36 +69,22 @@ public class OllamaLlmClient implements LlmClient {
         );
 
         try {
-            HttpRequest httpRequest = HttpRequest.newBuilder()
-                .uri(URI.create(properties.getBaseUrl() + "/v1/chat/completions"))
-                .timeout(Duration.ofSeconds(properties.getTimeoutSeconds()))
-                .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload)))
-                .build();
-
-            HttpResponse<String> response;
-            try {
-                response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString());
-            } catch (IOException exception) {
-                throw new ApiException(
-                    HttpStatus.SERVICE_UNAVAILABLE,
-                    "llm.provider_unavailable",
-                    "Unable to reach the local LLM provider",
-                    exception
-                );
-            }
-
-            if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                throw new ApiException(
-                    HttpStatus.BAD_GATEWAY,
-                    "llm.provider_bad_response",
-                    "LLM provider returned status " + response.statusCode() + ": " + response.body()
-                );
-            }
-
-            OpenAiChatCompletionResponse completion = objectMapper.readValue(
-                response.body(),
-                OpenAiChatCompletionResponse.class
+            OpenAiChatCompletionResponse completion = transport.postJson(
+                properties.getBaseUrl(),
+                "/v1/chat/completions",
+                Duration.ofSeconds(properties.getTimeoutSeconds()),
+                payload,
+                OpenAiChatCompletionResponse.class,
+                "llm.provider_unavailable",
+                "Unable to reach the local LLM provider",
+                "llm.provider_bad_response",
+                "LLM provider returned an invalid status",
+                "llm.provider_parse_failed",
+                "Unable to parse the LLM provider response",
+                "llm.provider_interrupted",
+                "LLM request was interrupted",
+                "llm.invalid_configuration",
+                "Invalid LLM configuration"
             );
 
             if (completion.choices() == null || completion.choices().isEmpty()) {
@@ -158,21 +108,6 @@ public class OllamaLlmClient implements LlmClient {
                 usage == null ? null : usage.promptTokens(),
                 usage == null ? null : usage.completionTokens(),
                 usage == null ? null : usage.totalTokens()
-            );
-        } catch (IOException exception) {
-            throw new ApiException(
-                HttpStatus.BAD_GATEWAY,
-                "llm.provider_parse_failed",
-                "Unable to parse the LLM provider response",
-                exception
-            );
-        } catch (InterruptedException exception) {
-            Thread.currentThread().interrupt();
-            throw new ApiException(
-                HttpStatus.GATEWAY_TIMEOUT,
-                "llm.provider_interrupted",
-                "LLM request was interrupted",
-                exception
             );
         } catch (IllegalArgumentException exception) {
             throw new ApiException(

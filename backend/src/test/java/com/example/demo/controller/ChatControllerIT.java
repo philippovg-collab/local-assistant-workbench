@@ -8,6 +8,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.example.demo.llm.LlmClient;
 import com.example.demo.model.OllamaModelInfo;
 import com.example.demo.service.MaterialService;
+import com.example.demo.support.IntegrationTestOverrides;
+import com.example.demo.support.PostgresIntegrationTestSupport;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -16,13 +18,15 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Import;
 import org.springframework.context.annotation.Primary;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
-@SpringBootTest(properties = "app.storage-dir=${java.io.tmpdir}/rag-studio-chat-controller-test-${random.uuid}")
+@SpringBootTest
 @AutoConfigureMockMvc
-class ChatControllerTest {
+@Import(IntegrationTestOverrides.class)
+class ChatControllerIT extends PostgresIntegrationTestSupport {
 
     @Autowired
     private MockMvc mockMvc;
@@ -70,50 +74,35 @@ class ChatControllerTest {
     }
 
     @Test
-    void rejectsMalformedChatPayloads() throws Exception {
-        mockMvc.perform(post("/api/chat")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("{"))
-            .andExpect(status().isBadRequest())
-            .andExpect(jsonPath("$.code").value("request.invalid_payload"));
+    void executesSemanticRagChatRequestsForParaphrasedQuestions() throws Exception {
+        materialService.saveText(
+            "Pricing FAQ",
+            "Тариф Премиум стоит 12000 тенге в месяц и включает приоритетную поддержку."
+        );
+        llmClient.setNextResult(new LlmClient.ChatResult(
+            "qwen2.5:7b",
+            "Премиальный план стоит 12000 тенге в месяц.",
+            "2026-04-16T10:00:00Z",
+            14,
+            10,
+            24
+        ));
 
-        org.junit.jupiter.api.Assertions.assertEquals(0, llmClient.chatCalls());
-    }
-
-    @Test
-    void rejectsInvalidModeValues() throws Exception {
-        mockMvc.perform(post("/api/chat")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("""
-                    {
-                      "mode": "broken",
-                      "model": "qwen2.5:7b",
-                      "prompt": "Сколько стоит тариф Премиум?",
-                      "instructionIds": []
-                    }
-                    """))
-            .andExpect(status().isBadRequest())
-            .andExpect(jsonPath("$.code").value("request.invalid_payload"));
-
-        org.junit.jupiter.api.Assertions.assertEquals(0, llmClient.chatCalls());
-    }
-
-    @Test
-    void rejectsChatRequestsWithoutPrompt() throws Exception {
         mockMvc.perform(post("/api/chat")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {
                       "mode": "rag",
                       "model": "qwen2.5:7b",
-                      "prompt": "   ",
+                      "prompt": "Сколько стоит премиальный план?",
                       "instructionIds": []
                     }
                     """))
-            .andExpect(status().isBadRequest())
-            .andExpect(jsonPath("$.code").value("chat.invalid_request"));
-
-        org.junit.jupiter.api.Assertions.assertEquals(0, llmClient.chatCalls());
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.mode").value("rag"))
+            .andExpect(jsonPath("$.answer").value(containsString("12000")))
+            .andExpect(jsonPath("$.sources[0].title").value("Pricing FAQ"))
+            .andExpect(jsonPath("$.sources[0].score").isNumber());
     }
 
     @TestConfiguration

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type Dispatch, type SetStateAction } from "react";
 import "./App.css";
 import kegocLogo from "./assets/logo-kegoc.png";
 import { DirectChatPanel } from "./components/DirectChatPanel";
@@ -11,6 +11,7 @@ import { useHealth } from "./hooks/useHealth";
 import { useInstructions } from "./hooks/useInstructions";
 import { useMaterials } from "./hooks/useMaterials";
 import { useModels } from "./hooks/useModels";
+import { buildRagReadinessPresentation, deriveRagReadiness } from "./utils/readiness";
 
 type WorkspaceTab = "overview" | "materials" | "instructions" | "rag" | "direct";
 
@@ -24,15 +25,19 @@ const tabs: Array<{ id: WorkspaceTab; label: string }> = [
 
 function App() {
   const [activeTab, setActiveTab] = useState<WorkspaceTab>("overview");
+  const [ragInstructionIds, setRagInstructionIds] = useState<string[]>([]);
+  const [directInstructionIds, setDirectInstructionIds] = useState<string[]>([]);
   const { health, error: healthError } = useHealth();
   const { models, error: modelsError } = useModels();
   const materials = useMaterials();
   const instructions = useInstructions();
+  const ragReadiness = deriveRagReadiness(health, materials.materials);
 
   const ragChat = useChatExecution({
     mode: "rag",
     initialModel: "qwen2.5:7b",
     initialPrompt: "Что написано про тариф Премиум?",
+    selectedInstructionIds: ragInstructionIds,
   });
 
   const directChat = useChatExecution({
@@ -40,7 +45,30 @@ function App() {
     initialModel: "qwen2.5:7b",
     initialPrompt: "Покажи пример request-response для локальной LLM через единый API.",
     initialSystemPrompt: "Отвечай кратко, по делу и на русском языке.",
+    selectedInstructionIds: directInstructionIds,
   });
+
+  useEffect(() => {
+    const knownInstructionIds = new Set(instructions.instructions.map((instruction) => instruction.id));
+
+    setRagInstructionIds((current) => {
+      const next = current.filter((instructionId) => knownInstructionIds.has(instructionId));
+      return next.length === current.length ? current : next;
+    });
+    setDirectInstructionIds((current) => {
+      const next = current.filter((instructionId) => knownInstructionIds.has(instructionId));
+      return next.length === current.length ? current : next;
+    });
+  }, [instructions.instructions]);
+
+  const toggleInstructionSelection =
+    (setSelectedInstructionIds: Dispatch<SetStateAction<string[]>>) => (instructionId: string) => {
+      setSelectedInstructionIds((current) =>
+        current.includes(instructionId)
+          ? current.filter((currentInstructionId) => currentInstructionId !== instructionId)
+          : [...current, instructionId],
+      );
+    };
 
   useEffect(() => {
     if (models.length === 0) {
@@ -58,19 +86,16 @@ function App() {
     }
   }, [models, ragChat.model, ragChat.setModel, directChat.model, directChat.setModel]);
 
-  const isRagBlockedByEmptyState =
-    !materials.isLoading && !materials.error && materials.materials.length === 0;
+  const ragPresentation = buildRagReadinessPresentation({
+    health,
+    ragReadiness,
+    isLoadingMaterials: materials.isLoading,
+    materialsError: materials.error,
+    selectedModel: ragChat.model,
+  });
   const isOverviewTabActive = activeTab === "overview";
   const isMaterialsTabActive = activeTab === "materials";
   const isInstructionsTabActive = activeTab === "instructions";
-
-  const ragHelperText = materials.isLoading
-    ? "Проверяем локальное хранилище материалов."
-    : materials.error
-    ? `Не удалось загрузить материалы: ${materials.error}.`
-    : materials.materials.length === 0
-      ? "Сначала добавь материалы, иначе RAG-режим не на чем grounded."
-      : `Вопрос уйдёт в ${ragChat.model} с локально подобранным контекстом из материалов.`;
 
   return (
     <main className="shell">
@@ -166,10 +191,9 @@ function App() {
             health={health}
             healthError={healthError}
             instructionsCount={instructions.instructions.length}
-            isLoadingMaterials={materials.isLoading}
-            materialsCount={materials.materials.length}
             models={models}
             modelsError={modelsError}
+            ragPresentation={ragPresentation}
           />
         </section>
 
@@ -186,12 +210,20 @@ function App() {
               deletingMaterialId={materials.deletingMaterialId}
               error={materials.error}
               isLoading={materials.isLoading}
+              lineageError={materials.lineageError}
+              loadingLineageMaterialId={materials.loadingLineageMaterialId}
               materials={materials.materials}
               message={materials.message}
+              onClearLineage={materials.clearLineage}
               onCreateText={materials.createTextMaterial}
               onDelete={materials.deleteMaterial}
+              onLoadLineage={(materialId) => materials.loadLineage(materialId)}
+              onReindex={materials.reindexMaterial}
               onUpload={materials.uploadMaterial}
               policyWarning={materials.policyWarning}
+              ragPresentation={ragPresentation}
+              reindexingMaterialId={materials.reindexingMaterialId}
+              selectedLineage={materials.selectedLineage}
               uploadPolicy={materials.uploadPolicy}
             />
           ) : null}
@@ -207,13 +239,18 @@ function App() {
           {isInstructionsTabActive ? (
             <InstructionLibraryPanel
               actionError={instructions.actionError}
+              detailError={instructions.detailError}
               deletingInstructionId={instructions.deletingInstructionId}
               error={instructions.error}
+              isLoadingDetail={instructions.isLoadingDetail}
               instructions={instructions.instructions}
               isLoading={instructions.isLoading}
               message={instructions.message}
               onCreateInstruction={instructions.createInstruction}
               onDeleteInstruction={instructions.deleteInstruction}
+              onLoadInstruction={(instructionId) => instructions.loadInstruction(instructionId)}
+              onUpdateInstruction={instructions.updateInstruction}
+              selectedInstruction={instructions.selectedInstruction}
             />
           ) : null}
         </section>
@@ -227,19 +264,22 @@ function App() {
         >
           <RagChatPanel
             error={ragChat.error}
-            helperText={ragHelperText}
-            isBlocked={isRagBlockedByEmptyState}
+            helperText={ragPresentation.chatHelperText}
+            isBlocked={ragPresentation.isRagSubmitBlocked}
             isSubmitting={ragChat.isSubmitting}
+            instructions={instructions.instructions}
             models={models}
             modelsError={modelsError}
             prompt={ragChat.prompt}
             response={ragChat.response}
             selectedModel={ragChat.model}
+            selectedInstructionIds={ragInstructionIds}
             systemPrompt={ragChat.systemPrompt}
             onModelChange={ragChat.setModel}
             onPromptChange={ragChat.setPrompt}
             onSubmit={ragChat.submit}
             onSystemPromptChange={ragChat.setSystemPrompt}
+            onToggleInstruction={toggleInstructionSelection(setRagInstructionIds)}
           />
         </section>
 
@@ -253,16 +293,28 @@ function App() {
           <DirectChatPanel
             error={directChat.error}
             isSubmitting={directChat.isSubmitting}
+            instructions={instructions.instructions}
             models={models}
             modelsError={modelsError}
             prompt={directChat.prompt}
+            requestPreview={directChat.lastSubmittedRequest && (directChat.isSubmitting || directChat.response)
+              ? directChat.lastSubmittedRequest
+              : {
+                  mode: "direct",
+                  model: directChat.model,
+                  prompt: directChat.prompt,
+                  instructionIds: directInstructionIds,
+                  ...(directChat.systemPrompt.trim() ? { systemPrompt: directChat.systemPrompt.trim() } : {}),
+                }}
             response={directChat.response}
             selectedModel={directChat.model}
+            selectedInstructionIds={directInstructionIds}
             systemPrompt={directChat.systemPrompt}
             onModelChange={directChat.setModel}
             onPromptChange={directChat.setPrompt}
             onSubmit={directChat.submit}
             onSystemPromptChange={directChat.setSystemPrompt}
+            onToggleInstruction={toggleInstructionSelection(setDirectInstructionIds)}
           />
         </section>
       </section>

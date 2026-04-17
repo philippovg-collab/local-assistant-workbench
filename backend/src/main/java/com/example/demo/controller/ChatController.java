@@ -1,11 +1,13 @@
 package com.example.demo.controller;
 
 import com.example.demo.api.ApiException;
-import com.example.demo.llm.LlmClient;
 import com.example.demo.model.ChatExecutionRequest;
 import com.example.demo.model.ChatExecutionResponse;
+import com.example.demo.model.InstructionDetail;
 import com.example.demo.model.OllamaModelInfo;
 import com.example.demo.service.ChatExecutionService;
+import com.example.demo.service.InstructionService;
+import com.example.demo.service.ModelCatalogService;
 import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -19,16 +21,22 @@ import org.springframework.web.bind.annotation.RestController;
 public class ChatController {
 
     private final ChatExecutionService chatExecutionService;
-    private final LlmClient llmClient;
+    private final InstructionService instructionService;
+    private final ModelCatalogService modelCatalogService;
 
-    public ChatController(ChatExecutionService chatExecutionService, LlmClient llmClient) {
+    public ChatController(
+        ChatExecutionService chatExecutionService,
+        InstructionService instructionService,
+        ModelCatalogService modelCatalogService
+    ) {
         this.chatExecutionService = chatExecutionService;
-        this.llmClient = llmClient;
+        this.instructionService = instructionService;
+        this.modelCatalogService = modelCatalogService;
     }
 
     @GetMapping("/models")
     public List<OllamaModelInfo> listModels() {
-        return llmClient.listModels();
+        return modelCatalogService.listModels();
     }
 
     @PostMapping("/chat")
@@ -40,6 +48,7 @@ public class ChatController {
                 "Request payload is required"
             );
         }
-        return chatExecutionService.execute(request);
+        List<InstructionDetail> instructions = instructionService.findInstructionsByIds(request.instructionIds());
+        return chatExecutionService.execute(request, instructions);
     }
 }

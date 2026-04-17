@@ -2,6 +2,7 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiClientError, apiClient } from "../api/client";
+import type { ChatExecutionResponse } from "../types";
 import { useChatExecution } from "./useChatExecution";
 
 vi.mock("../api/client", async () => {
@@ -20,14 +21,21 @@ type HarnessProps = {
   mode: "direct" | "rag";
   initialPrompt: string;
   initialSystemPrompt?: string;
+  selectedInstructionIds?: string[];
 };
 
-function HookHarness({ mode, initialPrompt, initialSystemPrompt = "" }: HarnessProps) {
+function HookHarness({
+  mode,
+  initialPrompt,
+  initialSystemPrompt = "",
+  selectedInstructionIds = [],
+}: HarnessProps) {
   const chat = useChatExecution({
     mode,
     initialModel: "qwen2.5:7b",
     initialPrompt,
     initialSystemPrompt,
+    selectedInstructionIds,
   });
 
   return (
@@ -70,6 +78,9 @@ function HookHarness({ mode, initialPrompt, initialSystemPrompt = "" }: HarnessP
       <output data-testid={`${mode}-prompt-output`}>{chat.prompt}</output>
       <output data-testid={`${mode}-system-output`}>{chat.systemPrompt}</output>
       <output data-testid={`${mode}-error-output`}>{chat.error ?? ""}</output>
+      <output data-testid={`${mode}-submitting-output`}>{String(chat.isSubmitting)}</output>
+      <output data-testid={`${mode}-response-output`}>{chat.response?.answer ?? ""}</output>
+      <output data-testid={`${mode}-last-request-output`}>{chat.lastSubmittedRequest?.prompt ?? ""}</output>
     </section>
   );
 }
@@ -116,13 +127,24 @@ describe("useChatExecution", () => {
     expect(screen.getByTestId("rag-system-output").textContent).toBe("");
   });
 
-  it("aborts the previous in-flight request when submit is called again", async () => {
+  it("keeps the loading state tied to the latest in-flight request", async () => {
     const user = userEvent.setup();
     const signals: Array<AbortSignal | undefined> = [];
+    const pendingRequests: Array<{
+      resolve: (value: ChatExecutionResponse) => void;
+      signal?: AbortSignal;
+    }> = [];
 
-    vi.mocked(apiClient.executeChat).mockImplementation(async (_request, signal) => {
+    vi.mocked(apiClient.executeChat).mockImplementation((_request, signal) => {
       signals.push(signal);
-      return await new Promise(() => undefined);
+      return new Promise<ChatExecutionResponse>((resolve, reject) => {
+        signal?.addEventListener(
+          "abort",
+          () => reject(new DOMException("Aborted", "AbortError")),
+          { once: true },
+        );
+        pendingRequests.push({ resolve, signal });
+      });
     });
 
     render(<HookHarness initialPrompt="direct prompt" mode="direct" />);
@@ -135,9 +157,30 @@ describe("useChatExecution", () => {
       expect(signals[0]?.aborted).toBe(true);
       expect(signals[1]?.aborted).toBe(false);
     });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("direct-submitting-output").textContent).toBe("true");
+    });
+
+    pendingRequests[1]?.resolve({
+      mode: "direct",
+      model: "qwen2.5:7b",
+      prompt: "direct prompt",
+      answer: "ok",
+      createdAt: "2026-04-16T10:00:00Z",
+      promptTokens: 1,
+      completionTokens: 1,
+      totalTokens: 2,
+      appliedInstructions: [],
+      sources: [],
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("direct-submitting-output").textContent).toBe("false");
+    });
   });
 
-  it("submits the unified chat contract with an empty instruction list", async () => {
+  it("submits the unified chat contract with the selected instruction ids", async () => {
     const user = userEvent.setup();
     vi.mocked(apiClient.executeChat).mockResolvedValue({
       mode: "rag",
@@ -152,7 +195,14 @@ describe("useChatExecution", () => {
       sources: [],
     });
 
-    render(<HookHarness initialPrompt="Какая цена?" initialSystemPrompt="Не выдумывай" mode="rag" />);
+    render(
+      <HookHarness
+        initialPrompt="Какая цена?"
+        initialSystemPrompt="Не выдумывай"
+        mode="rag"
+        selectedInstructionIds={["instruction-1", "instruction-2"]}
+      />,
+    );
 
     await user.click(screen.getByText("submit-rag"));
 
@@ -163,7 +213,7 @@ describe("useChatExecution", () => {
           model: "qwen2.5:7b",
           prompt: "Какая цена?",
           systemPrompt: "Не выдумывай",
-          instructionIds: [],
+          instructionIds: ["instruction-1", "instruction-2"],
         },
         expect.any(AbortSignal),
       );
@@ -204,6 +254,66 @@ describe("useChatExecution", () => {
 
     await waitFor(() => {
       expect(screen.getByTestId("rag-error-output").textContent).toContain("Ollama запущен");
+    });
+  });
+
+  it("clears stale response on a new submit and tracks the last submitted request", async () => {
+    const user = userEvent.setup();
+    let resolveSecondRequest: (value: ChatExecutionResponse) => void = () => undefined;
+
+    vi.mocked(apiClient.executeChat)
+      .mockResolvedValueOnce({
+        mode: "direct",
+        model: "qwen2.5:7b",
+        prompt: "first prompt",
+        answer: "first answer",
+        createdAt: "2026-04-16T10:00:00Z",
+        promptTokens: 1,
+        completionTokens: 1,
+        totalTokens: 2,
+        appliedInstructions: [],
+        sources: [],
+      })
+      .mockImplementationOnce(() =>
+        new Promise<ChatExecutionResponse>((resolve) => {
+          resolveSecondRequest = resolve;
+        }),
+      );
+
+    render(<HookHarness initialPrompt="first prompt" mode="direct" />);
+
+    await user.click(screen.getByText("submit-direct"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("direct-response-output").textContent).toBe("first answer");
+      expect(screen.getByTestId("direct-last-request-output").textContent).toBe("first prompt");
+    });
+
+    await user.clear(screen.getByLabelText("direct-prompt"));
+    await user.type(screen.getByLabelText("direct-prompt"), "second prompt");
+    await user.click(screen.getByText("submit-direct"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("direct-response-output").textContent).toBe("");
+      expect(screen.getByTestId("direct-last-request-output").textContent).toBe("second prompt");
+      expect(screen.getByTestId("direct-submitting-output").textContent).toBe("true");
+    });
+
+    resolveSecondRequest({
+      mode: "direct",
+      model: "qwen2.5:7b",
+      prompt: "second prompt",
+      answer: "second answer",
+      createdAt: "2026-04-16T10:00:01Z",
+      promptTokens: 1,
+      completionTokens: 1,
+      totalTokens: 2,
+      appliedInstructions: [],
+      sources: [],
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("direct-response-output").textContent).toBe("second answer");
     });
   });
 });

@@ -5,9 +5,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
-import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.function.Function;
@@ -20,8 +20,8 @@ public class AtomicJsonFileStore<T> {
     private final Class<T> type;
     private final Function<T, String> idResolver;
     private final Path dataDir;
-    private final Path quarantineDir;
     private final String bucketName;
+    private final String errorNamespace;
 
     public AtomicJsonFileStore(
         ObjectMapper objectMapper,
@@ -30,20 +30,37 @@ public class AtomicJsonFileStore<T> {
         Path storageRoot,
         String bucketName
     ) {
+        this(
+            objectMapper,
+            type,
+            idResolver,
+            storageRoot,
+            bucketName,
+            bucketName
+        );
+    }
+
+    public AtomicJsonFileStore(
+        ObjectMapper objectMapper,
+        Class<T> type,
+        Function<T, String> idResolver,
+        Path storageRoot,
+        String bucketName,
+        String errorNamespace
+    ) {
         this.objectMapper = objectMapper;
         this.type = type;
         this.idResolver = idResolver;
         this.bucketName = bucketName;
+        this.errorNamespace = errorNamespace;
         this.dataDir = storageRoot.resolve(bucketName);
-        this.quarantineDir = storageRoot.resolve("quarantine").resolve(bucketName);
 
         try {
             Files.createDirectories(this.dataDir);
-            Files.createDirectories(this.quarantineDir);
         } catch (IOException exception) {
             throw new ApiException(
                 HttpStatus.INTERNAL_SERVER_ERROR,
-                bucketName + ".storage_init_failed",
+                errorNamespace + ".storage_init_failed",
                 "Unable to initialize storage bucket '" + bucketName + "'",
                 exception
             );
@@ -61,7 +78,7 @@ public class AtomicJsonFileStore<T> {
         } catch (IOException exception) {
             throw new ApiException(
                 HttpStatus.INTERNAL_SERVER_ERROR,
-                bucketName + ".storage_read_failed",
+                errorNamespace + ".storage_read_failed",
                 "Unable to read " + bucketName + " storage",
                 exception
             );
@@ -69,7 +86,7 @@ public class AtomicJsonFileStore<T> {
     }
 
     public Optional<T> readById(String id) {
-        Path target = dataDir.resolve(id + ".json");
+        Path target = resolveRecordPath(id);
         if (!Files.exists(target)) {
             return Optional.empty();
         }
@@ -78,11 +95,11 @@ public class AtomicJsonFileStore<T> {
     }
 
     public void write(T record) {
-        String id = idResolver.apply(record);
-        Path target = dataDir.resolve(id + ".json");
+        String id = validateId(idResolver.apply(record));
+        Path target = resolveRecordPath(id);
 
         try {
-            Path tempFile = Files.createTempFile(dataDir, id + "-", ".tmp");
+            Path tempFile = Files.createTempFile(dataDir, tempFilePrefix(id), ".tmp");
             try {
                 objectMapper.writeValue(tempFile.toFile(), record);
                 moveAtomically(tempFile, target);
@@ -92,7 +109,7 @@ public class AtomicJsonFileStore<T> {
         } catch (IOException exception) {
             throw new ApiException(
                 HttpStatus.INTERNAL_SERVER_ERROR,
-                bucketName + ".storage_write_failed",
+                errorNamespace + ".storage_write_failed",
                 "Unable to write " + bucketName + " record",
                 exception
             );
@@ -100,13 +117,13 @@ public class AtomicJsonFileStore<T> {
     }
 
     public void delete(String id) {
-        Path target = dataDir.resolve(id + ".json");
+        Path target = resolveRecordPath(id);
         try {
             Files.deleteIfExists(target);
         } catch (IOException exception) {
             throw new ApiException(
                 HttpStatus.INTERNAL_SERVER_ERROR,
-                bucketName + ".storage_delete_failed",
+                errorNamespace + ".storage_delete_failed",
                 "Unable to delete " + bucketName + " record",
                 exception
             );
@@ -117,25 +134,52 @@ public class AtomicJsonFileStore<T> {
         try {
             return Optional.of(objectMapper.readValue(path.toFile(), type));
         } catch (IOException exception) {
-            quarantine(path);
             return Optional.empty();
         }
     }
 
-    private void quarantine(Path path) {
-        String baseName = path.getFileName().toString().replace(".json", "");
-        String quarantinedName = baseName + "-broken-" + Instant.now().toEpochMilli() + ".json";
-        Path quarantineTarget = quarantineDir.resolve(quarantinedName);
+    private Path resolveRecordPath(String id) {
+        String validatedId = validateId(id);
 
         try {
-            moveAtomically(path, quarantineTarget);
-        } catch (IOException ignored) {
-            try {
-                Files.deleteIfExists(path);
-            } catch (IOException ignoredAgain) {
-                // Best effort cleanup. The file is already unreadable and should not break the whole bucket.
+            Path target = dataDir.resolve(validatedId + ".json").normalize();
+            if (!target.startsWith(dataDir)) {
+                throw invalidId(validatedId);
             }
+            return target;
+        } catch (InvalidPathException exception) {
+            throw invalidId(id, exception);
         }
+    }
+
+    private String validateId(String id) {
+        if (id == null) {
+            throw invalidId(null);
+        }
+
+        String trimmedId = id.trim();
+        if (trimmedId.isEmpty() || trimmedId.contains("..") || trimmedId.contains("/") || trimmedId.contains("\\")) {
+            throw invalidId(id);
+        }
+
+        return trimmedId;
+    }
+
+    private String tempFilePrefix(String id) {
+        return id.length() >= 3 ? id + "-" : bucketName + "-tmp-";
+    }
+
+    private ApiException invalidId(String id) {
+        return invalidId(id, null);
+    }
+
+    private ApiException invalidId(String id, Throwable cause) {
+        return new ApiException(
+            HttpStatus.BAD_REQUEST,
+            errorNamespace + ".invalid_id",
+            "Invalid " + bucketName + " id: " + id,
+            cause
+        );
     }
 
     private void moveAtomically(Path source, Path target) throws IOException {

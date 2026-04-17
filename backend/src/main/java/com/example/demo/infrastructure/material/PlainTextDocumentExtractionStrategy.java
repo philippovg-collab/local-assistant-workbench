@@ -31,6 +31,8 @@ public class PlainTextDocumentExtractionStrategy implements DocumentTextExtracti
             List.of(new ExtractedDocumentSegment(new String(bytes, StandardCharsets.UTF_8), null, "plain-text", false)),
             "plain-text",
             false,
+            null,
+            null,
             null
         );
     }

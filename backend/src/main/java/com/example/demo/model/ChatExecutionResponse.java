@@ -7,6 +7,7 @@ public record ChatExecutionResponse(
     String model,
     String prompt,
     String answer,
+    String contextStatus,
     String createdAt,
     Integer promptTokens,
     Integer completionTokens,

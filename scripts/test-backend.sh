@@ -49,8 +49,22 @@ export PATH="$JAVA_HOME/bin:$PATH"
 echo "Using JAVA_HOME=$JAVA_HOME"
 cd "$BACKEND_DIR"
 
-if [[ $# -gt 0 ]]; then
-  mvn "$@"
-else
+if [[ $# -eq 0 ]]; then
   mvn test
+  exit 0
 fi
+
+MODE="$1"
+shift
+
+case "$MODE" in
+  fast)
+    mvn test "$@"
+    ;;
+  full|integration)
+    mvn verify "$@"
+    ;;
+  *)
+    mvn "$MODE" "$@"
+    ;;
+esac

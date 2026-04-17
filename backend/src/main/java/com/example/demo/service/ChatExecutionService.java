@@ -6,7 +6,7 @@ import com.example.demo.model.ChatExecutionRequest;
 import com.example.demo.model.ChatExecutionResponse;
 import com.example.demo.model.ChatMode;
 import com.example.demo.model.ChatSource;
-import com.example.demo.model.InstructionSummary;
+import com.example.demo.model.InstructionDetail;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -35,6 +35,11 @@ public class ChatExecutionService {
     }
 
     public ChatExecutionResponse execute(ChatExecutionRequest request) {
+        List<InstructionDetail> instructions = instructionService.findInstructionsByIds(request.instructionIds());
+        return execute(request, instructions);
+    }
+
+    public ChatExecutionResponse execute(ChatExecutionRequest request, List<InstructionDetail> instructions) {
         if (request == null || !StringUtils.hasText(request.prompt())) {
             throw new ApiException(
                 HttpStatus.BAD_REQUEST,
@@ -44,20 +49,39 @@ public class ChatExecutionService {
         }
 
         ChatMode mode = request.mode() == null ? ChatMode.DIRECT : request.mode();
-        List<InstructionSummary> instructions = instructionService.findInstructionsByIds(request.instructionIds());
         PromptPolicyResolver.ResolvedPromptPolicy promptPolicy = promptPolicyResolver.resolve(
             new ChatExecutionRequest(mode, request.model(), request.prompt(), request.systemPrompt(), request.instructionIds()),
             instructions
         );
 
         if (mode == ChatMode.RAG) {
-            MaterialService.RetrievalResult retrievalResult = materialService.retrieveContext(request.prompt());
+            MaterialRetrievalResult retrievalResult = materialService.retrieveContext(request.prompt());
             if (retrievalResult.materialCount() == 0) {
                 return emptyContextResponse(
                     mode,
                     promptPolicy,
                     request.prompt(),
                     "Сначала добавьте материалы. Без локального контекста RAG-режим не сможет ответить.",
+                    List.of()
+                );
+            }
+
+            if (retrievalResult.activeMaterialCount() == 0) {
+                return emptyContextResponse(
+                    mode,
+                    promptPolicy,
+                    request.prompt(),
+                    "В базе знаний остались только архивные версии материалов. Добавьте новую активную версию или восстановите предыдущую.",
+                    List.of()
+                );
+            }
+
+            if (retrievalResult.readyMaterialCount() == 0) {
+                return emptyContextResponse(
+                    mode,
+                    promptPolicy,
+                    request.prompt(),
+                    "Материалы уже приняты, но локальный индекс ещё не готов. Дождитесь завершения индексации и повторите запрос.",
                     List.of()
                 );
             }
@@ -72,13 +96,20 @@ public class ChatExecutionService {
                 );
             }
 
-            List<LlmClient.Message> messages = buildRagMessages(promptPolicy.systemPrompt(), request.prompt(), retrievalResult.matches());
+        List<LlmClient.Message> messages = buildRagMessages(
+            promptPolicy.systemPrompt(),
+            request.prompt(),
+            retrievalResult.matches(),
+            promptPolicy.contextInstructions(),
+            promptPolicy.userInstructions()
+        );
             LlmClient.ChatResult result = llmClient.chat(new LlmClient.ChatRequest(promptPolicy.model(), messages));
             return new ChatExecutionResponse(
                 mode,
                 result.model(),
                 request.prompt(),
                 result.answer(),
+                "ready",
                 result.createdAt(),
                 result.promptTokens(),
                 result.completionTokens(),
@@ -88,13 +119,18 @@ public class ChatExecutionService {
             );
         }
 
-        List<LlmClient.Message> messages = buildDirectMessages(promptPolicy.systemPrompt(), request.prompt());
+        List<LlmClient.Message> messages = buildDirectMessages(
+            promptPolicy.systemPrompt(),
+            request.prompt(),
+            promptPolicy.userInstructions()
+        );
         LlmClient.ChatResult result = llmClient.chat(new LlmClient.ChatRequest(promptPolicy.model(), messages));
         return new ChatExecutionResponse(
             mode,
             result.model(),
             request.prompt(),
             result.answer(),
+            null,
             result.createdAt(),
             result.promptTokens(),
             result.completionTokens(),
@@ -116,6 +152,7 @@ public class ChatExecutionService {
             promptPolicy.model(),
             prompt,
             answer,
+            "no-context",
             Instant.now().toString(),
             null,
             null,
@@ -125,20 +162,26 @@ public class ChatExecutionService {
         );
     }
 
-    private List<LlmClient.Message> buildDirectMessages(String systemPrompt, String prompt) {
+    private List<LlmClient.Message> buildDirectMessages(
+        String systemPrompt,
+        String prompt,
+        String userInstructions
+    ) {
         List<LlmClient.Message> messages = new ArrayList<>();
         if (StringUtils.hasText(systemPrompt)) {
             messages.add(new LlmClient.Message("system", systemPrompt));
         }
 
-        messages.add(new LlmClient.Message("user", prompt.trim()));
+        messages.add(new LlmClient.Message("user", composeUserMessage(userInstructions, prompt)));
         return messages;
     }
 
     private List<LlmClient.Message> buildRagMessages(
         String systemPrompt,
         String prompt,
-        List<MaterialService.RetrievedChunk> matches
+        List<RetrievedMaterialChunk> matches,
+        String contextInstructions,
+        String userInstructions
     ) {
         List<LlmClient.Message> messages = new ArrayList<>();
         if (StringUtils.hasText(systemPrompt)) {
@@ -146,8 +189,11 @@ public class ChatExecutionService {
         }
 
         StringBuilder userMessage = new StringBuilder();
+        if (StringUtils.hasText(contextInstructions)) {
+            userMessage.append(contextInstructions.trim()).append("\n\n");
+        }
         userMessage.append("Retrieved context:\n");
-        for (MaterialService.RetrievedChunk match : matches) {
+        for (RetrievedMaterialChunk match : matches) {
             ChatSource source = match.source();
             userMessage.append("Source: ")
                 .append(source.title())
@@ -156,9 +202,19 @@ public class ChatExecutionService {
                 .append(match.contextText())
                 .append("\n\n");
         }
+        if (StringUtils.hasText(userInstructions)) {
+            userMessage.append(userInstructions.trim()).append("\n\n");
+        }
         userMessage.append("User request:\n").append(prompt.trim());
 
         messages.add(new LlmClient.Message("user", userMessage.toString().trim()));
         return messages;
+    }
+
+    private String composeUserMessage(String userInstructions, String prompt) {
+        if (!StringUtils.hasText(userInstructions)) {
+            return prompt.trim();
+        }
+        return userInstructions.trim() + "\n\nUser request:\n" + prompt.trim();
     }
 }

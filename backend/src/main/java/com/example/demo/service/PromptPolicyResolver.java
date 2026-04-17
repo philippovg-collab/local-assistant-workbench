@@ -4,8 +4,10 @@ import com.example.demo.config.LlmProperties;
 import com.example.demo.model.AppliedInstruction;
 import com.example.demo.model.ChatExecutionRequest;
 import com.example.demo.model.ChatMode;
-import com.example.demo.model.InstructionSummary;
+import com.example.demo.model.InstructionCategory;
+import com.example.demo.model.InstructionDetail;
 import java.util.List;
+import java.util.function.Predicate;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
@@ -27,7 +29,7 @@ public class PromptPolicyResolver {
      */
     public ResolvedPromptPolicy resolve(
         ChatExecutionRequest request,
-        List<InstructionSummary> instructions
+        List<InstructionDetail> instructions
     ) {
         String model = StringUtils.hasText(request.model())
             ? request.model().trim()
@@ -37,36 +39,31 @@ public class PromptPolicyResolver {
             ? request.systemPrompt().trim()
             : properties.getSystemPrompt();
 
-        StringBuilder systemPrompt = new StringBuilder();
-        if (StringUtils.hasText(baseSystemPrompt)) {
-            systemPrompt.append(baseSystemPrompt.trim());
-        }
+        String systemInstructions = renderInstructionBlock(
+            "System instructions",
+            instructions,
+            instruction -> instruction.category() == InstructionCategory.SYSTEM
+        );
+        String safetyInstructions = renderInstructionBlock(
+            "Safety restrictions",
+            instructions,
+            instruction -> instruction.category() == InstructionCategory.SAFETY
+        );
+        String contextInstructions = renderInstructionBlock(
+            "Context instructions",
+            instructions,
+            instruction -> instruction.category() == InstructionCategory.CONTEXT
+        );
+        String userInstructions = renderInstructionBlock(
+            "User instructions",
+            instructions,
+            instruction -> instruction.category() == InstructionCategory.USER
+        );
 
-        if (!instructions.isEmpty()) {
-            if (systemPrompt.length() > 0) {
-                systemPrompt.append("\n\n");
-            }
-
-            systemPrompt.append("Reusable instruction snippets (apply in this exact order):\n");
-            for (int index = 0; index < instructions.size(); index++) {
-                InstructionSummary instruction = instructions.get(index);
-                systemPrompt.append(index + 1)
-                    .append(". ")
-                    .append(instruction.title())
-                    .append(" [")
-                    .append(instruction.category())
-                    .append("]\n")
-                    .append(instruction.content())
-                    .append("\n\n");
-            }
-        }
+        String systemPrompt = joinBlocks(baseSystemPrompt, systemInstructions, safetyInstructions);
 
         if (request.mode() == ChatMode.RAG) {
-            if (systemPrompt.length() > 0) {
-                systemPrompt.append('\n');
-            }
-
-            systemPrompt.append("""
+            systemPrompt = joinBlocks(systemPrompt, """
                 Grounding rules:
                 - Answer only from the retrieved context.
                 - If the context is incomplete, say so explicitly.
@@ -82,12 +79,54 @@ public class PromptPolicyResolver {
             ))
             .toList();
 
-        return new ResolvedPromptPolicy(model, systemPrompt.toString().trim(), appliedInstructions);
+        return new ResolvedPromptPolicy(
+            model,
+            systemPrompt,
+            contextInstructions,
+            userInstructions,
+            appliedInstructions
+        );
+    }
+
+    private String renderInstructionBlock(
+        String heading,
+        List<InstructionDetail> instructions,
+        Predicate<InstructionDetail> filter
+    ) {
+        List<InstructionDetail> matchingInstructions = instructions.stream()
+            .filter(filter)
+            .toList();
+        if (matchingInstructions.isEmpty()) {
+            return "";
+        }
+
+        StringBuilder block = new StringBuilder(heading).append(":\n");
+        for (int index = 0; index < matchingInstructions.size(); index++) {
+            InstructionDetail instruction = matchingInstructions.get(index);
+            block.append(index + 1)
+                .append(". ")
+                .append(instruction.title())
+                .append('\n')
+                .append(instruction.content().trim())
+                .append("\n\n");
+        }
+
+        return block.toString().trim();
+    }
+
+    private String joinBlocks(String... blocks) {
+        return java.util.Arrays.stream(blocks)
+            .filter(StringUtils::hasText)
+            .map(String::trim)
+            .reduce((left, right) -> left + "\n\n" + right)
+            .orElse("");
     }
 
     public record ResolvedPromptPolicy(
         String model,
         String systemPrompt,
+        String contextInstructions,
+        String userInstructions,
         List<AppliedInstruction> appliedInstructions
     ) {
     }

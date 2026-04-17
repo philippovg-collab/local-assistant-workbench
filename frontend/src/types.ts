@@ -1,13 +1,36 @@
 export type ChatMode = "direct" | "rag";
+export type InstructionCategory = "system" | "user" | "context" | "safety";
+export type MaterialVersionState = "ACTIVE" | "SUPERSEDED";
 
 export type HealthResponse = {
   application: string;
   status: string;
   timestamp: string;
+  runtimeCachedAt?: string;
+  directStatus?: "UP" | "DOWN";
+  ragStatus?: "UP" | "DOWN";
+  llmStatus?: "UP" | "DOWN";
+  llmReasonCode?: string;
+  llmReasonMessage?: string;
+  embeddingStatus?: "UP" | "DOWN";
+  embeddingReasonCode?: string;
+  embeddingReasonMessage?: string;
   ocrStatus?: "UP" | "DOWN" | "DISABLED";
   ocrReasonCode?: string;
   ocrReasonMessage?: string;
   ocrLanguages?: string[];
+  databaseStatus?: "UP" | "DOWN";
+  databaseReasonMessage?: string;
+  vectorStatus?: "UP" | "DOWN";
+  vectorReasonMessage?: string;
+  llmLastSuccessfulProbeAt?: string | null;
+  embeddingLastSuccessfulProbeAt?: string | null;
+  ragDegradedReasonCode?: string | null;
+  ragDegradedReasonMessage?: string | null;
+  indexingPendingCount?: number;
+  indexingInProgressCount?: number;
+  indexingFailedCount?: number;
+  indexingNextRetryAt?: string | null;
 };
 
 export type ModelInfo = {
@@ -19,10 +42,27 @@ export type MaterialSummary = {
   title: string;
   sourceType: string;
   originalFileName: string | null;
-  extractable: boolean;
+  status: "PENDING" | "IN_PROGRESS" | "READY" | "PARTIAL_READY" | "FAILED";
+  versionState?: MaterialVersionState;
+  statusReasonCode?: string | null;
+  statusReasonMessage?: string | null;
   createdAt: string;
+  updatedAt?: string;
+  indexingAttempts?: number;
+  nextRetryAt?: string | null;
   contentLength: number;
   preview: string;
+};
+
+export type MaterialLineageVersion = MaterialSummary & {
+  supersededByMaterialId?: string | null;
+  supersedeReason?: string | null;
+};
+
+export type MaterialLineageResponse = {
+  requestedMaterialId: string;
+  activeMaterialId?: string | null;
+  versions: MaterialLineageVersion[];
 };
 
 export type MaterialPdfUploadPolicy = {
@@ -43,18 +83,28 @@ export type MaterialUploadPolicy = {
   pdf: MaterialPdfUploadPolicy;
 };
 
-export type Instruction = {
+export type InstructionSummary = {
   id: string;
   title: string;
-  category: string;
+  category: InstructionCategory;
+  preview: string;
+  createdAt: string;
+  updatedAt?: string;
+};
+
+export type InstructionDetail = {
+  id: string;
+  title: string;
+  category: InstructionCategory;
   content: string;
   createdAt: string;
+  updatedAt?: string;
 };
 
 export type AppliedInstruction = {
   id: string;
   title: string;
-  category: string;
+  category: InstructionCategory;
 };
 
 export type ChatSource = {
@@ -80,6 +130,7 @@ export type ChatExecutionResponse = {
   model: string;
   prompt: string;
   answer: string;
+  contextStatus?: "ready" | "no-context" | null;
   createdAt: string;
   promptTokens: number | null;
   completionTokens: number | null;
@@ -90,6 +141,6 @@ export type ChatExecutionResponse = {
 
 export type CreateInstructionRequest = {
   title: string;
-  category: string;
+  category: InstructionCategory;
   content: string;
 };

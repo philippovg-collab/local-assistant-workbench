@@ -6,6 +6,7 @@ LOG_FILE="${LOG_FILE:-/tmp/local-model-backend.log}"
 BACKEND_HEALTH_URL="http://127.0.0.1:8080/api/health"
 BACKEND_POLICY_URL="http://127.0.0.1:8080/api/materials/policy"
 DEFAULT_JAVA_21_HOME="/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home"
+DATASOURCE_URL="${SPRING_DATASOURCE_URL:-jdbc:postgresql://127.0.0.1:5432/ragstudio}"
 
 resolve_java_21_home() {
   if [[ -n "${JAVA_21_HOME:-}" && -x "${JAVA_21_HOME}/bin/java" ]]; then
@@ -59,6 +60,58 @@ is_backend_compatible() {
   [[ "$policy_response" == *'"mode":"'* ]] || return 1
 }
 
+extract_postgres_host() {
+  local jdbc_url="$1"
+  local without_prefix authority
+
+  without_prefix="${jdbc_url#jdbc:postgresql://}"
+  authority="${without_prefix%%/*}"
+  if [[ "$authority" == *":"* ]]; then
+    echo "${authority%%:*}"
+    return 0
+  fi
+
+  echo "$authority"
+}
+
+extract_postgres_port() {
+  local jdbc_url="$1"
+  local without_prefix authority
+
+  without_prefix="${jdbc_url#jdbc:postgresql://}"
+  authority="${without_prefix%%/*}"
+  if [[ "$authority" == *":"* ]]; then
+    echo "${authority##*:}"
+    return 0
+  fi
+
+  echo "5432"
+}
+
+ensure_postgres_ready() {
+  if [[ "$DATASOURCE_URL" != jdbc:postgresql://* ]]; then
+    echo "Skipping PostgreSQL preflight because SPRING_DATASOURCE_URL is not a jdbc:postgresql URL." >&2
+    echo "Configured datasource: $DATASOURCE_URL" >&2
+    return 0
+  fi
+
+  if ! command -v pg_isready >/dev/null 2>&1; then
+    echo "pg_isready is not installed; skipping PostgreSQL preflight. Backend still requires reachable PostgreSQL with pgvector." >&2
+    return 0
+  fi
+
+  local host port
+  host=$(extract_postgres_host "$DATASOURCE_URL")
+  port=$(extract_postgres_port "$DATASOURCE_URL")
+
+  if ! pg_isready -h "$host" -p "$port" >/dev/null 2>&1; then
+    echo "PostgreSQL is not reachable at ${host}:${port}." >&2
+    echo "Start PostgreSQL with pgvector first or override SPRING_DATASOURCE_URL/SPRING_DATASOURCE_USERNAME/SPRING_DATASOURCE_PASSWORD." >&2
+    echo "Configured datasource: $DATASOURCE_URL" >&2
+    exit 1
+  fi
+}
+
 if is_backend_compatible; then
   echo "Backend is already running at http://127.0.0.1:8080"
   exit 0
@@ -78,6 +131,8 @@ fi
 export JAVA_HOME="$JAVA21_HOME"
 export PATH="$JAVA_HOME/bin:$PATH"
 
+ensure_postgres_ready
+
 cd "$ROOT_DIR/backend"
 nohup mvn spring-boot:run >"$LOG_FILE" 2>&1 &
 PID=$!
@@ -87,6 +142,7 @@ for _ in {1..30}; do
   if is_backend_compatible; then
     echo "Backend started successfully (pid $PID)"
     echo "API: http://127.0.0.1:8080"
+    echo "PostgreSQL: $DATASOURCE_URL"
     echo "Log: $LOG_FILE"
     exit 0
   fi

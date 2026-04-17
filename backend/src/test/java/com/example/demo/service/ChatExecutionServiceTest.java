@@ -2,15 +2,15 @@ package com.example.demo.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.example.demo.api.ApiException;
 import com.example.demo.config.LlmProperties;
 import com.example.demo.config.MaterialProperties;
 import com.example.demo.config.OcrProperties;
-import com.example.demo.infrastructure.instruction.FileInstructionRepository;
+import com.example.demo.config.RagProperties;
 import com.example.demo.infrastructure.material.DocumentTextExtractor;
-import com.example.demo.infrastructure.material.FileMaterialRepository;
 import com.example.demo.infrastructure.material.MaterialFormatRegistry;
 import com.example.demo.infrastructure.material.OcrCapabilityService;
 import com.example.demo.infrastructure.material.OcrClient;
@@ -24,32 +24,24 @@ import com.example.demo.model.ChatExecutionRequest;
 import com.example.demo.model.ChatExecutionResponse;
 import com.example.demo.model.ChatMode;
 import com.example.demo.model.CreateInstructionRequest;
-import com.example.demo.model.InstructionSummary;
+import com.example.demo.model.InstructionDetail;
 import com.example.demo.model.OllamaModelInfo;
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import java.nio.file.Files;
-import java.nio.file.Path;
+import com.example.demo.support.DeterministicEmbeddingClient;
+import com.example.demo.support.InMemoryInstructionRepository;
+import com.example.demo.support.InMemoryMaterialRepository;
 import java.util.List;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 
 class ChatExecutionServiceTest {
-
-    private final ObjectMapper objectMapper = new ObjectMapper()
-        .findAndRegisterModules()
-        .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-
-    @TempDir
-    Path tempDir;
 
     @Test
     void directModeUsesRequestOverridesAndSelectedInstructions() {
         CapturingLlmClient llmClient = new CapturingLlmClient();
-        ChatExecutionService chatExecutionService = createChatExecutionService(llmClient);
-        InstructionService instructionService = createInstructionService();
+        ChatExecutionFixture fixture = createChatExecutionFixture(llmClient);
+        ChatExecutionService chatExecutionService = fixture.chatExecutionService();
+        InstructionService instructionService = fixture.instructionService();
 
-        InstructionSummary instruction = instructionService.createInstruction(new CreateInstructionRequest(
+        InstructionDetail instruction = instructionService.createInstruction(new CreateInstructionRequest(
             "Stay concise",
             "system",
             "Отвечай кратко."
@@ -73,66 +65,119 @@ class ChatExecutionServiceTest {
     }
 
     @Test
-    void ragModeUsesLatestVersionForTheSameSourceKey() throws Exception {
+    void rejectsBlankPromptsBeforeCallingTheModel() {
         CapturingLlmClient llmClient = new CapturingLlmClient();
-        ChatExecutionService chatExecutionService = createChatExecutionService(llmClient);
-        MaterialService materialService = createMaterialService();
+        ChatExecutionFixture fixture = createChatExecutionFixture(llmClient);
+
+        ApiException exception = assertThrows(ApiException.class, () -> fixture.chatExecutionService().execute(
+            new ChatExecutionRequest(ChatMode.RAG, null, "   ", null, List.of())
+        ));
+
+        assertEquals("chat.invalid_request", exception.getCode());
+        assertEquals(0, llmClient.chatCalls);
+    }
+
+    @Test
+    void ragModeUsesOnlyActiveMaterialVersionWhenSourceKeyMatches() {
+        CapturingLlmClient llmClient = new CapturingLlmClient();
+        ChatExecutionFixture fixture = createChatExecutionFixture(llmClient);
+        ChatExecutionService chatExecutionService = fixture.chatExecutionService();
+        MaterialService materialService = fixture.materialService();
 
         materialService.saveText("Pricing FAQ", "Старая цена: 9000 тенге.");
-        Thread.sleep(5);
         materialService.saveText("Pricing FAQ", "Новая цена: 12000 тенге.");
 
         ChatExecutionResponse response = chatExecutionService.execute(new ChatExecutionRequest(
             ChatMode.RAG,
             null,
-            "Какая цена?",
+            "Какая старая цена?",
             null,
             List.of()
         ));
 
         String userMessage = llmClient.lastRequest.messages().getLast().content();
-        assertTrue(userMessage.contains("12000"));
         assertFalse(userMessage.contains("9000"));
+        assertTrue(userMessage.contains("12000"));
         assertFalse(response.sources().isEmpty());
-        assertTrue(response.sources().getFirst().excerpt().contains("12000"));
+        assertTrue(response.sources().stream().allMatch(source -> !source.excerpt().contains("9000")));
     }
 
     @Test
-    void ragModeHydratesLegacyStoredMaterials() throws Exception {
-        String legacyId = "c6dd6caa-ed4c-4135-8f03-e67d3fbdc4de";
-        Files.createDirectories(tempDir.resolve("materials"));
-        Files.writeString(
-            tempDir.resolve("materials").resolve(legacyId + ".json"),
-            """
-                {"id":"c6dd6caa-ed4c-4135-8f03-e67d3fbdc4de","title":"Pricing note","sourceType":"file","originalFileName":"smoke-material.txt","mediaType":"text/plain","content":"Тариф Премиум стоит 12000 тенге в месяц и включает приоритетную поддержку.","extractable":true,"createdAt":"2026-04-15T16:12:34.078741Z","updatedAt":"2026-04-15T16:12:34.078742Z"}
-                """
-        );
-
+    void promptPolicySeparatesSystemSafetyContextAndUserInstructions() {
         CapturingLlmClient llmClient = new CapturingLlmClient();
-        ChatExecutionService chatExecutionService = createChatExecutionService(llmClient);
+        ChatExecutionFixture fixture = createChatExecutionFixture(llmClient);
+        InstructionService instructionService = fixture.instructionService();
+
+        InstructionDetail system = instructionService.createInstruction(new CreateInstructionRequest(
+            "System role",
+            "system",
+            "Говори формально."
+        ));
+        InstructionDetail safety = instructionService.createInstruction(new CreateInstructionRequest(
+            "Safety block",
+            "safety",
+            "Не раскрывай конфиденциальные данные."
+        ));
+        InstructionDetail context = instructionService.createInstruction(new CreateInstructionRequest(
+            "Context block",
+            "context",
+            "Учитывай только внутренние регламенты."
+        ));
+        InstructionDetail user = instructionService.createInstruction(new CreateInstructionRequest(
+            "User block",
+            "user",
+            "Ответ начни с короткого вывода."
+        ));
+
+        fixture.materialService().saveText("Policy", "Внутренний регламент: срок ответа 2 дня.");
+
+        fixture.chatExecutionService().execute(new ChatExecutionRequest(
+            ChatMode.RAG,
+            null,
+            "Какой срок ответа?",
+            "Базовый системный промпт",
+            List.of(system.id(), safety.id(), context.id(), user.id())
+        ));
+
+        assertTrue(llmClient.lastRequest.messages().getFirst().content().contains("Базовый системный промпт"));
+        assertTrue(llmClient.lastRequest.messages().getFirst().content().contains("System instructions"));
+        assertTrue(llmClient.lastRequest.messages().getFirst().content().contains("Safety restrictions"));
+        String userMessage = llmClient.lastRequest.messages().getLast().content();
+        assertTrue(userMessage.contains("Context instructions"));
+        assertTrue(userMessage.contains("User instructions"));
+        assertTrue(userMessage.indexOf("Context instructions") < userMessage.indexOf("Retrieved context"));
+        assertTrue(userMessage.indexOf("User instructions") < userMessage.indexOf("User request"));
+    }
+
+    @Test
+    void ragModeFindsSemanticMatchForParaphrasedQuestion() {
+        CapturingLlmClient llmClient = new CapturingLlmClient();
+        ChatExecutionFixture fixture = createChatExecutionFixture(llmClient);
+        ChatExecutionService chatExecutionService = fixture.chatExecutionService();
+        MaterialService materialService = fixture.materialService();
+
+        materialService.saveText("Pricing FAQ", "Тариф Премиум стоит 12000 тенге в месяц.");
 
         ChatExecutionResponse response = chatExecutionService.execute(new ChatExecutionRequest(
             ChatMode.RAG,
             null,
-            "Сколько стоит тариф Премиум?",
+            "Сколько стоит премиальный план?",
             null,
             List.of()
         ));
 
         assertEquals(1, llmClient.chatCalls);
-        assertTrue(llmClient.lastRequest.messages().getLast().content().contains("12000"));
         assertFalse(response.sources().isEmpty());
-
-        String upgradedRecord = Files.readString(tempDir.resolve("materials").resolve(legacyId + ".json"));
-        assertTrue(upgradedRecord.contains("\"sourceKey\""));
-        assertTrue(upgradedRecord.contains("\"chunks\""));
-        assertTrue(upgradedRecord.contains("\"contentHash\""));
+        assertTrue(response.sources().getFirst().excerpt().contains("12000"));
+        assertTrue(response.sources().getFirst().score() > 0);
+        assertEquals("ready", response.contextStatus());
     }
 
     @Test
     void ragModeReturnsHelpfulMessageWithoutCallingTheModelWhenThereAreNoMaterials() {
         CapturingLlmClient llmClient = new CapturingLlmClient();
-        ChatExecutionService chatExecutionService = createChatExecutionService(llmClient);
+        ChatExecutionFixture fixture = createChatExecutionFixture(llmClient);
+        ChatExecutionService chatExecutionService = fixture.chatExecutionService();
 
         ChatExecutionResponse response = chatExecutionService.execute(new ChatExecutionRequest(
             ChatMode.RAG,
@@ -145,13 +190,37 @@ class ChatExecutionServiceTest {
         assertEquals(0, llmClient.chatCalls);
         assertTrue(response.answer().contains("Сначала добавьте материалы"));
         assertTrue(response.sources().isEmpty());
+        assertEquals("no-context", response.contextStatus());
+    }
+
+    @Test
+    void ragModeReturnsNoContextForIrrelevantQuestions() {
+        CapturingLlmClient llmClient = new CapturingLlmClient();
+        ChatExecutionFixture fixture = createChatExecutionFixture(llmClient);
+        ChatExecutionService chatExecutionService = fixture.chatExecutionService();
+        MaterialService materialService = fixture.materialService();
+
+        materialService.saveText("Pricing FAQ", "Тариф Премиум стоит 12000 тенге в месяц.");
+
+        ChatExecutionResponse response = chatExecutionService.execute(new ChatExecutionRequest(
+            ChatMode.RAG,
+            null,
+            "Какая сегодня погода в Алматы?",
+            null,
+            List.of()
+        ));
+
+        assertEquals(0, llmClient.chatCalls);
+        assertEquals("no-context", response.contextStatus());
+        assertTrue(response.sources().isEmpty());
     }
 
     @Test
     void ragModeUsesFullChunkInPromptButKeepsShortExcerptInResponse() {
         CapturingLlmClient llmClient = new CapturingLlmClient();
-        ChatExecutionService chatExecutionService = createChatExecutionService(llmClient);
-        MaterialService materialService = createMaterialService();
+        ChatExecutionFixture fixture = createChatExecutionFixture(llmClient);
+        ChatExecutionService chatExecutionService = fixture.chatExecutionService();
+        MaterialService materialService = fixture.materialService();
 
         String tailMarker = "секретный_хвост_контекста";
         String content = "длинный контекст ".repeat(40) + tailMarker;
@@ -171,22 +240,25 @@ class ChatExecutionServiceTest {
         assertFalse(response.sources().getFirst().excerpt().contains(tailMarker));
     }
 
-    private ChatExecutionService createChatExecutionService(CapturingLlmClient llmClient) {
+    private ChatExecutionFixture createChatExecutionFixture(CapturingLlmClient llmClient) {
         MaterialService materialService = createMaterialService();
         InstructionService instructionService = createInstructionService();
         PromptPolicyResolver promptPolicyResolver = new PromptPolicyResolver(new LlmProperties());
 
-        return new ChatExecutionService(
-            llmClient,
+        return new ChatExecutionFixture(
+            new ChatExecutionService(
+                llmClient,
+                materialService,
+                instructionService,
+                promptPolicyResolver
+            ),
             materialService,
-            instructionService,
-            promptPolicyResolver
+            instructionService
         );
     }
 
     private MaterialService createMaterialService() {
         MaterialProperties properties = new MaterialProperties();
-        FileMaterialRepository repository = new FileMaterialRepository(objectMapper, tempDir.toString());
         MaterialFormatRegistry formatRegistry = new MaterialFormatRegistry();
         OcrProperties ocrProperties = new OcrProperties();
         OcrClient ocrClient = (imagePath, pageNumber) -> "OCR fallback text for page " + pageNumber;
@@ -209,11 +281,48 @@ class ChatExecutionServiceTest {
             new PdfDocumentExtractionStrategy(formatRegistry, ocrProperties, ocrClient, ocrCapabilityService),
             new TikaDocumentTextExtractor(properties, formatRegistry)
         ));
-        return new MaterialService(repository, extractor, properties, formatRegistry, ocrCapabilityService);
+        InMemoryMaterialRepository repository = new InMemoryMaterialRepository();
+        DeterministicEmbeddingClient embeddingClient = new DeterministicEmbeddingClient();
+        MaterialContentSupport contentSupport = new MaterialContentSupport(properties);
+        MaterialIndexingService indexingService = new MaterialIndexingService(
+            repository,
+            repository,
+            contentSupport,
+            embeddingClient,
+            properties,
+            Runnable::run
+        );
+        return new MaterialService(
+            new MaterialQueryService(
+                repository,
+                repository,
+                properties,
+                formatRegistry,
+                ocrCapabilityService,
+                contentSupport,
+                indexingService
+            ),
+            new MaterialIngestionService(
+                repository,
+                repository,
+                extractor,
+                properties,
+                contentSupport,
+                indexingService
+            ),
+            new MaterialRetrievalService(
+                repository,
+                repository,
+                embeddingClient,
+                new RagProperties(),
+                new HybridChunkRanker(),
+                contentSupport
+            )
+        );
     }
 
     private InstructionService createInstructionService() {
-        return new InstructionService(new FileInstructionRepository(objectMapper, tempDir.toString()));
+        return new InstructionService(new InMemoryInstructionRepository());
     }
 
     private static final class CapturingLlmClient implements LlmClient {
@@ -231,13 +340,20 @@ class ChatExecutionServiceTest {
             chatCalls++;
             lastRequest = request;
             return new ChatResult(
-                request.model(),
+                request.model() == null ? "qwen2.5:7b" : request.model(),
                 "ok",
                 "2026-04-16T10:00:00Z",
-                12,
-                4,
-                16
+                1,
+                1,
+                2
             );
         }
+    }
+
+    private record ChatExecutionFixture(
+        ChatExecutionService chatExecutionService,
+        MaterialService materialService,
+        InstructionService instructionService
+    ) {
     }
 }

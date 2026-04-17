@@ -1,6 +1,7 @@
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { act } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiClientError, apiClient } from "../api/client";
 import type { MaterialUploadPolicy } from "../types";
 import { useMaterials } from "./useMaterials";
@@ -117,6 +118,14 @@ function MaterialsHookHarness() {
 }
 
 describe("useMaterials", () => {
+  beforeEach(() => {
+    vi.useRealTimers();
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      value: "visible",
+    });
+  });
+
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
@@ -253,7 +262,7 @@ describe("useMaterials", () => {
       title: "pricing.txt",
       sourceType: "file",
       originalFileName: "pricing.txt",
-      extractable: true,
+      status: "PENDING",
       createdAt: "2026-04-16T00:00:00Z",
       contentLength: 5,
       preview: "hello",
@@ -316,7 +325,7 @@ describe("useMaterials", () => {
       title: "scan.pdf",
       sourceType: "file",
       originalFileName: "scan.pdf",
-      extractable: true,
+      status: "READY",
       createdAt: "2026-04-16T00:00:00Z",
       contentLength: 5,
       preview: "hello",
@@ -333,5 +342,58 @@ describe("useMaterials", () => {
     await waitFor(() => {
       expect(apiClient.uploadMaterial).toHaveBeenCalled();
     });
+  });
+
+  it("polls materials while active indexing exists and stops after the queue becomes ready", async () => {
+    vi.useFakeTimers();
+    vi.mocked(apiClient.fetchMaterialUploadPolicy).mockResolvedValue(buildPolicy());
+    vi.mocked(apiClient.fetchMaterials)
+      .mockResolvedValueOnce([
+        {
+          id: "mat-1",
+          title: "pricing.txt",
+          sourceType: "file",
+          originalFileName: "pricing.txt",
+          status: "PENDING",
+          versionState: "ACTIVE",
+          createdAt: "2026-04-16T00:00:00Z",
+          contentLength: 5,
+          preview: "hello",
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          id: "mat-1",
+          title: "pricing.txt",
+          sourceType: "file",
+          originalFileName: "pricing.txt",
+          status: "READY",
+          versionState: "ACTIVE",
+          createdAt: "2026-04-16T00:00:00Z",
+          contentLength: 5,
+          preview: "hello",
+        },
+      ]);
+
+    await act(async () => {
+      render(<MaterialsHookHarness />);
+      await Promise.resolve();
+    });
+
+    expect(apiClient.fetchMaterials).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      vi.advanceTimersByTime(5_000);
+      await Promise.resolve();
+    });
+
+    expect(apiClient.fetchMaterials).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      vi.advanceTimersByTime(5_000);
+      await Promise.resolve();
+    });
+
+    expect(apiClient.fetchMaterials).toHaveBeenCalledTimes(2);
   });
 });

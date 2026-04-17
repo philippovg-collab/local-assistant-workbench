@@ -2,9 +2,11 @@ package com.example.demo.controller;
 
 import com.example.demo.api.ApiException;
 import com.example.demo.model.CreateTextMaterialRequest;
+import com.example.demo.model.MaterialLineageResponse;
 import com.example.demo.model.MaterialUploadPolicyResponse;
 import com.example.demo.model.MaterialSummary;
 import com.example.demo.service.MaterialService;
+import java.util.UUID;
 import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -18,6 +20,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.util.StringUtils;
 
 @RestController
 @RequestMapping("/api/materials")
@@ -37,6 +40,11 @@ public class MaterialController {
     @GetMapping("/policy")
     public MaterialUploadPolicyResponse getUploadPolicy() {
         return materialService.getUploadPolicy();
+    }
+
+    @GetMapping("/{id}/lineage")
+    public MaterialLineageResponse getLineage(@PathVariable String id) {
+        return materialService.getLineage(requireValidMaterialId(id));
     }
 
     @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
@@ -61,6 +69,35 @@ public class MaterialController {
 
     @DeleteMapping("/{id}")
     public void deleteMaterial(@PathVariable String id) {
-        materialService.delete(id);
+        materialService.delete(requireValidMaterialId(id));
+    }
+
+    @PostMapping("/{id}/reindex")
+    public MaterialSummary reindexMaterial(@PathVariable String id) {
+        return materialService.reindex(requireValidMaterialId(id));
+    }
+
+    private String requireValidMaterialId(String id) {
+        if (!StringUtils.hasText(id)) {
+            throw new ApiException(
+                HttpStatus.BAD_REQUEST,
+                "material.invalid_id",
+                "Material id must not be blank"
+            );
+        }
+
+        String normalizedId = id.trim();
+        try {
+            UUID.fromString(normalizedId);
+        } catch (IllegalArgumentException exception) {
+            throw new ApiException(
+                HttpStatus.BAD_REQUEST,
+                "material.invalid_id",
+                "Material id must be a valid UUID",
+                exception
+            );
+        }
+
+        return normalizedId;
     }
 }

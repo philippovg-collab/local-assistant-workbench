@@ -3,15 +3,43 @@ import type {
   ChatExecutionResponse,
   CreateInstructionRequest,
   HealthResponse,
-  Instruction,
+  InstructionDetail,
+  InstructionSummary,
+  MaterialLineageResponse,
   MaterialUploadPolicy,
   MaterialSummary,
   ModelInfo,
 } from "../types";
 
 const API_URL = (import.meta.env.VITE_API_URL ?? "").trim().replace(/\/$/, "");
+const BACKEND_ORIGIN = (import.meta.env.VITE_BACKEND_ORIGIN ?? "").trim().replace(/\/$/, "");
+const DEFAULT_BACKEND_ORIGIN = "http://127.0.0.1:8080";
 
-const buildApiUrl = (path: string) => `${API_URL}${path}`;
+const resolveApiBaseUrl = () => {
+  if (API_URL) {
+    return API_URL;
+  }
+
+  if (BACKEND_ORIGIN) {
+    return BACKEND_ORIGIN;
+  }
+
+  if (typeof window === "undefined") {
+    return DEFAULT_BACKEND_ORIGIN;
+  }
+
+  if (!window.location.port || window.location.port === "8080") {
+    return window.location.origin;
+  }
+
+  if (window.location.port === "5173" || window.location.port === "4173") {
+    return `${window.location.protocol}//${window.location.hostname}:8080`;
+  }
+
+  return DEFAULT_BACKEND_ORIGIN;
+};
+
+const buildApiUrl = (path: string) => `${resolveApiBaseUrl()}${path}`;
 
 type ApiErrorPayload = {
   code?: string;
@@ -132,12 +160,32 @@ export const apiClient = {
       method: "DELETE",
     });
   },
+  fetchMaterialLineage(materialId: string, signal?: AbortSignal) {
+    return requestJson<MaterialLineageResponse>(`/api/materials/${materialId}/lineage`, { signal });
+  },
+  reindexMaterial(materialId: string) {
+    return requestJson<MaterialSummary>(`/api/materials/${materialId}/reindex`, {
+      method: "POST",
+    });
+  },
   fetchInstructions(signal?: AbortSignal) {
-    return requestJson<Instruction[]>("/api/instructions", { signal });
+    return requestJson<InstructionSummary[]>("/api/instructions", { signal });
+  },
+  fetchInstruction(instructionId: string, signal?: AbortSignal) {
+    return requestJson<InstructionDetail>(`/api/instructions/${instructionId}`, { signal });
   },
   createInstruction(input: CreateInstructionRequest) {
-    return requestJson<Instruction>("/api/instructions", {
+    return requestJson<InstructionDetail>("/api/instructions", {
       method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(input),
+    });
+  },
+  updateInstruction(instructionId: string, input: CreateInstructionRequest) {
+    return requestJson<InstructionDetail>(`/api/instructions/${instructionId}`, {
+      method: "PUT",
       headers: {
         "Content-Type": "application/json",
       },
@@ -160,8 +208,7 @@ export const apiClient = {
     });
   },
   buildCurlExample(input: ChatExecutionRequest) {
-    const curlBaseUrl =
-      API_URL || (typeof window === "undefined" ? "http://127.0.0.1:5173" : window.location.origin);
+    const curlBaseUrl = resolveApiBaseUrl();
 
     return `curl ${curlBaseUrl}/api/chat \\
   -H "Content-Type: application/json" \\

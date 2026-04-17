@@ -1,16 +1,19 @@
 import { useEffect, useState } from "react";
 import { apiClient, isApiClientError } from "../api/client";
 import { translateCommonApiError } from "../api/errorMessages";
-import type { MaterialSummary, MaterialUploadPolicy } from "../types";
+import type { MaterialLineageResponse, MaterialSummary, MaterialUploadPolicy } from "../types";
 import { formatBytes } from "../utils/format";
+import { hasActiveIndexing } from "../utils/readiness";
 import {
   DEFAULT_ACCEPTED_EXTENSIONS,
   buildFallbackMaterialUploadPolicy,
   normalizeMaterialUploadPolicy,
 } from "../utils/materialUploadPolicy";
 
+const POLL_INTERVAL_MS = 5_000;
 const POLICY_WARNING_MESSAGE = "Не удалось подтвердить capability backend; возможны ограничения при загрузке PDF.";
 const DEFAULT_OCR_LANGUAGES = ["kaz", "rus", "eng"];
+const isPageVisible = () => typeof document === "undefined" || document.visibilityState !== "hidden";
 
 const formatExtensionList = (policy: MaterialUploadPolicy | null) =>
   (policy?.acceptedExtensions ?? DEFAULT_ACCEPTED_EXTENSIONS).map((extension) => `.${extension}`).join(", ");
@@ -88,8 +91,12 @@ const translateMaterialError = (
         return "Файл передан некорректно. Выбери его заново и повтори загрузку.";
       case "material.missing_file_part":
         return "Файл не был передан. Выбери файл и повтори загрузку.";
+      case "material.reindex_requires_active_version":
+        return "Повторная индексация доступна только для активной версии материала.";
+      case "material.reindex_not_allowed_for_status":
+        return "Повторная индексация доступна только для материалов со статусом FAILED или PARTIAL_READY.";
       default:
-        if (error.code?.startsWith("materials.storage_")) {
+        if (error.code?.startsWith("material.storage_") || error.code?.startsWith("materials.storage_")) {
           return "Не удалось сохранить материал в локальном хранилище backend. Повтори попытку ещё раз.";
         }
         return translateCommonApiError(error, fallback);
@@ -119,6 +126,19 @@ const validateUploadInput = (
   return null;
 };
 
+const buildIngestionMessage = (material: MaterialSummary, sourceLabel: string) => {
+  switch (material.status) {
+    case "READY":
+      return `${sourceLabel} принят и уже готов для RAG-индекса.`;
+    case "PARTIAL_READY":
+      return `${sourceLabel} принят и доступен для RAG, но часть содержимого была извлечена только частично.`;
+    case "FAILED":
+      return `${sourceLabel} сохранён, но индекс собрать не удалось. Проверь backend embeddings и попробуй повторить позже.`;
+    default:
+      return `${sourceLabel} принят и поставлен в очередь индексации.`;
+  }
+};
+
 export const useMaterials = () => {
   const [materials, setMaterials] = useState<MaterialSummary[]>([]);
   const [uploadPolicy, setUploadPolicy] = useState<MaterialUploadPolicy | null>(null);
@@ -128,6 +148,10 @@ export const useMaterials = () => {
   const [message, setMessage] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [deletingMaterialId, setDeletingMaterialId] = useState<string | null>(null);
+  const [reindexingMaterialId, setReindexingMaterialId] = useState<string | null>(null);
+  const [selectedLineage, setSelectedLineage] = useState<MaterialLineageResponse | null>(null);
+  const [lineageError, setLineageError] = useState<string | null>(null);
+  const [loadingLineageMaterialId, setLoadingLineageMaterialId] = useState<string | null>(null);
 
   const applyUploadPolicy = (payload: unknown) => {
     const normalized = normalizeMaterialUploadPolicy(payload);
@@ -202,14 +226,45 @@ export const useMaterials = () => {
     return () => controller.abort();
   }, []);
 
+  useEffect(() => {
+    if (!hasActiveIndexing(materials)) {
+      return;
+    }
+
+    let controller: AbortController | null = null;
+    const tick = () => {
+      if (!isPageVisible()) {
+        return;
+      }
+
+      controller?.abort();
+      controller = new AbortController();
+      void loadMaterials(controller.signal);
+    };
+
+    const intervalId = window.setInterval(tick, POLL_INTERVAL_MS);
+    const handleVisibilityChange = () => {
+      if (isPageVisible()) {
+        tick();
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      controller?.abort();
+      window.clearInterval(intervalId);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [materials, uploadPolicy]);
+
   const createTextMaterial = async (input: { title: string; content: string }) => {
     setActionError(null);
     setMessage(null);
 
     try {
-      await apiClient.createTextMaterial(input);
+      const created = await apiClient.createTextMaterial(input);
       await loadMaterials();
-      setMessage("Текстовый материал сохранён локально.");
+      setMessage(buildIngestionMessage(created, "Текстовый материал"));
     } catch (submissionError) {
       setActionError(translateMaterialError(submissionError, "Не удалось сохранить материал", uploadPolicy));
       throw submissionError;
@@ -231,9 +286,9 @@ export const useMaterials = () => {
         throw new Error(validationError);
       }
 
-      await apiClient.uploadMaterial(input);
+      const created = await apiClient.uploadMaterial(input);
       await loadMaterials();
-      setMessage("Файл загружен и добавлен в локальное хранилище.");
+      setMessage(buildIngestionMessage(created, "Файл"));
     } catch (submissionError) {
       setActionError(translateMaterialError(submissionError, "Не удалось загрузить файл", activePolicy));
       throw submissionError;
@@ -248,6 +303,9 @@ export const useMaterials = () => {
     try {
       await apiClient.deleteMaterial(materialId);
       await loadMaterials();
+      setSelectedLineage((current) =>
+        current?.versions.some((version) => version.id === materialId) ? null : current,
+      );
       setMessage("Материал удалён.");
     } catch (deleteError) {
       setActionError(translateMaterialError(deleteError, "Не удалось удалить материал", uploadPolicy));
@@ -255,6 +313,59 @@ export const useMaterials = () => {
     } finally {
       setDeletingMaterialId(null);
     }
+  };
+
+  const reindexMaterial = async (materialId: string) => {
+    setReindexingMaterialId(materialId);
+    setActionError(null);
+    setMessage(null);
+
+    try {
+      const updated = await apiClient.reindexMaterial(materialId);
+      await loadMaterials();
+      if (selectedLineage?.versions.some((version) => version.id === materialId)) {
+        const lineage = await apiClient.fetchMaterialLineage(materialId);
+        setSelectedLineage(lineage);
+      }
+      setMessage(
+        updated.status === "PENDING"
+          ? "Материал повторно поставлен в очередь индексации."
+          : "Материал обновил состояние после запроса на повторную индексацию.",
+      );
+      return updated;
+    } catch (reindexError) {
+      setActionError(translateMaterialError(reindexError, "Не удалось повторно запустить индексацию", uploadPolicy));
+      throw reindexError;
+    } finally {
+      setReindexingMaterialId(null);
+    }
+  };
+
+  const loadLineage = async (materialId: string, signal?: AbortSignal) => {
+    setLoadingLineageMaterialId(materialId);
+    setLineageError(null);
+
+    try {
+      const lineage = await apiClient.fetchMaterialLineage(materialId, signal);
+      setSelectedLineage(lineage);
+      return lineage;
+    } catch (loadError) {
+      if (signal?.aborted) {
+        return null;
+      }
+
+      const nextError = translateMaterialError(loadError, "Не удалось загрузить историю версий материала", uploadPolicy);
+      setLineageError(nextError);
+      return null;
+    } finally {
+      setLoadingLineageMaterialId((current) => (current === materialId ? null : current));
+    }
+  };
+
+  const clearLineage = () => {
+    setSelectedLineage(null);
+    setLineageError(null);
+    setLoadingLineageMaterialId(null);
   };
 
   return {
@@ -266,8 +377,15 @@ export const useMaterials = () => {
     message,
     actionError,
     deletingMaterialId,
+    reindexingMaterialId,
+    selectedLineage,
+    lineageError,
+    loadingLineageMaterialId,
     createTextMaterial,
     uploadMaterial,
     deleteMaterial,
+    reindexMaterial,
+    loadLineage,
+    clearLineage,
   };
 };

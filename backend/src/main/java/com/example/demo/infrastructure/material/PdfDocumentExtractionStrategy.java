@@ -10,6 +10,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.stream.Collectors;
 import javax.imageio.ImageIO;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDPage;
@@ -27,6 +28,7 @@ import org.springframework.util.StringUtils;
 public class PdfDocumentExtractionStrategy implements DocumentTextExtractionStrategy {
 
     private static final Logger logger = LoggerFactory.getLogger(PdfDocumentExtractionStrategy.class);
+    private static final String PARTIAL_WARNING_CODE = "material.partial_extraction";
 
     private final MaterialFormatRegistry formatRegistry;
     private final OcrProperties ocrProperties;
@@ -58,47 +60,69 @@ public class PdfDocumentExtractionStrategy implements DocumentTextExtractionStra
             int pageCount = document.getNumberOfPages();
             List<ExtractedDocumentSegment> extractedPages = extractEmbeddedText(document, pageCount);
             List<ExtractedDocumentSegment> resolvedPages = new ArrayList<>();
+            List<Integer> skippedPages = new ArrayList<>();
+            String partialReason = null;
             boolean usedOcr = false;
+            ApiException firstOcrFailure = null;
 
-            if (requiresOcr(extractedPages)) {
-                OcrCapability capability = ocrCapabilityProvider.currentCapability();
-                if (!capability.scannedPdfSupport()) {
-                    logger.warn(
-                        "Rejecting scanned PDF before OCR page rendering because OCR capability is unavailable: code={} message={}",
-                        capability.reasonCode(),
-                        capability.reasonMessage()
-                    );
-                    throw unavailableOcrException(capability);
-                }
-
-                if (pageCount > capability.maxPages()) {
-                    throw new ApiException(
-                        HttpStatus.BAD_REQUEST,
-                        "material.ocr_page_limit_exceeded",
-                        "PDF has " + pageCount + " pages, exceeding the OCR limit of " + capability.maxPages()
-                    );
-                }
-
-                PDFRenderer renderer = new PDFRenderer(document);
-                for (ExtractedDocumentSegment page : extractedPages) {
-                    if (meaningfulLength(page.text()) >= ocrProperties.getMinTextThreshold()) {
-                        resolvedPages.add(page);
-                        continue;
-                    }
-
-                    resolvedPages.add(extractPageWithOcr(document, renderer, page.page()));
-                    usedOcr = true;
-                }
-            } else {
-                resolvedPages.addAll(extractedPages);
-            }
-
-            List<ExtractedDocumentSegment> nonEmptyPages = resolvedPages.stream()
-                .filter(page -> StringUtils.hasText(page.text()))
-                .sorted(Comparator.comparing(page -> page.page() == null ? 0 : page.page()))
+            List<ExtractedDocumentSegment> ocrRequiredPages = extractedPages.stream()
+                .filter(this::requiresOcr)
                 .toList();
 
-            if (nonEmptyPages.isEmpty()) {
+            if (ocrRequiredPages.isEmpty()) {
+                return buildResult(extractedPages, false, pageCount, null, null);
+            }
+
+            OcrCapability capability = ocrCapabilityProvider.currentCapability();
+            PDFRenderer renderer = new PDFRenderer(document);
+            int ocrBudget = capability.maxPages();
+            int ocrAttempts = 0;
+
+            for (ExtractedDocumentSegment page : extractedPages) {
+                if (!requiresOcr(page)) {
+                    resolvedPages.add(page);
+                    continue;
+                }
+
+                Integer pageNumber = page.page();
+                if (!capability.scannedPdfSupport()) {
+                    skippedPages.add(pageNumber == null ? 0 : pageNumber);
+                    partialReason = capability.reasonMessage();
+                    continue;
+                }
+
+                if (ocrAttempts >= ocrBudget) {
+                    skippedPages.add(pageNumber == null ? 0 : pageNumber);
+                    partialReason = "OCR page budget exceeded";
+                    continue;
+                }
+
+                try {
+                    resolvedPages.add(extractPageWithOcr(document, renderer, pageNumber));
+                    usedOcr = true;
+                    ocrAttempts++;
+                } catch (ApiException exception) {
+                    logger.warn(
+                        "Skipping PDF page {} during OCR fallback because {}: {}",
+                        pageNumber,
+                        exception.getCode(),
+                        exception.getMessage()
+                    );
+                    if (firstOcrFailure == null) {
+                        firstOcrFailure = exception;
+                    }
+                    skippedPages.add(pageNumber == null ? 0 : pageNumber);
+                    partialReason = exception.getMessage();
+                }
+            }
+
+            if (resolvedPages.isEmpty()) {
+                if (!capability.scannedPdfSupport()) {
+                    throw unavailableOcrException(capability);
+                }
+                if (firstOcrFailure != null) {
+                    throw firstOcrFailure;
+                }
                 throw new ApiException(
                     HttpStatus.BAD_REQUEST,
                     "material.extraction_failed",
@@ -106,12 +130,12 @@ public class PdfDocumentExtractionStrategy implements DocumentTextExtractionStra
                 );
             }
 
-            return new ExtractedDocument(
-                nonEmptyPages,
-                usedOcr ? "pdfbox+tesseract" : "pdfbox",
-                usedOcr,
-                pageCount
-            );
+            String warningCode = skippedPages.isEmpty() ? null : PARTIAL_WARNING_CODE;
+            String warningMessage = skippedPages.isEmpty()
+                ? null
+                : buildPartialWarning(pageCount, skippedPages, partialReason);
+
+            return buildResult(resolvedPages, usedOcr, pageCount, warningCode, warningMessage);
         } catch (IOException exception) {
             throw new ApiException(
                 HttpStatus.BAD_REQUEST,
@@ -120,6 +144,55 @@ public class PdfDocumentExtractionStrategy implements DocumentTextExtractionStra
                 exception
             );
         }
+    }
+
+    private ExtractedDocument buildResult(
+        List<ExtractedDocumentSegment> pages,
+        boolean usedOcr,
+        int pageCount,
+        String warningCode,
+        String warningMessage
+    ) {
+        List<ExtractedDocumentSegment> nonEmptyPages = pages.stream()
+            .filter(page -> StringUtils.hasText(page.text()))
+            .sorted(Comparator.comparing(page -> page.page() == null ? 0 : page.page()))
+            .toList();
+
+        if (nonEmptyPages.isEmpty()) {
+            throw new ApiException(
+                HttpStatus.BAD_REQUEST,
+                "material.extraction_failed",
+                "Unable to extract readable text from the uploaded PDF"
+            );
+        }
+
+        return new ExtractedDocument(
+            nonEmptyPages,
+            usedOcr ? "pdfbox+tesseract" : "pdfbox",
+            usedOcr,
+            pageCount,
+            warningCode,
+            warningMessage
+        );
+    }
+
+    private String buildPartialWarning(int pageCount, List<Integer> skippedPages, String partialReason) {
+        String renderedPages = skippedPages.stream()
+            .filter(page -> page > 0)
+            .map(String::valueOf)
+            .collect(Collectors.joining(", "));
+        String suffix = StringUtils.hasText(partialReason) ? " Причина: " + partialReason : "";
+
+        if (renderedPages.isEmpty()) {
+            return "PDF обработан частично: часть страниц была пропущена." + suffix;
+        }
+
+        return "PDF обработан частично: извлечён текст не со всех страниц (всего "
+            + pageCount
+            + ", пропущены страницы "
+            + renderedPages
+            + ")."
+            + suffix;
     }
 
     private List<ExtractedDocumentSegment> extractEmbeddedText(PDDocument document, int pageCount) throws IOException {
@@ -140,9 +213,8 @@ public class PdfDocumentExtractionStrategy implements DocumentTextExtractionStra
         return pages;
     }
 
-    private boolean requiresOcr(List<ExtractedDocumentSegment> pages) {
-        return pages.stream()
-            .anyMatch(page -> meaningfulLength(page.text()) < ocrProperties.getMinTextThreshold());
+    private boolean requiresOcr(ExtractedDocumentSegment page) {
+        return meaningfulLength(page.text()) < ocrProperties.getMinTextThreshold();
     }
 
     private ExtractedDocumentSegment extractPageWithOcr(

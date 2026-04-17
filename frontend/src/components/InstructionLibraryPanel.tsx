@@ -1,21 +1,31 @@
 import { useState, type FormEvent } from "react";
-import type { Instruction } from "../types";
+import type {
+  CreateInstructionRequest,
+  InstructionCategory,
+  InstructionDetail,
+  InstructionSummary,
+} from "../types";
 import { formatDate } from "../utils/format";
 
 type InstructionLibraryPanelProps = {
-  instructions: Instruction[];
+  instructions: InstructionSummary[];
+  selectedInstruction: InstructionDetail | null;
+  detailError: string | null;
+  isLoadingDetail: boolean;
   isLoading: boolean;
   error: string | null;
   message: string | null;
   actionError: string | null;
   deletingInstructionId: string | null;
-  onCreateInstruction: (input: { title: string; category: string; content: string }) => Promise<unknown>;
+  onCreateInstruction: (input: CreateInstructionRequest) => Promise<unknown>;
+  onUpdateInstruction: (instructionId: string, input: CreateInstructionRequest) => Promise<unknown>;
   onDeleteInstruction: (instructionId: string) => Promise<unknown>;
+  onLoadInstruction: (instructionId: string) => Promise<InstructionDetail | null>;
 };
 
 type InstructionFormState = {
   title: string;
-  category: string;
+  category: InstructionCategory;
   content: string;
 };
 
@@ -34,23 +44,34 @@ const categoryLabels: Record<string, string> = {
 
 export function InstructionLibraryPanel({
   instructions,
+  selectedInstruction,
+  detailError,
+  isLoadingDetail,
   isLoading,
   error,
   message,
   actionError,
   deletingInstructionId,
   onCreateInstruction,
+  onUpdateInstruction,
   onDeleteInstruction,
+  onLoadInstruction,
 }: InstructionLibraryPanelProps) {
   const [form, setForm] = useState<InstructionFormState>(initialInstructionForm);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [editingInstructionId, setEditingInstructionId] = useState<string | null>(null);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setIsSubmitting(true);
     try {
-      await onCreateInstruction(form);
+      if (editingInstructionId) {
+        await onUpdateInstruction(editingInstructionId, form);
+      } else {
+        await onCreateInstruction(form);
+      }
       setForm(initialInstructionForm);
+      setEditingInstructionId(null);
     } finally {
       setIsSubmitting(false);
     }
@@ -64,7 +85,35 @@ export function InstructionLibraryPanel({
     }
 
     await onDeleteInstruction(instructionId);
+    if (editingInstructionId === instructionId) {
+      setEditingInstructionId(null);
+      setForm(initialInstructionForm);
+    }
   };
+
+  const handleEdit = async (instructionId: string) => {
+    const detail = selectedInstruction?.id === instructionId
+      ? selectedInstruction
+      : await onLoadInstruction(instructionId);
+
+    if (!detail) {
+      return;
+    }
+
+    setEditingInstructionId(instructionId);
+    setForm({
+      title: detail.title,
+      category: detail.category,
+      content: detail.content,
+    });
+  };
+
+  const cancelEditing = () => {
+    setEditingInstructionId(null);
+    setForm(initialInstructionForm);
+  };
+
+  const formModeLabel = editingInstructionId ? "Редактирование" : "Создание";
 
   return (
     <section className="panel-stack">
@@ -82,6 +131,11 @@ export function InstructionLibraryPanel({
         </p>
 
         <form className="form-card" onSubmit={handleSubmit}>
+          <div className="panel-header compact">
+            <h3>{editingInstructionId ? "Редактировать инструкцию" : "Добавить инструкцию"}</h3>
+            <span className="badge subtle">{formModeLabel}</span>
+          </div>
+
           <label className="field">
             <span>Название</span>
             <input
@@ -96,7 +150,9 @@ export function InstructionLibraryPanel({
             <span>Тип инструкции</span>
             <select
               value={form.category}
-              onChange={(event) => setForm((current) => ({ ...current, category: event.target.value }))}
+              onChange={(event) =>
+                setForm((current) => ({ ...current, category: event.target.value as InstructionCategory }))
+              }
             >
               <option value="system">System</option>
               <option value="user">User</option>
@@ -116,9 +172,18 @@ export function InstructionLibraryPanel({
             />
           </label>
 
-          <button className="primary-button" disabled={isSubmitting} type="submit">
-            {isSubmitting ? "Сохраняем..." : "Сохранить инструкцию"}
-          </button>
+          <div className="form-actions">
+            <button className="primary-button" disabled={isSubmitting} type="submit">
+              {isSubmitting
+                ? editingInstructionId ? "Сохраняем..." : "Создаём..."
+                : editingInstructionId ? "Сохранить изменения" : "Сохранить инструкцию"}
+            </button>
+            {editingInstructionId ? (
+              <button className="secondary-button" type="button" onClick={cancelEditing}>
+                Отменить редактирование
+              </button>
+            ) : null}
+          </div>
         </form>
 
         {message ? <p className="inline-success">{message}</p> : null}
@@ -157,23 +222,66 @@ export function InstructionLibraryPanel({
                   <div>
                     <h3>{instruction.title}</h3>
                     <p className="item-meta">
-                      {categoryLabels[instruction.category] ?? instruction.category} · {formatDate(instruction.createdAt)}
+                      {categoryLabels[instruction.category] ?? instruction.category} · обновлена{" "}
+                      {formatDate(instruction.updatedAt ?? instruction.createdAt)}
                     </p>
                   </div>
-                  <button
-                    className="danger-button"
-                    disabled={deletingInstructionId === instruction.id}
-                    type="button"
-                    onClick={() => void handleDelete(instruction.id)}
-                  >
-                    {deletingInstructionId === instruction.id ? "Удаляем..." : "Удалить"}
-                  </button>
+                  <div className="item-actions">
+                    <button
+                      className="secondary-button"
+                      type="button"
+                      onClick={() => void onLoadInstruction(instruction.id)}
+                    >
+                      {selectedInstruction?.id === instruction.id ? "Обновить текст" : "Открыть текст"}
+                    </button>
+                    <button
+                      className="secondary-button"
+                      type="button"
+                      onClick={() => void handleEdit(instruction.id)}
+                    >
+                      Редактировать
+                    </button>
+                    <button
+                      className="danger-button"
+                      disabled={deletingInstructionId === instruction.id}
+                      type="button"
+                      onClick={() => void handleDelete(instruction.id)}
+                    >
+                      {deletingInstructionId === instruction.id ? "Удаляем..." : "Удалить"}
+                    </button>
+                  </div>
                 </div>
-                <p>{instruction.content}</p>
+                <p>{instruction.preview}</p>
               </article>
             ))}
           </div>
         )}
+
+        {isLoadingDetail ? (
+          <div className="empty-state compact-empty">
+            <strong>Загружаем текст инструкции</strong>
+            <span>Запрашиваем detail payload отдельно от list API.</span>
+          </div>
+        ) : detailError ? (
+          <div className="empty-state warning-state">
+            <strong>Не удалось открыть инструкцию</strong>
+            <span>{detailError}</span>
+          </div>
+        ) : selectedInstruction ? (
+          <article className="item-card">
+            <div className="item-row">
+              <div>
+                <h3>{selectedInstruction.title}</h3>
+                <p className="item-meta">
+                  {categoryLabels[selectedInstruction.category] ?? selectedInstruction.category} · обновлена{" "}
+                  {formatDate(selectedInstruction.updatedAt ?? selectedInstruction.createdAt)}
+                </p>
+              </div>
+              <span className="badge subtle">detail</span>
+            </div>
+            <p>{selectedInstruction.content}</p>
+          </article>
+        ) : null}
       </aside>
     </section>
   );

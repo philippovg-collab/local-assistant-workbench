@@ -43,6 +43,8 @@ public class TikaDocumentTextExtractor implements DocumentTextExtractionStrategy
             List.of(new ExtractedDocumentSegment(extractRichDocument(originalFileName, bytes), null, "tika", false)),
             "tika",
             false,
+            null,
+            null,
             null
         );
     }

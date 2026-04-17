@@ -2,10 +2,12 @@ package com.example.demo.controller;
 
 import java.util.List;
 import com.example.demo.model.CreateInstructionRequest;
+import com.example.demo.model.InstructionDetail;
 import com.example.demo.model.InstructionSummary;
 import com.example.demo.service.InstructionService;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.ResponseStatus;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -29,10 +31,20 @@ public class InstructionController {
         return instructionService.listInstructions();
     }
 
+    @GetMapping("/{id}")
+    public InstructionDetail getInstruction(@PathVariable String id) {
+        return instructionService.getInstruction(id);
+    }
+
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    public InstructionSummary createInstruction(@RequestBody CreateInstructionRequest request) {
+    public InstructionDetail createInstruction(@RequestBody CreateInstructionRequest request) {
         return instructionService.createInstruction(request);
+    }
+
+    @PutMapping("/{id}")
+    public InstructionDetail updateInstruction(@PathVariable String id, @RequestBody CreateInstructionRequest request) {
+        return instructionService.updateInstruction(id, request);
     }
 
     @DeleteMapping("/{id}")
