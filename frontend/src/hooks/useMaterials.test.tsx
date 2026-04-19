@@ -4,7 +4,7 @@ import { act } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiClientError, apiClient } from "../api/client";
 import type { MaterialUploadPolicy } from "../types";
-import { buildMaterialSummary } from "../testBuilders";
+import { buildMaterialListResponse, buildMaterialSummary } from "../testBuilders";
 import { useMaterials } from "./useMaterials";
 
 vi.mock("../api/client", async () => {
@@ -70,13 +70,14 @@ function MaterialsHookHarness() {
         type="button"
         onClick={() =>
           swallow(materials.uploadMaterial({
-            title: "",
-            file: new File(["12345"], "too-big.txt", { type: "text/plain" }),
-            metadata: {
-              documentType: "OTHER",
-              sourceTrust: "UNKNOWN",
-              author: "Ops lead",
-            },
+            items: [{
+              file: new File(["12345"], "too-big.txt", { type: "text/plain" }),
+              metadata: {
+                documentType: "OTHER",
+                sourceTrust: "UNKNOWN",
+                author: "Ops lead",
+              },
+            }],
           }))
         }
       >
@@ -87,13 +88,14 @@ function MaterialsHookHarness() {
         type="button"
         onClick={() =>
           swallow(materials.uploadMaterial({
-            title: "",
-            file: new File(["hello"], "unsupported.png", { type: "image/png" }),
-            metadata: {
-              documentType: "OTHER",
-              sourceTrust: "UNKNOWN",
-              author: "Ops lead",
-            },
+            items: [{
+              file: new File(["hello"], "unsupported.png", { type: "image/png" }),
+              metadata: {
+                documentType: "OTHER",
+                sourceTrust: "UNKNOWN",
+                author: "Ops lead",
+              },
+            }],
           }))
         }
       >
@@ -104,13 +106,14 @@ function MaterialsHookHarness() {
         type="button"
         onClick={() =>
           swallow(materials.uploadMaterial({
-            title: "",
-            file: new File(["hello"], "scan.pdf", { type: "application/pdf" }),
-            metadata: {
-              documentType: "OTHER",
-              sourceTrust: "UNKNOWN",
-              author: "Ops lead",
-            },
+            items: [{
+              file: new File(["hello"], "scan.pdf", { type: "application/pdf" }),
+              metadata: {
+                documentType: "OTHER",
+                sourceTrust: "UNKNOWN",
+                author: "Ops lead",
+              },
+            }],
           }))
         }
       >
@@ -121,17 +124,95 @@ function MaterialsHookHarness() {
         type="button"
         onClick={() =>
           swallow(materials.uploadMaterial({
-            title: "",
-            file: new File(["hello"], "pricing.txt", { type: "text/plain" }),
-            metadata: {
-              documentType: "OTHER",
-              sourceTrust: "UNKNOWN",
-              author: "Ops lead",
-            },
+            items: [{
+              file: new File(["hello"], "pricing.txt", { type: "text/plain" }),
+              metadata: {
+                documentType: "OTHER",
+                sourceTrust: "UNKNOWN",
+                author: "Ops lead",
+              },
+            }],
           }))
         }
       >
         upload-supported
+      </button>
+
+      <button
+        type="button"
+        onClick={() =>
+          swallow(materials.uploadMaterial({
+            items: [{
+              title: "Custom material",
+              file: new File(["hello"], "single-title.txt", { type: "text/plain" }),
+              metadata: {
+                documentType: "OTHER",
+                sourceTrust: "UNKNOWN",
+                author: "Ops lead",
+              },
+            }],
+          }))
+        }
+      >
+        upload-single-title
+      </button>
+
+      <button
+        type="button"
+        onClick={() =>
+          swallow(materials.uploadMaterial({
+            items: [
+              {
+                file: new File(["alpha"], "first.txt", { type: "text/plain" }),
+                metadata: {
+                  documentType: "POLICY",
+                  sourceTrust: "HIGH",
+                  author: "Ops lead",
+                  tags: ["policy", "grid"],
+                },
+              },
+              {
+                file: new File(["beta"], "second.txt", { type: "text/plain" }),
+                metadata: {
+                  documentType: "POLICY",
+                  sourceTrust: "HIGH",
+                  author: "Ops lead",
+                  tags: ["policy", "grid"],
+                },
+              },
+            ],
+          }))
+        }
+      >
+        upload-two-supported
+      </button>
+
+      <button
+        type="button"
+        onClick={() =>
+          swallow(materials.uploadMaterial({
+            items: [
+              {
+                file: new File(["alpha"], "first-ok.txt", { type: "text/plain" }),
+                metadata: {
+                  documentType: "OTHER",
+                  sourceTrust: "UNKNOWN",
+                  author: "Ops lead",
+                },
+              },
+              {
+                file: new File(["beta"], "second-fails.txt", { type: "text/plain" }),
+                metadata: {
+                  documentType: "OTHER",
+                  sourceTrust: "UNKNOWN",
+                  author: "Ops lead",
+                },
+              },
+            ],
+          }))
+        }
+      >
+        upload-partial-failure
       </button>
 
       <button
@@ -178,7 +259,7 @@ describe("useMaterials", () => {
   it("blocks oversized uploads before sending a network request", async () => {
     const user = userEvent.setup();
 
-    vi.mocked(apiClient.fetchMaterials).mockResolvedValue([]);
+    vi.mocked(apiClient.fetchMaterials).mockResolvedValue(buildMaterialListResponse());
     vi.mocked(apiClient.fetchMaterialUploadPolicy).mockResolvedValue(buildPolicy({
       maxUploadBytes: 4,
     }));
@@ -194,6 +275,7 @@ describe("useMaterials", () => {
 
     await waitFor(() => {
       expect(screen.getByTestId("action-error").textContent).toContain("Файл превышает лимит");
+      expect(screen.getByTestId("action-error").textContent).toContain("too-big.txt");
     });
 
     expect(apiClient.uploadMaterial).not.toHaveBeenCalled();
@@ -202,7 +284,7 @@ describe("useMaterials", () => {
   it("blocks unsupported formats before sending a network request", async () => {
     const user = userEvent.setup();
 
-    vi.mocked(apiClient.fetchMaterials).mockResolvedValue([]);
+    vi.mocked(apiClient.fetchMaterials).mockResolvedValue(buildMaterialListResponse());
     vi.mocked(apiClient.fetchMaterialUploadPolicy).mockResolvedValue(buildPolicy());
 
     render(<MaterialsHookHarness />);
@@ -215,6 +297,7 @@ describe("useMaterials", () => {
 
     await waitFor(() => {
       expect(screen.getByTestId("action-error").textContent).toContain(".txt");
+      expect(screen.getByTestId("action-error").textContent).toContain("unsupported.png");
     });
 
     expect(apiClient.uploadMaterial).not.toHaveBeenCalled();
@@ -223,7 +306,7 @@ describe("useMaterials", () => {
   it("translates known extraction errors into a friendly upload message", async () => {
     const user = userEvent.setup();
 
-    vi.mocked(apiClient.fetchMaterials).mockResolvedValue([]);
+    vi.mocked(apiClient.fetchMaterials).mockResolvedValue(buildMaterialListResponse());
     vi.mocked(apiClient.fetchMaterialUploadPolicy).mockResolvedValue(buildPolicy());
     vi.mocked(apiClient.uploadMaterial).mockRejectedValue(
       new ApiClientError("Unable to extract text from the uploaded file", {
@@ -248,7 +331,7 @@ describe("useMaterials", () => {
   it("translates known validation errors for text materials", async () => {
     const user = userEvent.setup();
 
-    vi.mocked(apiClient.fetchMaterials).mockResolvedValue([]);
+    vi.mocked(apiClient.fetchMaterials).mockResolvedValue(buildMaterialListResponse());
     vi.mocked(apiClient.fetchMaterialUploadPolicy).mockResolvedValue(buildPolicy());
     vi.mocked(apiClient.createTextMaterial).mockRejectedValue(
       new ApiClientError("Material text is empty", {
@@ -273,7 +356,7 @@ describe("useMaterials", () => {
   it("renders requestId for unexpected backend upload failures", async () => {
     const user = userEvent.setup();
 
-    vi.mocked(apiClient.fetchMaterials).mockResolvedValue([]);
+    vi.mocked(apiClient.fetchMaterials).mockResolvedValue(buildMaterialListResponse());
     vi.mocked(apiClient.fetchMaterialUploadPolicy).mockResolvedValue(buildPolicy());
     vi.mocked(apiClient.uploadMaterial).mockRejectedValue(
       new ApiClientError("Unexpected server error", {
@@ -299,7 +382,7 @@ describe("useMaterials", () => {
   it("uses a fallback policy and still uploads supported files when policy prefetch fails", async () => {
     const user = userEvent.setup();
 
-    vi.mocked(apiClient.fetchMaterials).mockResolvedValue([]);
+    vi.mocked(apiClient.fetchMaterials).mockResolvedValue(buildMaterialListResponse());
     vi.mocked(apiClient.fetchMaterialUploadPolicy).mockRejectedValue(new Error("boom"));
     vi.mocked(apiClient.uploadMaterial).mockResolvedValue(buildMaterialSummary({
       id: "mat-1",
@@ -329,7 +412,7 @@ describe("useMaterials", () => {
   });
 
   it("normalizes legacy upload policy payloads without pdf metadata", async () => {
-    vi.mocked(apiClient.fetchMaterials).mockResolvedValue([]);
+    vi.mocked(apiClient.fetchMaterials).mockResolvedValue(buildMaterialListResponse());
     vi.mocked(apiClient.fetchMaterialUploadPolicy).mockResolvedValue({
       maxUploadBytes: 1024,
       acceptedExtensions: ["txt", "pdf"],
@@ -350,7 +433,7 @@ describe("useMaterials", () => {
   it("does not block pdf uploads when policy reports embedded_text_only", async () => {
     const user = userEvent.setup();
 
-    vi.mocked(apiClient.fetchMaterials).mockResolvedValue([]);
+    vi.mocked(apiClient.fetchMaterials).mockResolvedValue(buildMaterialListResponse());
     vi.mocked(apiClient.fetchMaterialUploadPolicy).mockResolvedValue(buildPolicy({
       acceptedExtensions: ["txt", "pdf"],
       acceptedMimeHints: ["text/plain", "application/pdf"],
@@ -388,11 +471,136 @@ describe("useMaterials", () => {
     });
   });
 
+  it("uses the entered title for single-file uploads", async () => {
+    const user = userEvent.setup();
+
+    vi.mocked(apiClient.fetchMaterials).mockResolvedValue(buildMaterialListResponse());
+    vi.mocked(apiClient.fetchMaterialUploadPolicy).mockResolvedValue(buildPolicy());
+    vi.mocked(apiClient.uploadMaterial).mockResolvedValue(buildMaterialSummary({
+      id: "mat-single-title",
+      title: "Custom material",
+      sourceType: "file",
+      originalFileName: "single-title.txt",
+      status: "PENDING",
+      createdAt: "2026-04-16T00:00:00Z",
+      contentLength: 5,
+      preview: "hello",
+    }));
+
+    render(<MaterialsHookHarness />);
+
+    await waitFor(() => {
+      expect(apiClient.fetchMaterialUploadPolicy).toHaveBeenCalled();
+    });
+
+    await user.click(screen.getByText("upload-single-title"));
+
+    await waitFor(() => {
+      expect(apiClient.uploadMaterial).toHaveBeenCalled();
+    });
+
+    const uploadInput = vi.mocked(apiClient.uploadMaterial).mock.calls[0][0];
+    expect(uploadInput.title).toBe("Custom material");
+    expect(uploadInput.file.name).toBe("single-title.txt");
+  });
+
+  it("uploads multiple supported files sequentially with filename titles and shared metadata", async () => {
+    const user = userEvent.setup();
+
+    vi.mocked(apiClient.fetchMaterials).mockResolvedValue(buildMaterialListResponse());
+    vi.mocked(apiClient.fetchMaterialUploadPolicy).mockResolvedValue(buildPolicy());
+    vi.mocked(apiClient.uploadMaterial)
+      .mockResolvedValueOnce(buildMaterialSummary({
+        id: "mat-first",
+        title: "first.txt",
+        sourceType: "file",
+        originalFileName: "first.txt",
+        status: "PENDING",
+        createdAt: "2026-04-16T00:00:00Z",
+        contentLength: 5,
+        preview: "alpha",
+      }))
+      .mockResolvedValueOnce(buildMaterialSummary({
+        id: "mat-second",
+        title: "second.txt",
+        sourceType: "file",
+        originalFileName: "second.txt",
+        status: "PENDING",
+        createdAt: "2026-04-16T00:00:00Z",
+        contentLength: 4,
+        preview: "beta",
+      }));
+
+    render(<MaterialsHookHarness />);
+
+    await waitFor(() => {
+      expect(apiClient.fetchMaterialUploadPolicy).toHaveBeenCalled();
+    });
+
+    await user.click(screen.getByText("upload-two-supported"));
+
+    await waitFor(() => {
+      expect(apiClient.uploadMaterial).toHaveBeenCalledTimes(2);
+    });
+
+    const [firstUpload, secondUpload] = vi.mocked(apiClient.uploadMaterial).mock.calls.map(([input]) => input);
+    expect(firstUpload.title).toBe("");
+    expect(firstUpload.file.name).toBe("first.txt");
+    expect(firstUpload.metadata).toEqual({
+      documentType: "POLICY",
+      sourceTrust: "HIGH",
+      author: "Ops lead",
+      tags: ["policy", "grid"],
+    });
+    expect(secondUpload.title).toBe("");
+    expect(secondUpload.file.name).toBe("second.txt");
+    expect(secondUpload.metadata).toEqual(firstUpload.metadata);
+    expect(screen.getByTestId("message").textContent).toContain("2 файла приняты");
+  });
+
+  it("stops a multi-file upload at the first failed file and refreshes accepted materials", async () => {
+    const user = userEvent.setup();
+
+    vi.mocked(apiClient.fetchMaterials).mockResolvedValue(buildMaterialListResponse());
+    vi.mocked(apiClient.fetchMaterialUploadPolicy).mockResolvedValue(buildPolicy());
+    vi.mocked(apiClient.uploadMaterial)
+      .mockResolvedValueOnce(buildMaterialSummary({
+        id: "mat-first-ok",
+        title: "first-ok.txt",
+        sourceType: "file",
+        originalFileName: "first-ok.txt",
+        status: "PENDING",
+        createdAt: "2026-04-16T00:00:00Z",
+        contentLength: 5,
+        preview: "alpha",
+      }))
+      .mockRejectedValueOnce(new ApiClientError("Unable to extract text from the uploaded file", {
+        code: "material.extraction_failed",
+        status: 400,
+      }));
+
+    render(<MaterialsHookHarness />);
+
+    await waitFor(() => {
+      expect(apiClient.fetchMaterialUploadPolicy).toHaveBeenCalled();
+    });
+
+    await user.click(screen.getByText("upload-partial-failure"));
+
+    await waitFor(() => {
+      expect(apiClient.uploadMaterial).toHaveBeenCalledTimes(2);
+      expect(screen.getByTestId("action-error").textContent).toContain("second-fails.txt");
+    });
+
+    expect(screen.getByTestId("action-error").textContent).toContain("Не удалось извлечь текст из файла");
+    expect(apiClient.fetchMaterials).toHaveBeenCalledTimes(2);
+  });
+
   it("polls materials while active indexing exists and stops after the queue becomes ready", async () => {
     vi.useFakeTimers();
     vi.mocked(apiClient.fetchMaterialUploadPolicy).mockResolvedValue(buildPolicy());
     vi.mocked(apiClient.fetchMaterials)
-      .mockResolvedValueOnce([
+      .mockResolvedValueOnce(buildMaterialListResponse([
         buildMaterialSummary({
           id: "mat-1",
           title: "pricing.txt",
@@ -404,8 +612,8 @@ describe("useMaterials", () => {
           contentLength: 5,
           preview: "hello",
         }),
-      ])
-      .mockResolvedValueOnce([
+      ]))
+      .mockResolvedValueOnce(buildMaterialListResponse([
         buildMaterialSummary({
           id: "mat-1",
           title: "pricing.txt",
@@ -417,7 +625,7 @@ describe("useMaterials", () => {
           contentLength: 5,
           preview: "hello",
         }),
-      ]);
+      ]));
 
     await act(async () => {
       render(<MaterialsHookHarness />);
@@ -444,7 +652,7 @@ describe("useMaterials", () => {
   it("forwards metadata to the API client for text materials", async () => {
     const user = userEvent.setup();
 
-    vi.mocked(apiClient.fetchMaterials).mockResolvedValue([]);
+    vi.mocked(apiClient.fetchMaterials).mockResolvedValue(buildMaterialListResponse());
     vi.mocked(apiClient.fetchMaterialUploadPolicy).mockResolvedValue(buildPolicy());
     vi.mocked(apiClient.createTextMaterial).mockResolvedValue(buildMaterialSummary({
       id: "mat-2",

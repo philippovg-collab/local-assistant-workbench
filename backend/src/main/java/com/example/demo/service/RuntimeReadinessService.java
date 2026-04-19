@@ -12,6 +12,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -22,6 +23,7 @@ public class RuntimeReadinessService {
     private final EmbeddingClient embeddingClient;
     private final LlmProperties llmProperties;
     private final HealthProperties healthProperties;
+    private final Object readinessRefreshMonitor = new Object();
     private final AtomicReference<CachedRuntimeReadiness> cachedReadiness = new AtomicReference<>();
     private final AtomicReference<Instant> lastLlmSuccessfulProbeAt = new AtomicReference<>();
     private final AtomicReference<Instant> lastDirectSuccessfulProbeAt = new AtomicReference<>();
@@ -39,19 +41,51 @@ public class RuntimeReadinessService {
         this.healthProperties = healthProperties;
     }
 
+    public RuntimeReadiness snapshot() {
+        CachedRuntimeReadiness cached = cachedReadiness.get();
+        if (cached != null) {
+            return cached.readiness();
+        }
+        return RuntimeReadiness.unknown(Instant.now());
+    }
+
     public RuntimeReadiness currentReadiness() {
+        return refreshReadiness(false);
+    }
+
+    @Scheduled(
+        initialDelayString = "${app.health.readiness-initial-delay-millis:1000}",
+        fixedDelayString = "${app.health.readiness-probe-interval-millis:30000}"
+    )
+    public void refreshReadinessInBackground() {
+        refreshReadiness(true);
+    }
+
+    public RuntimeReadiness refreshReadiness() {
+        return refreshReadiness(true);
+    }
+
+    private RuntimeReadiness refreshReadiness(boolean force) {
         Instant now = Instant.now();
         CachedRuntimeReadiness cached = cachedReadiness.get();
-        if (cached != null && now.isBefore(cached.expiresAt())) {
+        if (!force && cached != null && now.isBefore(cached.expiresAt())) {
             return cached.readiness();
         }
 
-        RuntimeReadiness computed = computeReadiness(now);
-        cachedReadiness.set(new CachedRuntimeReadiness(
-            computed,
-            now.plus(Duration.ofSeconds(Math.max(1, healthProperties.getReadinessCacheSeconds())))
-        ));
-        return computed;
+        synchronized (readinessRefreshMonitor) {
+            now = Instant.now();
+            cached = cachedReadiness.get();
+            if (!force && cached != null && now.isBefore(cached.expiresAt())) {
+                return cached.readiness();
+            }
+
+            RuntimeReadiness computed = computeReadiness(now);
+            cachedReadiness.set(new CachedRuntimeReadiness(
+                computed,
+                now.plus(Duration.ofSeconds(Math.max(1, healthProperties.getReadinessCacheSeconds())))
+            ));
+            return computed;
+        }
     }
 
     private RuntimeReadiness computeReadiness(Instant now) {
@@ -181,6 +215,25 @@ public class RuntimeReadinessService {
         String llmLastSuccessfulProbeAt,
         String embeddingLastSuccessfulProbeAt
     ) {
+        private static RuntimeReadiness unknown(Instant now) {
+            String timestamp = now == null ? Instant.now().toString() : now.toString();
+            return new RuntimeReadiness(
+                "UNKNOWN",
+                "DOWN",
+                "runtime.readiness_not_probed",
+                "Runtime readiness probe has not completed yet.",
+                "UNKNOWN",
+                "runtime.readiness_not_probed",
+                "Runtime readiness probe has not completed yet.",
+                "UNKNOWN",
+                "runtime.readiness_not_probed",
+                "Runtime readiness probe has not completed yet.",
+                timestamp,
+                null,
+                null,
+                null
+            );
+        }
     }
 
     private record ComponentReadiness(

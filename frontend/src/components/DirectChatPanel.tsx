@@ -111,12 +111,13 @@ export function DirectChatPanel({
       }
       description="Direct-режим использует тот же execution contract, но без retrieval. Здесь можно проверить instruction stack, answer mode и audit trail без влияния локального контекста."
       eyebrow="Direct Studio"
+      layout="stacked"
       results={
         <div className="space-y-5">
           <SectionIntro
             badge="Live contract"
             badgeVariant="secondary"
-            description="Справа виден transport-слой: пример запроса, raw JSON и итоговый ответ модели вместе с применённым instruction trace."
+            description="Здесь виден transport-слой: пример запроса, raw JSON и итоговый ответ модели вместе с применённым instruction trace."
             eyebrow="Direct Response"
             title="Контракт запроса и ответа"
           />

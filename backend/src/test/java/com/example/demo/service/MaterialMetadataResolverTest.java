@@ -1,6 +1,7 @@
 package com.example.demo.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -76,6 +77,7 @@ class MaterialMetadataResolverTest {
         assertEquals("APPROVED", metadata.businessStatus());
         assertEquals(LocalDate.parse("2026-04-01"), metadata.periodStart());
         assertEquals(LocalDate.parse("2026-06-30"), metadata.periodEnd());
+        assertTrue(metadata.tags().contains("energy"));
         assertEquals(MetadataValueOrigin.INFERRED, metadata.provenance().fieldOrigins().get("documentType"));
         assertEquals(
             MetadataValueOrigin.INFERRED,
@@ -85,9 +87,11 @@ class MaterialMetadataResolverTest {
             MetadataValueOrigin.INFERRED,
             metadata.provenance().fieldOrigins().get("workspaceKey")
         );
+        assertEquals(MetadataValueOrigin.INFERRED, metadata.provenance().fieldOrigins().get("tags"));
         assertEquals(MetadataValueOrigin.INFERRED, metadata.provenance().fieldOrigins().get("author"));
         assertTrue(metadata.provenance().fieldConfidence().containsKey("documentType"));
         assertTrue(metadata.provenance().fieldConfidence().containsKey("author"));
+        assertTrue(metadata.provenance().fieldConfidence().containsKey("tags"));
     }
 
     @Test
@@ -134,6 +138,49 @@ class MaterialMetadataResolverTest {
         );
         assertEquals(MetadataValueOrigin.INFERRED, metadata.provenance().fieldOrigins().get("department"));
         assertEquals(MetadataValueOrigin.DEFAULT, metadata.provenance().fieldOrigins().get("sourceTrust"));
+        assertFalse(metadata.provenance().fieldConfidence().containsKey("documentType"));
+        assertFalse(metadata.provenance().fieldConfidence().containsKey("author"));
+        assertTrue(metadata.provenance().fieldConfidence().containsKey("department"));
+    }
+
+    @Test
+    void normalizesBlankManualMetadataWithoutBlockingDefaultsAndInference() {
+        MaterialMetadataSnapshot metadata = resolver.resolve(
+            new MaterialMetadataInput(
+                null,
+                null,
+                "   ",
+                " ",
+                "\t",
+                "",
+                " ",
+                List.of("", "   "),
+                null,
+                " ",
+                "",
+                "\t",
+                null,
+                null
+            ),
+            "Plain note",
+            "text",
+            null,
+            "text/plain",
+            "Plain working note."
+        );
+
+        assertEquals(DocumentType.OTHER, metadata.documentType());
+        assertEquals(KnowledgeDocumentClass.OTHER, metadata.knowledgeDocumentClass());
+        assertNull(metadata.documentNumber());
+        assertNull(metadata.author());
+        assertNull(metadata.department());
+        assertNull(metadata.project());
+        assertTrue(metadata.tags().isEmpty());
+        assertEquals(MetadataValueOrigin.DEFAULT, metadata.provenance().fieldOrigins().get("documentType"));
+        assertEquals(MetadataValueOrigin.DEFAULT, metadata.provenance().fieldOrigins().get("knowledgeDocumentClass"));
+        assertEquals(MetadataValueOrigin.DEFAULT, metadata.provenance().fieldOrigins().get("sourceTrust"));
+        assertFalse(metadata.provenance().fieldOrigins().containsKey("documentNumber"));
+        assertFalse(metadata.provenance().fieldOrigins().containsKey("tags"));
     }
 
     @Test

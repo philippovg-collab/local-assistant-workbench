@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { History, Radar } from "lucide-react";
+import { apiClient } from "@/api/client";
 import { EmptyState } from "@/components/app/EmptyState";
 import { SectionIntro } from "@/components/app/SectionIntro";
 import { Badge } from "@/components/ui/badge";
@@ -8,6 +9,7 @@ import { Separator } from "@/components/ui/separator";
 import type {
   ChatAuditRunDetail,
   ChatAuditRunSummary,
+  ChatRunTraceDetail,
   InstructionTraceEntry,
   KnowledgeScopeResolved,
   RetrievalTrace,
@@ -228,6 +230,87 @@ const AuditInspector = ({ run, label }: AuditInspectorProps) => {
   );
 };
 
+const clipText = (value?: string | null, limit = 900) => {
+  if (!value) {
+    return "n/a";
+  }
+  const normalized = value.replace(/\s+/g, " ").trim();
+  return normalized.length > limit ? `${normalized.slice(0, limit)}...` : normalized;
+};
+
+const TraceFoundationInspector = ({ trace }: { trace: ChatRunTraceDetail }) => {
+  const latestLlmCall = trace.llmCalls.length > 0 ? trace.llmCalls[trace.llmCalls.length - 1] : null;
+  const promptSnapshot = trace.promptSnapshot;
+  const retrievalSummary = trace.retrievalSummary;
+  const output = trace.output;
+
+  return (
+    <article className="space-y-4 rounded-[22px] border border-field-border bg-field px-4 py-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+          <Radar className="h-4 w-4 text-primary" />
+          Trace foundation
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge variant={trace.status === "FAILED" ? "destructive" : trace.status === "COMPLETED" ? "success" : "secondary"}>
+            {trace.status}
+          </Badge>
+          {trace.latencyMsTotal !== undefined && trace.latencyMsTotal !== null ? (
+            <Badge variant="outline">{trace.latencyMsTotal} ms</Badge>
+          ) : null}
+        </div>
+      </div>
+
+      {trace.status === "FAILED" ? (
+        <div className="rounded-[18px] border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm leading-6 text-destructive">
+          {trace.failureStage ?? "unknown stage"} · {trace.failureCode ?? "unknown_code"} · {trace.failureMessage ?? "No failure message"}
+        </div>
+      ) : null}
+
+      <div className="grid gap-3 lg:grid-cols-3">
+        <div className="rounded-[18px] border border-border bg-background px-4 py-3 text-sm leading-6 text-foreground">
+          <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Prompt</p>
+          <p>hash: {promptSnapshot?.promptHash ?? "n/a"}</p>
+          <p>messages: {promptSnapshot?.messages.length ?? 0}</p>
+          <p>grounding: {promptSnapshot?.groundingRulesApplied ? "on" : "off"}</p>
+        </div>
+        <div className="rounded-[18px] border border-border bg-background px-4 py-3 text-sm leading-6 text-foreground">
+          <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Retrieval</p>
+          <p>status: {retrievalSummary?.retrievalStatus ?? "n/a"}</p>
+          <p>profile: {retrievalSummary?.relevanceProfile ?? retrievalSummary?.debug?.relevanceProfile ?? "n/a"}</p>
+          <p>final: {retrievalSummary?.trace?.finalChunks ?? 0}</p>
+        </div>
+        <div className="rounded-[18px] border border-border bg-background px-4 py-3 text-sm leading-6 text-foreground">
+          <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">LLM</p>
+          <p>calls: {trace.llmCalls.length}</p>
+          <p>model: {latestLlmCall?.model ?? trace.resolvedModel ?? trace.requestedModel ?? "n/a"}</p>
+          <p>finish: {latestLlmCall?.finishReason ?? latestLlmCall?.errorCode ?? "n/a"}</p>
+        </div>
+      </div>
+
+      <details className="rounded-[18px] border border-border bg-background px-4 py-3">
+        <summary className="cursor-pointer text-sm font-medium text-foreground">Resolved system prompt</summary>
+        <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-foreground">
+          {clipText(promptSnapshot?.resolvedSystemPrompt)}
+        </p>
+      </details>
+
+      <details className="rounded-[18px] border border-border bg-background px-4 py-3">
+        <summary className="cursor-pointer text-sm font-medium text-foreground">LLM request and output</summary>
+        <div className="mt-3 space-y-3 text-sm leading-6 text-foreground">
+          <p><strong>Request messages:</strong> {latestLlmCall?.requestMessages.length ?? 0}</p>
+          <p><strong>Raw:</strong> {clipText(output?.rawModelAnswer ?? latestLlmCall?.parsedAnswerText, 600)}</p>
+          <p><strong>Final:</strong> {clipText(output?.finalUserAnswer, 600)}</p>
+          <p>
+            <strong>Flags:</strong>{" "}
+            abstained={String(output?.abstained ?? false)} · strictBlocked={String(output?.strictSourcesBlockedAnswer ?? false)}
+          </p>
+        </div>
+      </details>
+    </article>
+  );
+};
+
 export function ChatAuditPanel({
   runs,
   selectedRun,
@@ -239,6 +322,8 @@ export function ChatAuditPanel({
   currentRetrievalTrace,
 }: ChatAuditPanelProps) {
   const [cachedRuns, setCachedRuns] = useState<Record<string, ChatAuditRunDetail>>({});
+  const [cachedTraces, setCachedTraces] = useState<Record<string, ChatRunTraceDetail>>({});
+  const [traceError, setTraceError] = useState<string | null>(null);
   const [baseRunId, setBaseRunId] = useState<string | null>(null);
   const [compareRunId, setCompareRunId] = useState<string | null>(null);
 
@@ -255,6 +340,24 @@ export function ChatAuditPanel({
     }));
   }, [selectedRun]);
 
+  const loadTraceDetail = async (runId: string) => {
+    if (cachedTraces[runId]) {
+      return cachedTraces[runId];
+    }
+    try {
+      const trace = await apiClient.fetchChatRunTrace(runId);
+      setCachedTraces((current) => ({
+        ...current,
+        [trace.id]: trace,
+      }));
+      setTraceError(null);
+      return trace;
+    } catch {
+      setTraceError("Trace detail для этого запуска недоступен. Возможно, это legacy audit run до P0.");
+      return null;
+    }
+  };
+
   useEffect(() => {
     if (!baseRunId && runs.length > 0) {
       setBaseRunId(currentAuditRunId ?? selectedRun?.id ?? runs[0]?.id ?? null);
@@ -264,6 +367,15 @@ export function ChatAuditPanel({
       setCompareRunId(fallbackCompareId);
     }
   }, [baseRunId, compareRunId, currentAuditRunId, runs, selectedRun]);
+
+  useEffect(() => {
+    const ids = [baseRunId, compareRunId].filter((id): id is string => Boolean(id));
+    ids.forEach((runId) => {
+      if (!cachedTraces[runId]) {
+        void loadTraceDetail(runId);
+      }
+    });
+  }, [baseRunId, compareRunId]);
 
   const loadRunDetail = async (runId: string) => {
     if (cachedRuns[runId]) {
@@ -291,6 +403,7 @@ export function ChatAuditPanel({
     } else {
       setCompareRunId(runId);
     }
+    void loadTraceDetail(runId);
   };
 
   const baseRun = useMemo(() => {
@@ -307,6 +420,9 @@ export function ChatAuditPanel({
     return cachedRuns[compareRunId] ?? (selectedRun?.id === compareRunId ? selectedRun : null);
   }, [compareRunId, cachedRuns, selectedRun]);
 
+  const baseTrace = baseRunId ? cachedTraces[baseRunId] ?? null : null;
+  const compareTrace = compareRunId ? cachedTraces[compareRunId] ?? null : null;
+
   return (
     <article className="surface-subtle space-y-4 rounded-[24px] p-5">
       <SectionIntro
@@ -317,6 +433,7 @@ export function ChatAuditPanel({
       />
 
       {error ? <p className="text-sm leading-6 text-destructive">{error}</p> : null}
+      {traceError ? <p className="text-sm leading-6 text-warning">{traceError}</p> : null}
 
       <div className="rounded-[22px] border border-field-border bg-field px-4 py-4 text-sm leading-6 text-foreground">
         <p>
@@ -399,6 +516,11 @@ export function ChatAuditPanel({
           <div className="grid gap-4 xl:grid-cols-2">
             {baseRun ? <AuditInspector label="Base run inspector" run={baseRun} /> : null}
             {compareRun ? <AuditInspector label="Compare run inspector" run={compareRun} /> : null}
+          </div>
+
+          <div className="grid gap-4 xl:grid-cols-2">
+            {baseTrace ? <TraceFoundationInspector trace={baseTrace} /> : null}
+            {compareTrace ? <TraceFoundationInspector trace={compareTrace} /> : null}
           </div>
         </>
       )}

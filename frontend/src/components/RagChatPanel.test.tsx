@@ -107,6 +107,7 @@ const renderPanel = (
         chunkType: "TABLE",
         metadata: {
           documentType: "CONTRACT",
+          knowledgeDocumentClass: "contracts",
           documentDate: "2026-04-15",
           documentNumber: "KZ-2026-0415-ENERGY",
           author: "Dana Sarsen",
@@ -270,11 +271,11 @@ describe("RagChatPanel", () => {
 
     renderPanel();
 
-    expect(screen.getAllByText(/Doc number: KZ-2026-0415-ENERGY/i).length).toBeGreaterThan(0);
-    await user.click(screen.getByRole("button", { name: /filters & hints/i }));
+    expect(screen.getAllByText(/Номер документа: KZ-2026-0415-ENERGY/i).length).toBeGreaterThan(0);
+    await user.click(screen.getByRole("button", { name: /фильтры поиска/i }));
 
-    expect((await screen.findAllByText("Filters & hints")).length).toBeGreaterThanOrEqual(2);
-    expect(screen.getByText(/Manual filters always win over auto-extracted hints/i)).toBeTruthy();
+    expect((await screen.findAllByText("Фильтры и подсказки поиска")).length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText(/Ручные фильтры важнее подсказок/i)).toBeTruthy();
     expect(screen.getByText(/Retrieval debug/i)).toBeTruthy();
 
     const scoreSummary = screen.getByText(/Score breakdown/i).closest("summary");

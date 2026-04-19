@@ -102,10 +102,14 @@ class MaterialControllerMetadataFlowTest {
 
         mockMvc.perform(get("/api/materials"))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$", hasSize(1)))
-            .andExpect(jsonPath("$[0].title").value("Grid policy"))
-            .andExpect(jsonPath("$[0].metadata.documentType").value("POLICY"))
-            .andExpect(jsonPath("$[0].metadata.provenance.fieldOrigins.documentType").value("MANUAL"));
+            .andExpect(jsonPath("$.items", hasSize(1)))
+            .andExpect(jsonPath("$.total").value(1))
+            .andExpect(jsonPath("$.offset").value(0))
+            .andExpect(jsonPath("$.limit").value(100))
+            .andExpect(jsonPath("$.hasMore").value(false))
+            .andExpect(jsonPath("$.items[0].title").value("Grid policy"))
+            .andExpect(jsonPath("$.items[0].metadata.documentType").value("POLICY"))
+            .andExpect(jsonPath("$.items[0].metadata.provenance.fieldOrigins.documentType").value("MANUAL"));
     }
 
     @Test
@@ -134,6 +138,62 @@ class MaterialControllerMetadataFlowTest {
             .andExpect(jsonPath("$.metadata.provenance.fieldOrigins.sourceTrust").value("DEFAULT"))
             .andExpect(jsonPath("$.metadata.provenance.fieldConfidence.documentType").exists())
             .andExpect(jsonPath("$.metadata.provenance.fieldConfidence.author").exists());
+    }
+
+    @Test
+    void acceptsEmptyOptionalMetadataAndKeepsAutoFillAvailableWithoutDocker() throws Exception {
+        mockMvc.perform(post("/api/materials")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "title": "Plain note",
+                      "content": "Plain working note.",
+                      "metadata": {
+                        "documentNumber": "   ",
+                        "author": "",
+                        "department": " ",
+                        "versionLabel": "",
+                        "language": " ",
+                        "tags": ["", "  "],
+                        "project": "",
+                        "workspaceKey": " ",
+                        "counterparty": "",
+                        "businessStatus": " "
+                      }
+                    }
+                    """))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.metadata.documentType").value("OTHER"))
+            .andExpect(jsonPath("$.metadata.knowledgeDocumentClass").value("other"))
+            .andExpect(jsonPath("$.metadata.tags", hasSize(0)))
+            .andExpect(jsonPath("$.metadata.sourceTrust").value("UNKNOWN"))
+            .andExpect(jsonPath("$.metadata.provenance.fieldOrigins.documentType").value("DEFAULT"))
+            .andExpect(jsonPath("$.metadata.provenance.fieldOrigins.knowledgeDocumentClass").value("DEFAULT"))
+            .andExpect(jsonPath("$.metadata.provenance.fieldOrigins.sourceTrust").value("DEFAULT"))
+            .andExpect(jsonPath("$.metadata.provenance.fieldOrigins.documentNumber").doesNotExist())
+            .andExpect(jsonPath("$.metadata.provenance.fieldOrigins.tags").doesNotExist());
+    }
+
+    @Test
+    void rejectsInvalidManualMetadataPeriodRangeWithoutPersistingMaterial() throws Exception {
+        mockMvc.perform(post("/api/materials")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "title": "Broken period",
+                      "content": "Valid content with invalid manual metadata period.",
+                      "metadata": {
+                        "periodStart": "2026-12-31",
+                        "periodEnd": "2026-01-01"
+                      }
+                    }
+                    """))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.code").value("request.invalid_payload"));
+
+        mockMvc.perform(get("/api/materials"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.total").value(0));
     }
 
     @Test

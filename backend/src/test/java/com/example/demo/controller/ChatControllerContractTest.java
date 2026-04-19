@@ -183,4 +183,26 @@ class ChatControllerContractTest {
 
         verifyNoInteractions(chatExecutionService);
     }
+
+    @Test
+    void rejectsInvalidRetrievalFilterDateRangeWithoutCallingTheService() throws Exception {
+        mockMvc.perform(post("/api/chat")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "mode": "rag",
+                      "model": "qwen2.5:7b",
+                      "prompt": "Какая цена?",
+                      "instructionIds": [],
+                      "retrievalFilters": {
+                        "documentDateFrom": "2026-05-01",
+                        "documentDateTo": "2026-04-01"
+                      }
+                    }
+                    """))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.code").value("request.invalid_payload"));
+
+        verifyNoInteractions(chatExecutionService);
+    }
 }

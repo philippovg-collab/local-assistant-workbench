@@ -2,6 +2,7 @@ package com.example.demo.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -11,6 +12,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.example.demo.api.ApiException;
 import com.example.demo.config.MaterialProperties;
 import com.example.demo.config.RagProperties;
 import com.example.demo.config.RolloutProperties;
@@ -34,6 +36,7 @@ import com.example.demo.model.KnowledgeScope;
 import com.example.demo.model.MaterialIndexingStatus;
 import com.example.demo.model.MaterialMetadataInput;
 import com.example.demo.model.MaterialMetadataSnapshot;
+import com.example.demo.model.MaterialSearchRequest;
 import com.example.demo.model.MaterialVersionState;
 import com.example.demo.model.RetrievalFilters;
 import com.example.demo.model.SourceTrustLevel;
@@ -50,6 +53,22 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 class MaterialRetrievalServiceTest {
+
+    @Test
+    void rejectsSearchLimitAboveConfiguredHardCap() {
+        InMemoryMaterialRepository repository = new InMemoryMaterialRepository();
+        MaterialRetrievalService service = createService(repository, new DeterministicEmbeddingClient());
+
+        ApiException exception = assertThrows(ApiException.class, () -> service.search(new MaterialSearchRequest(
+            "проверка лимита",
+            RetrievalFilters.empty(),
+            21,
+            false,
+            false
+        )));
+
+        assertEquals("search.limit_too_large", exception.getCode());
+    }
 
     @Test
     void returnsNoSourcesWhenCatalogContainsOnlyHistoricalVersions() {
@@ -765,7 +784,7 @@ class MaterialRetrievalServiceTest {
         DeterministicEmbeddingClient embeddingClient = new DeterministicEmbeddingClient();
         RolloutProperties rolloutProperties = RolloutProperties.enabledForTests();
         rolloutProperties.setMetadataFiltersV1(false);
-        rolloutProperties.setQueryHintsV1(false);
+        rolloutProperties.setQueryHintsV1(true);
         MaterialRetrievalService service = createService(repository, embeddingClient, rolloutProperties);
 
         saveMaterial(
@@ -816,6 +835,10 @@ class MaterialRetrievalServiceTest {
         assertTrue(result.retrievalDebug().effectiveFilters().isEmpty());
         assertEquals("South operations", result.retrievalDebug().manualFilters().department());
         assertFalse(result.retrievalDebug().appliedCapabilities().contains("metadata-filters-v1"));
+        assertTrue(result.retrievalDebug().suppressedCapabilities().contains("metadata-filters-v1"));
+        assertTrue(result.retrievalDebug().suppressedCapabilities().contains("query-hints-v1"));
+        assertFalse(result.retrievalDebug().activeRolloutFlags().metadataFiltersV1());
+        assertTrue(result.retrievalDebug().activeRolloutFlags().queryHintsV1());
     }
 
     @Test

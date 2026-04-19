@@ -10,6 +10,7 @@ public record ChatExecutionRequest(
     List<String> instructionIds,
     AnswerMode answerMode,
     KnowledgeScope knowledgeScope,
+    String instructionWorkspaceKey,
     RetrievalFilters retrievalFilters,
     List<String> scenarioInstructionIds,
     String temporaryInstruction
@@ -21,7 +22,7 @@ public record ChatExecutionRequest(
         String systemPrompt,
         List<String> instructionIds
     ) {
-        this(mode, model, prompt, systemPrompt, instructionIds, null, null, null, null, null);
+        this(mode, model, prompt, systemPrompt, instructionIds, null, null, null, null, null, null);
     }
 
     public ChatExecutionRequest(
@@ -43,6 +44,7 @@ public record ChatExecutionRequest(
             instructionIds,
             answerMode,
             knowledgeScope,
+            null,
             null,
             scenarioInstructionIds,
             temporaryInstruction

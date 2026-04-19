@@ -1,10 +1,12 @@
 import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { apiClient } from "../api/client";
 import { ChatAuditPanel } from "./ChatAuditPanel";
 import type {
   ChatAuditRunDetail,
   ChatAuditRunSummary,
+  ChatRunTraceDetail,
   InstructionTraceEntry,
   KnowledgeScopeResolved,
   RetrievalTrace,
@@ -99,6 +101,84 @@ const summaryOf = (detail: ChatAuditRunDetail): ChatAuditRunSummary => ({
   promptPreview: detail.prompt,
   answerPreview: detail.answer,
   createdAt: detail.createdAt,
+});
+
+const buildTraceDetail = (runId: string, status: "COMPLETED" | "FAILED" = "COMPLETED"): ChatRunTraceDetail => ({
+  id: runId,
+  mode: "rag",
+  status,
+  requestedModel: "qwen2.5:7b",
+  resolvedModel: status === "COMPLETED" ? "qwen2.5:7b" : null,
+  requestedAnswerMode: "brief",
+  appliedAnswerMode: status === "COMPLETED" ? "brief" : null,
+  contextStatus: status === "COMPLETED" ? "ready" : null,
+  createdAt: "2026-04-19T00:00:00Z",
+  completedAt: status === "COMPLETED" ? "2026-04-19T00:00:01Z" : null,
+  failedAt: status === "FAILED" ? "2026-04-19T00:00:01Z" : null,
+  latencyMsTotal: 1000,
+  failureStage: status === "FAILED" ? "LLM" : null,
+  failureCode: status === "FAILED" ? "chat_trace.execution_failed" : null,
+  failureMessage: status === "FAILED" ? "model unavailable" : null,
+  requestSnapshot: null,
+  promptSnapshot: {
+    baseSystemPrompt: "Base system",
+    systemInstructionsText: null,
+    safetyInstructionsText: null,
+    contextInstructionsText: null,
+    userInstructionsText: null,
+    temporaryInstructionText: null,
+    answerModeBlockText: null,
+    groundingBlockText: null,
+    resolvedSystemPrompt: "Base system",
+    messages: [{ role: "system", content: "Base system" }, { role: "user", content: "Question" }],
+    promptHash: `hash-${runId}`,
+    instructionTrace: [],
+    knowledgeScopeResolved: EMPTY_KNOWLEDGE_SCOPE_RESOLVED,
+    groundingRulesApplied: true,
+  },
+  retrievalSummary: {
+    retrievalStatus: "DONE",
+    trace: buildRetrievalTrace(),
+    debug: null,
+    lexicalProvider: "postgres",
+    relevanceProfile: "hybrid-rerank-v1",
+    embeddingModel: null,
+    chunkProfile: null,
+    queryHints: null,
+    manualFilters: null,
+    effectiveFilters: null,
+    rolloutFlags: null,
+    appliedCapabilities: null,
+  },
+  llmCalls: [
+    {
+      id: `${runId}-llm`,
+      provider: "ollama",
+      model: "qwen2.5:7b",
+      requestMessages: [{ role: "user", content: "Question" }],
+      rawResponseText: "{\"message\":{\"content\":\"Answer\"}}",
+      parsedAnswerText: "Answer",
+      promptTokens: 1,
+      completionTokens: 1,
+      totalTokens: 2,
+      latencyMs: 500,
+      retryCount: 0,
+      timeoutSeconds: null,
+      finishReason: status === "COMPLETED" ? "stop" : null,
+      errorCode: status === "FAILED" ? "chat_trace.execution_failed" : null,
+      errorMessage: status === "FAILED" ? "model unavailable" : null,
+      createdAt: "2026-04-19T00:00:01Z",
+    },
+  ],
+  output: status === "COMPLETED" ? {
+    rawModelAnswer: "Answer",
+    finalUserAnswer: "Answer",
+    sources: [],
+    postprocess: { answerMode: "brief" },
+    abstained: false,
+    strictSourcesBlockedAnswer: false,
+  } : null,
+  events: [],
 });
 
 describe("ChatAuditPanel", () => {
@@ -216,6 +296,9 @@ describe("ChatAuditPanel", () => {
       }
       return null;
     });
+    vi.spyOn(apiClient, "fetchChatRunTrace").mockImplementation(async (runId: string) =>
+      buildTraceDetail(runId, runId === compareRun.id ? "FAILED" : "COMPLETED")
+    );
 
     render(
       <ChatAuditPanel
@@ -259,5 +342,10 @@ describe("ChatAuditPanel", () => {
     expect(screen.getByText("Compare answer")).toBeTruthy();
     expect(screen.getByText("Operations policy")).toBeTruthy();
     expect(screen.getByText("North contract")).toBeTruthy();
+    await waitFor(() => {
+      expect(screen.getAllByText("Trace foundation").length).toBeGreaterThan(0);
+    });
+    expect(screen.getByText(/hash-run-3/)).toBeTruthy();
+    expect(screen.getByText(/LLM · chat_trace.execution_failed · model unavailable/)).toBeTruthy();
   });
 });

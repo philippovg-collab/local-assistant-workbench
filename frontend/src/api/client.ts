@@ -1,6 +1,7 @@
 import type {
   ChatAuditRunDetail,
   ChatAuditRunSummary,
+  ChatRunTraceDetail,
   ChatExecutionRequest,
   ChatExecutionResponse,
   CreateKnowledgePresetRequest,
@@ -15,6 +16,7 @@ import type {
   KnowledgePresetSummary,
   InstructionSummary,
   MaterialDetail,
+  MaterialListResponse,
   MaterialMetadataInput,
   MaterialLineageResponse,
   MaterialUploadPolicy,
@@ -139,8 +141,16 @@ export const apiClient = {
   fetchModels(signal?: AbortSignal) {
     return requestJson<ModelInfo[]>("/api/models", { signal });
   },
-  fetchMaterials(signal?: AbortSignal) {
-    return requestJson<MaterialSummary[]>("/api/materials", { signal });
+  fetchMaterials(input: { offset?: number; limit?: number } = {}, signal?: AbortSignal) {
+    const params = new URLSearchParams();
+    if (input.offset !== undefined) {
+      params.set("offset", String(input.offset));
+    }
+    if (input.limit !== undefined) {
+      params.set("limit", String(input.limit));
+    }
+    const query = params.toString();
+    return requestJson<MaterialListResponse>(`/api/materials${query ? `?${query}` : ""}`, { signal });
   },
   fetchMaterialUploadPolicy(signal?: AbortSignal) {
     return requestJson<MaterialUploadPolicy>("/api/materials/policy", { signal });
@@ -279,6 +289,9 @@ export const apiClient = {
   },
   fetchChatRun(runId: string, signal?: AbortSignal) {
     return requestJson<ChatAuditRunDetail>(`/api/chat-runs/${runId}`, { signal });
+  },
+  fetchChatRunTrace(runId: string, signal?: AbortSignal) {
+    return requestJson<ChatRunTraceDetail>(`/api/chat-runs/${runId}/trace`, { signal });
   },
   executeChat(input: ChatExecutionRequest, signal?: AbortSignal) {
     return requestJson<ChatExecutionResponse>("/api/chat", {

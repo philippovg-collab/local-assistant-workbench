@@ -217,4 +217,23 @@ class SearchControllerContractTest {
 
         verifyNoInteractions(materialService);
     }
+
+    @Test
+    void rejectsInvalidRetrievalFilterDateRangeWithoutCallingTheService() throws Exception {
+        mockMvc.perform(post("/api/search")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "query": "dispatch matrix",
+                      "filters": {
+                        "documentDateFrom": "2026-05-01",
+                        "documentDateTo": "2026-04-01"
+                      }
+                    }
+                    """))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.code").value("request.invalid_payload"));
+
+        verifyNoInteractions(materialService);
+    }
 }

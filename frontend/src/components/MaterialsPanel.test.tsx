@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MaterialsPanel } from "./MaterialsPanel";
@@ -40,17 +40,21 @@ const renderPanel = (
       actionError={null}
       deletingMaterialId={null}
       error={null}
-      isLoading={false}
-      lineageError={null}
-      loadingLineageMaterialId={null}
-      materials={materials}
-      metadataV1Enabled={false}
-      message={null}
-      onClearLineage={vi.fn()}
-      onCreateText={vi.fn()}
-      onDelete={vi.fn()}
-      onLoadLineage={vi.fn()}
-      onReindex={vi.fn()}
+	      isLoading={false}
+	      isLoadingMore={false}
+	      lineageError={null}
+	      loadingLineageMaterialId={null}
+	      hasMoreMaterials={false}
+	      materials={materials}
+	      materialTotal={materials.length}
+	      metadataV1Enabled={false}
+	      message={null}
+	      onClearLineage={vi.fn()}
+	      onCreateText={vi.fn()}
+	      onDelete={vi.fn()}
+	      onLoadLineage={vi.fn()}
+	      onLoadMore={vi.fn()}
+	      onReindex={vi.fn()}
       onUpload={vi.fn()}
       policyWarning={null}
       ragPresentation={
@@ -78,7 +82,7 @@ describe("MaterialsPanel", () => {
   it("includes pdf in the upload accept list and mentions OCR fallback", () => {
     renderPanel({
       uploadPolicy: {
-        maxUploadBytes: 2_000_000,
+        maxUploadBytes: 8_388_608,
         acceptedExtensions: ["txt", "pdf"],
         acceptedMimeHints: ["text/plain", "application/pdf"],
         richDocumentSupport: true,
@@ -92,17 +96,48 @@ describe("MaterialsPanel", () => {
       },
     });
 
-    const fileInput = screen.getByLabelText("Файл") as HTMLInputElement;
+    const fileInput = screen.getByLabelText("Файлы") as HTMLInputElement;
     const uploadButton = screen.getByRole("button", { name: "Загрузить файл" });
     expect(fileInput.accept).toContain(".pdf");
+    expect(fileInput.multiple).toBe(true);
     expect(uploadButton).toBeTruthy();
     expect(screen.getByText(/scanned PDF поддерживается через OCR/i)).toBeTruthy();
+  });
+
+  it("submits selected files as a batch and leaves batch titles to filenames", async () => {
+    const user = userEvent.setup();
+    const onUpload = vi.fn().mockResolvedValue(undefined);
+    renderPanel({ onUpload });
+
+    const titleInput = document.querySelector("#upload-material-title") as HTMLInputElement;
+    const fileInput = screen.getByLabelText("Файлы") as HTMLInputElement;
+    const firstFile = new File(["first"], "first.txt", { type: "text/plain" });
+    const secondFile = new File(["second"], "second.txt", { type: "text/plain" });
+
+    await user.type(titleInput, "Shared title");
+    await user.upload(fileInput, [firstFile, secondFile]);
+
+    expect(titleInput.disabled).toBe(true);
+    expect(titleInput.value).toBe("");
+
+    const uploadButton = screen.getByRole("button", { name: "Загрузить файлы" }) as HTMLButtonElement;
+    expect(uploadButton.disabled).toBe(false);
+    fireEvent.submit(fileInput.closest("form") as HTMLFormElement);
+
+    await waitFor(() => {
+      expect(onUpload).toHaveBeenCalledWith({
+        items: [
+          { file: firstFile },
+          { file: secondFile },
+        ],
+      });
+    });
   });
 
   it("renders partial PDF support warning with the OCR reason", () => {
     renderPanel({
       uploadPolicy: {
-        maxUploadBytes: 2_000_000,
+        maxUploadBytes: 8_388_608,
         acceptedExtensions: ["txt", "pdf"],
         acceptedMimeHints: ["text/plain", "application/pdf"],
         richDocumentSupport: true,
@@ -136,7 +171,7 @@ describe("MaterialsPanel", () => {
   it("uses OCR languages from the backend policy in warnings", () => {
     renderPanel({
       uploadPolicy: {
-        maxUploadBytes: 2_000_000,
+        maxUploadBytes: 8_388_608,
         acceptedExtensions: ["txt", "pdf"],
         acceptedMimeHints: ["text/plain", "application/pdf"],
         richDocumentSupport: true,
@@ -157,7 +192,7 @@ describe("MaterialsPanel", () => {
   it("gracefully handles a legacy policy payload without pdf metadata", () => {
     renderPanel({
       uploadPolicy: {
-        maxUploadBytes: 2_000_000,
+        maxUploadBytes: 8_388_608,
         acceptedExtensions: ["txt", "pdf"],
         acceptedMimeHints: ["text/plain", "application/pdf"],
         richDocumentSupport: true,
@@ -231,6 +266,24 @@ describe("MaterialsPanel", () => {
     expect(screen.getByRole("button", { name: "Повторить индекс" })).toBeTruthy();
   });
 
+  it("renders backend catalog total separately from the loaded page", () => {
+    const onLoadMore = vi.fn();
+    renderPanel({
+      materials: [
+        buildMaterialSummary({
+          id: "page-1",
+          title: "Loaded material",
+        }),
+      ],
+      materialTotal: 101,
+      hasMoreMaterials: true,
+      onLoadMore,
+    });
+
+    expect(screen.getByText("Показано 1 из 101")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Показать ещё" })).toBeTruthy();
+  });
+
   it("renders lineage details with the stored supersede reason", () => {
     renderPanel({
       selectedLineage: {
@@ -275,19 +328,24 @@ describe("MaterialsPanel", () => {
     expect(screen.getByText(/Активная версия: active-2/i)).toBeTruthy();
   });
 
-  it("blocks text submit until required metadata are provided", async () => {
+  it("allows text submit with empty metadata so backend can auto-fill fields", async () => {
     const user = userEvent.setup();
-    const onCreateText = vi.fn();
+    const onCreateText = vi.fn().mockResolvedValue(undefined);
 
     renderPanel({ metadataV1Enabled: true, onCreateText });
 
     await user.type(screen.getByLabelText("Содержимое"), "Новый материал");
     await user.click(screen.getByRole("button", { name: "Сохранить текст" }));
 
-    expect(onCreateText).not.toHaveBeenCalled();
-    expect(screen.getAllByText(/выбери тип документа/i).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/выбери уровень доверия/i).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/заполни автора или подразделение/i).length).toBeGreaterThan(0);
+    await waitFor(() => {
+      expect(onCreateText).toHaveBeenCalled();
+    });
+    const payload = onCreateText.mock.calls[0][0];
+    expect(payload.title).toBe("");
+    expect(payload.content).toBe("Новый материал");
+    expect(payload.metadata).toBeTruthy();
+    expect(Object.values(payload.metadata).some((value) => value === "")).toBe(false);
+    expect(screen.queryByText(/выбери тип документа/i)).toBeNull();
   });
 
   it("allows text submit without metadata when metadata rollout is disabled", async () => {
@@ -306,15 +364,57 @@ describe("MaterialsPanel", () => {
     expect(screen.queryByText(/выбери тип документа/i)).toBeNull();
   });
 
+  it("supports per-file title and metadata overrides in batch upload", async () => {
+    const user = userEvent.setup();
+    const onUpload = vi.fn().mockResolvedValue(undefined);
+    renderPanel({ metadataV1Enabled: true, onUpload });
+
+    const fileInput = screen.getByLabelText("Файлы") as HTMLInputElement;
+    const firstFile = new File(["first"], "first.txt", { type: "text/plain" });
+    const secondFile = new File(["second"], "second.txt", { type: "text/plain" });
+
+    await user.upload(fileInput, [firstFile, secondFile]);
+    await user.click(screen.getAllByRole("button", { name: "Настроить атрибуты" })[0]);
+    await user.type(
+      screen.getByPlaceholderText("Оставь пустым, чтобы backend использовал имя файла"),
+      "Первый override",
+    );
+    await user.type(
+      screen.getByPlaceholderText("Оставь пустым, чтобы использовать общие теги"),
+      "contract, premium",
+    );
+
+    fireEvent.submit(fileInput.closest("form") as HTMLFormElement);
+
+    await waitFor(() => {
+      expect(onUpload).toHaveBeenCalledWith({
+        items: [
+          expect.objectContaining({
+            file: firstFile,
+            title: "Первый override",
+            metadata: expect.objectContaining({
+              tags: ["contract", "premium"],
+            }),
+          }),
+          expect.objectContaining({
+            file: secondFile,
+            metadata: expect.any(Object),
+          }),
+        ],
+      });
+    });
+  });
+
   it("renders effective metadata with provenance badges", () => {
     renderPanel({
       materials: [
         buildMaterialSummary({
           id: "material-provenance",
           title: "Provenance sample",
-          metadata: {
-            documentType: "CONTRACT",
-            documentDate: "2026-04-15",
+	          metadata: {
+	            documentType: "CONTRACT",
+	            knowledgeDocumentClass: "contracts",
+	            documentDate: "2026-04-15",
             documentNumber: "KZ-2026-0415-ENERGY",
             author: "Dana Sarsen",
             department: "Grid operations",

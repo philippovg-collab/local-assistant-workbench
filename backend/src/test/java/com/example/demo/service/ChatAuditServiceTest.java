@@ -14,6 +14,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.example.demo.api.ApiException;
+import com.example.demo.config.ChatAuditProperties;
 import com.example.demo.infrastructure.audit.PostgresChatAuditRepository;
 import com.example.demo.infrastructure.audit.StoredChatAuditRunRecord;
 import com.example.demo.model.AnswerMode;
@@ -120,6 +121,24 @@ class ChatAuditServiceTest {
         );
 
         assertEquals("chat_audit.not_found", exception.getCode());
+    }
+
+    @Test
+    void keepsAuditHealthUpUntilFailureThresholdIsReached() {
+        PostgresChatAuditRepository repository = mock(PostgresChatAuditRepository.class);
+        doAnswer(invocation -> {
+            throw new IllegalStateException("audit table unavailable");
+        }).when(repository).save(any());
+        ChatAuditProperties properties = new ChatAuditProperties();
+        properties.setHealthFailureThreshold(2);
+        ChatAuditService service = new ChatAuditService(repository, properties);
+
+        assertThrows(IllegalStateException.class, () -> service.record(responseFixture()));
+        assertEquals("UP", service.currentHealth().status());
+
+        assertThrows(IllegalStateException.class, () -> service.record(responseFixture()));
+        assertEquals("DOWN", service.currentHealth().status());
+        assertEquals(2, service.currentHealth().consecutiveFailureCount());
     }
 
     private ChatExecutionResponse responseFixture() {

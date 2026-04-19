@@ -10,12 +10,16 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
+import co.elastic.clients.elasticsearch.core.BulkRequest;
+import co.elastic.clients.elasticsearch.core.DeleteByQueryRequest;
 import com.example.demo.config.SearchSyncProperties;
 import com.example.demo.infrastructure.material.MaterialSearchSyncQueueEntry;
 import com.example.demo.infrastructure.material.MaterialSearchSyncQueueRepository;
 import com.example.demo.infrastructure.material.MaterialSearchableSnapshotRepository;
 import com.example.demo.infrastructure.material.SearchSyncDeliveryState;
+import com.example.demo.infrastructure.material.SearchableMaterialChunkSnapshot;
 import com.example.demo.infrastructure.material.SearchableMaterialSnapshot;
+import java.io.IOException;
 import java.time.Instant;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -118,6 +122,53 @@ class ElasticsearchIndexSyncServiceTest {
         verify(queueRepository, never()).markSearchSyncEntryFailed(eq(healthy.materialId()), any(), any(), any(), any());
         verify(queueRepository, never()).markSearchSyncEntryForRetry(eq(healthy.materialId()), any(), any(), any(), any(), any());
         verify(healthService, never()).recordSyncFailure(any(), any(), any());
+    }
+
+    @Test
+    void keepsExistingDocumentsWhenReplacementBulkIndexFails() throws Exception {
+        MaterialSearchSyncQueueRepository queueRepository = org.mockito.Mockito.mock(MaterialSearchSyncQueueRepository.class);
+        MaterialSearchableSnapshotRepository snapshotRepository = org.mockito.Mockito.mock(MaterialSearchableSnapshotRepository.class);
+        ElasticsearchHealthService healthService = org.mockito.Mockito.mock(ElasticsearchHealthService.class);
+        ElasticsearchClient elasticsearchClient = org.mockito.Mockito.mock(ElasticsearchClient.class);
+        MaterialSearchSyncQueueEntry entry = entry("material-a", 1, Instant.parse("2026-04-17T10:00:05Z"));
+
+        when(queueRepository.claimNextSearchSyncBatch(any(), anyInt()))
+            .thenReturn(List.of(entry))
+            .thenReturn(List.of());
+        when(queueRepository.hasPendingSearchSyncEvents(any())).thenReturn(false);
+        when(snapshotRepository.resolveSearchableSnapshot("material-a")).thenReturn(new SearchableMaterialSnapshot(
+            "material-a",
+            true,
+            "source-a",
+            "Material A",
+            "file",
+            "material-a.txt",
+            "text/plain",
+            Instant.parse("2026-04-17T10:00:00Z"),
+            List.of(new SearchableMaterialChunkSnapshot(0, "replacement text", 1, "direct-text", false))
+        ));
+        when(elasticsearchClient.bulk(org.mockito.ArgumentMatchers.any(BulkRequest.class)))
+            .thenThrow(new IOException("bulk rejected"));
+
+        ElasticsearchIndexSyncService service = createService(
+            properties(3, 5, 60),
+            queueRepository,
+            snapshotRepository,
+            healthService,
+            elasticsearchClient
+        );
+
+        service.requestProcessing();
+
+        verify(elasticsearchClient, never()).deleteByQuery(org.mockito.ArgumentMatchers.any(DeleteByQueryRequest.class));
+        verify(queueRepository).markSearchSyncEntryForRetry(
+            eq(entry.materialId()),
+            eq(entry.claimedAt()),
+            eq("search.sync_failed"),
+            argThat((String message) -> message.contains("bulk rejected")),
+            any(),
+            any()
+        );
     }
 
     private ElasticsearchIndexSyncService createService(

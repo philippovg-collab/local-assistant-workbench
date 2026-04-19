@@ -1,4 +1,4 @@
-import { useId, useMemo, useState, type FormEvent } from "react";
+import { useId, useMemo, useState, type Dispatch, type FormEvent, type SetStateAction } from "react";
 import { BookText, Eye, History, Pencil, PlusCircle, RotateCcw, Trash2 } from "lucide-react";
 import { EmptyState } from "@/components/app/EmptyState";
 import { SectionIntro } from "@/components/app/SectionIntro";
@@ -17,6 +17,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
 import type {
   CreateInstructionRequest,
@@ -114,11 +121,16 @@ export function InstructionLibraryPanel({
   onLoadInstructionDiff,
   onRestoreInstructionRevision,
 }: InstructionLibraryPanelProps) {
-  const [form, setForm] = useState<InstructionFormState>(initialInstructionForm);
+  const [createForm, setCreateForm] = useState<InstructionFormState>(initialInstructionForm);
+  const [editForm, setEditForm] = useState<InstructionFormState>(initialInstructionForm);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isEditingSubmitting, setIsEditingSubmitting] = useState(false);
   const [editingInstructionId, setEditingInstructionId] = useState<string | null>(null);
+  const [isEditSheetOpen, setIsEditSheetOpen] = useState(false);
   const categoryLabelId = useId();
   const scopeLabelId = useId();
+  const editCategoryLabelId = useId();
+  const editScopeLabelId = useId();
   const groupedInstructions = useMemo(
     () =>
       instructionScopeOrder.map((scopeLevel) => ({
@@ -128,29 +140,39 @@ export function InstructionLibraryPanel({
     [instructions],
   );
 
-  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setIsSubmitting(true);
-
-    const payload: CreateInstructionRequest = {
+  const buildPayload = (form: InstructionFormState): CreateInstructionRequest => ({
       title: form.title,
       category: form.category,
       content: form.content,
       scopeLevel: form.scopeLevel,
       scopeTargetId: form.scopeTargetId.trim() || null,
       active: form.active,
-    };
+  });
+
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setIsSubmitting(true);
 
     try {
-      if (editingInstructionId) {
-        await onUpdateInstruction(editingInstructionId, payload);
-      } else {
-        await onCreateInstruction(payload);
-      }
-      setForm(initialInstructionForm);
-      setEditingInstructionId(null);
+      await onCreateInstruction(buildPayload(createForm));
+      setCreateForm(initialInstructionForm);
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleEditSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!editingInstructionId) {
+      return;
+    }
+    setIsEditingSubmitting(true);
+
+    try {
+      await onUpdateInstruction(editingInstructionId, buildPayload(editForm));
+      cancelEditing();
+    } finally {
+      setIsEditingSubmitting(false);
     }
   };
 
@@ -163,8 +185,7 @@ export function InstructionLibraryPanel({
 
     await onDeleteInstruction(instructionId);
     if (editingInstructionId === instructionId) {
-      setEditingInstructionId(null);
-      setForm(initialInstructionForm);
+      cancelEditing();
     }
   };
 
@@ -186,7 +207,7 @@ export function InstructionLibraryPanel({
 
     await onLoadInstructionRevisions(instructionId);
     setEditingInstructionId(instructionId);
-    setForm({
+    setEditForm({
       title: detail.title,
       category: detail.category,
       content: detail.content,
@@ -194,18 +215,146 @@ export function InstructionLibraryPanel({
       scopeTargetId: detail.scopeTargetId ?? "",
       active: detail.active ?? true,
     });
+    setIsEditSheetOpen(true);
   };
 
   const cancelEditing = () => {
+    setIsEditSheetOpen(false);
     setEditingInstructionId(null);
-    setForm(initialInstructionForm);
+    setEditForm(initialInstructionForm);
   };
 
-  const formModeLabel = editingInstructionId ? "Редактирование" : "Создание";
+  const renderInstructionForm = ({
+    form,
+    setForm,
+    categoryId,
+    scopeId,
+    isBusy,
+    busyLabel,
+    idleLabel,
+    onSubmit,
+    showCancel = false,
+  }: {
+    form: InstructionFormState;
+    setForm: Dispatch<SetStateAction<InstructionFormState>>;
+    categoryId: string;
+    scopeId: string;
+    isBusy: boolean;
+    busyLabel: string;
+    idleLabel: string;
+    onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+    showCancel?: boolean;
+  }) => (
+    <form className="space-y-4" onSubmit={onSubmit}>
+      <div className="space-y-2">
+        <Label htmlFor={`${categoryId}-title`}>Название</Label>
+        <Input
+          id={`${categoryId}-title`}
+          placeholder="Например: Базовая роль ассистента"
+          required
+          value={form.title}
+          onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))}
+        />
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <div className="space-y-2">
+          <Label id={categoryId}>Тип инструкции</Label>
+          <Select
+            value={form.category}
+            onValueChange={(value) =>
+              setForm((current) => ({ ...current, category: value as InstructionCategory }))
+            }
+          >
+            <SelectTrigger aria-labelledby={categoryId}>
+              <SelectValue placeholder="Выбери тип" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="system">System</SelectItem>
+              <SelectItem value="user">User</SelectItem>
+              <SelectItem value="context">Context</SelectItem>
+              <SelectItem value="safety">Safety</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="space-y-2">
+          <Label id={scopeId}>Уровень инструкции</Label>
+          <Select
+            value={form.scopeLevel}
+            onValueChange={(value) =>
+              setForm((current) => ({ ...current, scopeLevel: value as InstructionScopeLevel }))
+            }
+          >
+            <SelectTrigger aria-labelledby={scopeId}>
+              <SelectValue placeholder="Выбери уровень" />
+            </SelectTrigger>
+            <SelectContent>
+              {instructionScopeOrder.map((scopeLevel) => (
+                <SelectItem key={scopeLevel} value={scopeLevel}>
+                  {instructionScopeLabels[scopeLevel]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor={`${categoryId}-target`}>Scope target</Label>
+        <Input
+          id={`${categoryId}-target`}
+          placeholder={form.scopeLevel === "workspace_project" ? "Например: sales-workspace" : "Опционально"}
+          value={form.scopeTargetId}
+          onChange={(event) =>
+            setForm((current) => ({ ...current, scopeTargetId: event.target.value }))
+          }
+        />
+        <p className="text-xs leading-5 text-muted-foreground">{scopeHelperText[form.scopeLevel]}</p>
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor={`${categoryId}-content`}>Текст инструкции</Label>
+        <Textarea
+          id={`${categoryId}-content`}
+          placeholder="Опиши роль, ограничение или контекст."
+          required
+          rows={9}
+          value={form.content}
+          onChange={(event) => setForm((current) => ({ ...current, content: event.target.value }))}
+        />
+      </div>
+
+      <label className="flex items-center gap-3 rounded-[20px] border border-field-border bg-field px-4 py-3">
+        <Checkbox
+          aria-label="Сделать инструкцию активной"
+          checked={form.active}
+          onCheckedChange={(checked) =>
+            setForm((current) => ({ ...current, active: Boolean(checked) }))
+          }
+        />
+        <span className="text-sm text-foreground">
+          Инструкция активна и может участвовать в runtime stack
+        </span>
+      </label>
+
+      <div className="flex flex-wrap gap-3">
+        <Button disabled={isBusy} type="submit">
+          <PlusCircle className="h-4 w-4" />
+          {isBusy ? busyLabel : idleLabel}
+        </Button>
+        {showCancel ? (
+          <Button type="button" variant="secondary" onClick={cancelEditing}>
+            Отменить редактирование
+          </Button>
+        ) : null}
+      </div>
+    </form>
+  );
 
   return (
-    <div className="grid gap-6 xl:grid-cols-[minmax(0,1.08fr)_minmax(380px,0.92fr)]">
-      <Card>
+    <div className="grid gap-6">
+      <Card className="order-2">
         <CardHeader>
           <SectionIntro
             badge={`${instructions.length} saved`}
@@ -316,125 +465,28 @@ export function InstructionLibraryPanel({
         </CardContent>
       </Card>
 
-      <div className="space-y-6">
-        <Card>
+      <div className="contents">
+        <Card className="order-1">
           <CardHeader>
             <SectionIntro
-              badge={formModeLabel}
-              badgeVariant={editingInstructionId ? "default" : "secondary"}
-              description="Создавай и редактируй инструкции сразу с указанием уровня применения. Это помогает потом понять, где именно промпт повлиял на качество ответа."
+              badge="Создание"
+              badgeVariant="secondary"
+              description="Добавь новую инструкцию с уровнем применения. Редактирование существующих инструкций открывается отдельно по кнопке в списке."
               eyebrow="Prompt Governance"
-              title={editingInstructionId ? "Редактировать инструкцию" : "Добавить инструкцию"}
+              title="Добавить инструкцию"
             />
           </CardHeader>
           <CardContent className="mt-0 space-y-4">
-            <form className="space-y-4" onSubmit={handleSubmit}>
-              <div className="space-y-2">
-                <Label htmlFor="instruction-title">Название</Label>
-                <Input
-                  id="instruction-title"
-                  placeholder="Например: Базовая роль ассистента"
-                  required
-                  value={form.title}
-                  onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))}
-                />
-              </div>
-
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label id={categoryLabelId}>Тип инструкции</Label>
-                  <Select
-                    value={form.category}
-                    onValueChange={(value) =>
-                      setForm((current) => ({ ...current, category: value as InstructionCategory }))
-                    }
-                  >
-                    <SelectTrigger aria-labelledby={categoryLabelId}>
-                      <SelectValue placeholder="Выбери тип" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="system">System</SelectItem>
-                      <SelectItem value="user">User</SelectItem>
-                      <SelectItem value="context">Context</SelectItem>
-                      <SelectItem value="safety">Safety</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label id={scopeLabelId}>Уровень инструкции</Label>
-                  <Select
-                    value={form.scopeLevel}
-                    onValueChange={(value) =>
-                      setForm((current) => ({ ...current, scopeLevel: value as InstructionScopeLevel }))
-                    }
-                  >
-                    <SelectTrigger aria-labelledby={scopeLabelId}>
-                      <SelectValue placeholder="Выбери уровень" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {instructionScopeOrder.map((scopeLevel) => (
-                        <SelectItem key={scopeLevel} value={scopeLevel}>
-                          {instructionScopeLabels[scopeLevel]}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="instruction-target">Scope target</Label>
-                <Input
-                  id="instruction-target"
-                  placeholder={form.scopeLevel === "workspace_project" ? "Например: sales-workspace" : "Опционально"}
-                  value={form.scopeTargetId}
-                  onChange={(event) =>
-                    setForm((current) => ({ ...current, scopeTargetId: event.target.value }))
-                  }
-                />
-                <p className="text-xs leading-5 text-muted-foreground">{scopeHelperText[form.scopeLevel]}</p>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="instruction-content">Текст инструкции</Label>
-                <Textarea
-                  id="instruction-content"
-                  placeholder="Опиши роль, ограничение или контекст."
-                  required
-                  rows={9}
-                  value={form.content}
-                  onChange={(event) => setForm((current) => ({ ...current, content: event.target.value }))}
-                />
-              </div>
-
-              <label className="flex items-center gap-3 rounded-[20px] border border-field-border bg-field px-4 py-3">
-                <Checkbox
-                  aria-label="Сделать инструкцию активной"
-                  checked={form.active}
-                  onCheckedChange={(checked) =>
-                    setForm((current) => ({ ...current, active: Boolean(checked) }))
-                  }
-                />
-                <span className="text-sm text-foreground">
-                  Инструкция активна и может участвовать в runtime stack
-                </span>
-              </label>
-
-              <div className="flex flex-wrap gap-3">
-                <Button disabled={isSubmitting} type="submit">
-                  <PlusCircle className="h-4 w-4" />
-                  {isSubmitting
-                    ? editingInstructionId ? "Сохраняем..." : "Создаём..."
-                    : editingInstructionId ? "Сохранить изменения" : "Сохранить инструкцию"}
-                </Button>
-                {editingInstructionId ? (
-                  <Button type="button" variant="secondary" onClick={cancelEditing}>
-                    Отменить редактирование
-                  </Button>
-                ) : null}
-              </div>
-            </form>
+            {renderInstructionForm({
+              form: createForm,
+              setForm: setCreateForm,
+              categoryId: categoryLabelId,
+              scopeId: scopeLabelId,
+              isBusy: isSubmitting,
+              busyLabel: "Создаём...",
+              idleLabel: "Сохранить инструкцию",
+              onSubmit: handleSubmit,
+            })}
 
             {message ? (
               <Alert variant="success">
@@ -452,7 +504,7 @@ export function InstructionLibraryPanel({
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="order-3">
           <CardHeader>
             <SectionIntro
               badge={selectedInstruction ? `rev ${selectedInstruction.revision ?? 1}` : "preview"}
@@ -590,6 +642,41 @@ export function InstructionLibraryPanel({
           </CardContent>
         </Card>
       </div>
+
+      <Sheet
+        open={isEditSheetOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            cancelEditing();
+          } else {
+            setIsEditSheetOpen(true);
+          }
+        }}
+      >
+        <SheetContent
+          className="w-[92vw] max-w-2xl overflow-y-auto border-border bg-popover text-foreground"
+          side="right"
+        >
+          <SheetHeader className="mb-6">
+            <SheetTitle>Редактировать инструкцию</SheetTitle>
+            <SheetDescription className="text-muted-foreground">
+              Изменения сохраняются как новая ревизия, а форма добавления инструкции на странице остаётся независимой.
+            </SheetDescription>
+          </SheetHeader>
+
+          {renderInstructionForm({
+            form: editForm,
+            setForm: setEditForm,
+            categoryId: editCategoryLabelId,
+            scopeId: editScopeLabelId,
+            isBusy: isEditingSubmitting,
+            busyLabel: "Сохраняем...",
+            idleLabel: "Сохранить изменения",
+            onSubmit: handleEditSubmit,
+            showCancel: true,
+          })}
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }

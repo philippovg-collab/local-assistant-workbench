@@ -1,7 +1,10 @@
 package com.example.demo.service;
 
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
+import co.elastic.clients.elasticsearch._types.FieldValue;
+import co.elastic.clients.elasticsearch.core.BulkRequest;
 import co.elastic.clients.elasticsearch.core.BulkResponse;
+import co.elastic.clients.elasticsearch.core.DeleteByQueryRequest;
 import com.example.demo.config.SearchSyncProperties;
 import com.example.demo.infrastructure.material.MaterialSearchSyncQueueEntry;
 import com.example.demo.infrastructure.material.MaterialSearchSyncQueueRepository;
@@ -13,6 +16,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Executor;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -62,12 +66,18 @@ public class ElasticsearchIndexSyncService {
             return;
         }
 
-        searchSyncExecutor.execute(this::drainQueue);
+        try {
+            searchSyncExecutor.execute(this::drainQueue);
+        } catch (RejectedExecutionException exception) {
+            drainScheduled.set(false);
+            logger.warn("Search sync executor rejected queue processing request; leaving sync events pending", exception);
+        }
     }
 
     long backoffSeconds(int attemptNumber) {
         long base = Math.max(1, searchSyncProperties.getRetryBaseSeconds());
-        long candidate = base * (1L << Math.max(0, attemptNumber - 1));
+        int exponent = Math.min(30, Math.max(0, attemptNumber - 1));
+        long candidate = base * (1L << exponent);
         return Math.min(candidate, Math.max(base, searchSyncProperties.getRetryMaxSeconds()));
     }
 
@@ -79,7 +89,9 @@ public class ElasticsearchIndexSyncService {
                 now
             );
 
-            while (true) {
+            int processedBatches = 0;
+            int maxBatches = Math.max(1, searchSyncProperties.getMaxDrainBatches());
+            while (processedBatches < maxBatches) {
                 List<MaterialSearchSyncQueueEntry> claimedEntries = queueRepository.claimNextSearchSyncBatch(
                     Instant.now(),
                     searchSyncProperties.getClaimBatchSize()
@@ -88,6 +100,7 @@ public class ElasticsearchIndexSyncService {
                     break;
                 }
                 processClaimedBatch(claimedEntries, Instant.now());
+                processedBatches += 1;
             }
         } finally {
             drainScheduled.set(false);
@@ -181,28 +194,41 @@ public class ElasticsearchIndexSyncService {
 
     private void reconcileMaterial(String materialId) {
         SearchableMaterialSnapshot snapshot = searchableSnapshotRepository.resolveSearchableSnapshot(materialId);
-        deleteExistingDocuments(materialId);
         if (!snapshot.searchable()) {
+            deleteExistingDocuments(materialId);
             return;
         }
 
         List<SearchableChunkDocument> documents = SearchableChunkDocument.fromSnapshot(snapshot);
         if (documents.isEmpty()) {
+            deleteExistingDocuments(materialId);
             return;
         }
 
+        indexDocuments(documents);
+        deleteStaleDocuments(materialId, documents.stream().map(SearchableChunkDocument::documentId).toList());
+    }
+
+    private void indexDocuments(List<SearchableChunkDocument> documents) {
+        int maxBulkActions = Math.max(1, searchSyncProperties.getMaxBulkActions());
+        for (int start = 0; start < documents.size(); start += maxBulkActions) {
+            int end = Math.min(start + maxBulkActions, documents.size());
+            indexDocumentBatch(documents.subList(start, end));
+        }
+    }
+
+    private void indexDocumentBatch(List<SearchableChunkDocument> documents) {
         BulkResponse response;
         try {
-            response = elasticsearchClient.bulk(bulkRequest -> {
-                for (SearchableChunkDocument document : documents) {
-                    bulkRequest.operations(operation -> operation.index(index -> index
-                        .index(searchSyncProperties.writeAlias())
-                        .id(document.documentId())
-                        .document(document)
-                    ));
-                }
-                return bulkRequest;
-            });
+            BulkRequest.Builder bulkRequest = new BulkRequest.Builder();
+            for (SearchableChunkDocument document : documents) {
+                bulkRequest.operations(operation -> operation.index(index -> index
+                    .index(searchSyncProperties.writeAlias())
+                    .id(document.documentId())
+                    .document(document)
+                ));
+            }
+            response = elasticsearchClient.bulk(bulkRequest.build());
         } catch (IOException exception) {
             throw new IllegalStateException("Elasticsearch bulk index failed", exception);
         }
@@ -211,12 +237,34 @@ public class ElasticsearchIndexSyncService {
 
     private void deleteExistingDocuments(String materialId) {
         try {
-            elasticsearchClient.deleteByQuery(delete -> delete
+            elasticsearchClient.deleteByQuery(DeleteByQueryRequest.of(delete -> delete
                 .index(searchSyncProperties.writeAlias())
                 .query(query -> query.term(term -> term.field("materialId").value(materialId)))
-            );
+            ));
         } catch (IOException exception) {
             throw new IllegalStateException("Elasticsearch delete-by-query failed", exception);
+        }
+    }
+
+    private void deleteStaleDocuments(String materialId, List<String> retainedDocumentIds) {
+        if (retainedDocumentIds == null || retainedDocumentIds.isEmpty()) {
+            deleteExistingDocuments(materialId);
+            return;
+        }
+
+        try {
+            elasticsearchClient.deleteByQuery(DeleteByQueryRequest.of(delete -> delete
+                .index(searchSyncProperties.writeAlias())
+                .query(query -> query.bool(bool -> bool
+                    .filter(filter -> filter.term(term -> term.field("materialId").value(materialId)))
+                    .mustNot(mustNot -> mustNot.terms(terms -> terms
+                        .field("_id")
+                        .terms(values -> values.value(retainedDocumentIds.stream().map(FieldValue::of).toList()))
+                    ))
+                ))
+            ));
+        } catch (IOException exception) {
+            throw new IllegalStateException("Elasticsearch stale document cleanup failed", exception);
         }
     }
 

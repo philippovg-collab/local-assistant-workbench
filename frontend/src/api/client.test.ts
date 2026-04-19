@@ -42,4 +42,61 @@ describe("apiClient", () => {
       expect.objectContaining({ signal: undefined }),
     );
   });
+
+  it("requests paginated materials instead of treating the catalog as an unbounded array", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          items: [],
+          total: 101,
+          offset: 100,
+          limit: 100,
+          hasMore: false,
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        },
+      ),
+    );
+
+    const response = await apiClient.fetchMaterials({ offset: 100, limit: 100 });
+
+    expect(response.total).toBe(101);
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "http://127.0.0.1:8080/api/materials?offset=100&limit=100",
+      expect.objectContaining({ signal: undefined }),
+    );
+  });
+
+  it("fetches P0 chat run trace details from the trace endpoint", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          id: "run-1",
+          mode: "direct",
+          status: "COMPLETED",
+          createdAt: "2026-04-19T00:00:00Z",
+          llmCalls: [],
+          events: [],
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        },
+      ),
+    );
+
+    const response = await apiClient.fetchChatRunTrace("run-1");
+
+    expect(response.status).toBe("COMPLETED");
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "http://127.0.0.1:8080/api/chat-runs/run-1/trace",
+      expect.objectContaining({ signal: undefined }),
+    );
+  });
 });

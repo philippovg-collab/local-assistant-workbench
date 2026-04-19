@@ -41,7 +41,7 @@ import type {
   SourceTrustLevel,
 } from "@/types";
 import { formatDate } from "@/utils/format";
-import { parseTagsInput } from "@/utils/materialMetadata";
+import { parseTagsInput, sourceTrustLabels } from "@/utils/materialMetadata";
 import {
   formatRetrievalFilterValue,
   hasRetrievalFilterValue,
@@ -104,16 +104,16 @@ const normalizeTags = (value: string) =>
     .filter((tag) => tag.length > 0);
 
 const retrievalFilterLabels: Record<RetrievalFilterKey, string> = {
-  documentNumber: "Doc number",
-  documentDateFrom: "Date from",
-  documentDateTo: "Date to",
-  department: "Department",
-  project: "Project",
-  counterparty: "Counterparty",
-  businessStatus: "Status",
-  language: "Language",
-  tags: "Tags",
-  sourceTrustMin: "Source trust",
+  documentNumber: "Номер документа",
+  documentDateFrom: "Дата с",
+  documentDateTo: "Дата по",
+  department: "Подразделение",
+  project: "Проект",
+  counterparty: "Контрагент",
+  businessStatus: "Статус",
+  language: "Язык",
+  tags: "Теги / ключевые слова",
+  sourceTrustMin: "Минимальное доверие",
 };
 
 const sourceTrustOptions: SourceTrustLevel[] = ["HIGH", "MEDIUM", "LOW", "UNKNOWN"];
@@ -328,19 +328,20 @@ export function RagChatPanel({
     <>
       <StudioScaffold
         badge="POST /api/chat mode=rag"
+        layout="stacked"
         controls={
           <>
             <div className="mb-4 space-y-3 rounded-[24px] border border-border bg-surface-subtle/80 p-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <p className="text-sm font-semibold text-foreground">Filters & hints</p>
+                  <p className="text-sm font-semibold text-foreground">Фильтры и подсказки поиска</p>
                   <p className="text-xs leading-5 text-muted-foreground">
-                    Query hints auto-apply into retrieval and stay editable in the drawer.
+                    Подсказки из вопроса и ручные фильтры работают по тем же атрибутам, которые заполняются при загрузке материалов.
                   </p>
                 </div>
                 <Button type="button" variant="outline" onClick={() => setIsFilterDrawerOpen(true)}>
                   <SlidersHorizontal className="h-4 w-4" />
-                  Filters & hints
+                  Фильтры поиска
                 </Button>
               </div>
 
@@ -387,17 +388,17 @@ export function RagChatPanel({
                     ? queryHintsEnabled
                       ? "Пока фильтры не заданы. После ввода запроса здесь появятся auto hints и ручные фасеты."
                       : "Пока фильтры не заданы. Auto hints отключены rollout-флагом, но ручные фасеты доступны."
-                    : "Metadata filters отключены rollout-флагом; запрос будет отправлен без retrievalFilters."}
+                    : "Metadata filters отключены rollout-флагом; поля в drawer недоступны и запрос уйдёт без retrievalFilters."}
                 </p>
               )}
 
               {queryHintsEnabled && dismissedHintKeys.length > 0 ? (
                 <div className="flex items-center justify-between gap-3 rounded-[18px] border border-border bg-field px-4 py-3">
                   <p className="text-xs text-muted-foreground">
-                    Dismissed hints stay cleared until you explicitly restore them.
+                    Скрытые подсказки не вернутся, пока ты не восстановишь их вручную.
                   </p>
                   <Button size="sm" type="button" variant="outline" onClick={onResetDismissedHints}>
-                    Restore auto hints
+                    Вернуть подсказки
                   </Button>
                 </div>
               ) : null}
@@ -437,45 +438,48 @@ export function RagChatPanel({
             <Sheet open={isFilterDrawerOpen} onOpenChange={setIsFilterDrawerOpen}>
               <SheetContent side="right" className="overflow-y-auto">
                 <SheetHeader>
-                  <SheetTitle>Filters & hints</SheetTitle>
+                  <SheetTitle>Фильтры и подсказки поиска</SheetTitle>
                   <SheetDescription>
                     {metadataFiltersEnabled
                       ? queryHintsEnabled
-                        ? "Manual filters always win over auto-extracted hints. Empty recommended fields can still be auto-filled from the prompt."
-                        : "Manual filters are available. Auto hints are disabled by rollout."
-                      : "Metadata filters are disabled by rollout; changes here are retained locally but not submitted."}
+                        ? "Ручные фильтры важнее подсказок из вопроса. Поля совпадают с атрибутами материала при загрузке."
+                        : "Ручные фильтры доступны. Автоподсказки из вопроса отключены rollout-флагом."
+                      : "Metadata filters отключены rollout-флагом; поля ниже недоступны и не будут отправлены в /api/chat."}
                   </SheetDescription>
                 </SheetHeader>
 
                 <div className="mt-6 space-y-5">
                   {!metadataFiltersEnabled ? (
                     <div className="rounded-[18px] border border-border bg-field px-4 py-3 text-sm leading-6 text-muted-foreground">
-                      metadata-filters-v1 is off, so /api/chat will omit retrievalFilters.
+                      metadata-filters-v1 выключен, поэтому /api/chat получит запрос без retrievalFilters.
                     </div>
                   ) : !queryHintsEnabled ? (
                     <div className="rounded-[18px] border border-border bg-field px-4 py-3 text-sm leading-6 text-muted-foreground">
-                      query-hints-v1 is off, so prompt-derived hints are not applied or shown.
+                      query-hints-v1 выключен, поэтому подсказки из текста вопроса не применяются.
                     </div>
                   ) : null}
                   <div className="space-y-2">
-                    <label className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Document number</label>
+                    <label className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Номер документа</label>
                     <Input
+                      disabled={!metadataFiltersEnabled}
                       value={retrievalFilters.documentNumber ?? ""}
                       onChange={(event) => onRetrievalFilterChange("documentNumber", event.target.value || null)}
                     />
                   </div>
                   <div className="grid gap-4 sm:grid-cols-2">
                     <div className="space-y-2">
-                      <label className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Date from</label>
+                      <label className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Дата с</label>
                       <Input
+                        disabled={!metadataFiltersEnabled}
                         type="date"
                         value={retrievalFilters.documentDateFrom ?? ""}
                         onChange={(event) => onRetrievalFilterChange("documentDateFrom", event.target.value || null)}
                       />
                     </div>
                     <div className="space-y-2">
-                      <label className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Date to</label>
+                      <label className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Дата по</label>
                       <Input
+                        disabled={!metadataFiltersEnabled}
                         type="date"
                         value={retrievalFilters.documentDateTo ?? ""}
                         onChange={(event) => onRetrievalFilterChange("documentDateTo", event.target.value || null)}
@@ -486,34 +490,37 @@ export function RagChatPanel({
                     <div className="space-y-2" key={key}>
                       <label className="text-xs uppercase tracking-[0.14em] text-muted-foreground">{retrievalFilterLabels[key]}</label>
                       <Input
+                        disabled={!metadataFiltersEnabled}
                         value={(retrievalFilters[key] as string | null | undefined) ?? ""}
                         onChange={(event) => onRetrievalFilterChange(key, event.target.value || null)}
                       />
                     </div>
                   ))}
                   <div className="space-y-2">
-                    <label className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Tags</label>
+                    <label className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Теги / ключевые слова</label>
                     <Input
+                      disabled={!metadataFiltersEnabled}
                       value={(retrievalFilters.tags ?? []).join(", ")}
                       onChange={(event) => onRetrievalFilterChange("tags", parseTagsInput(event.target.value))}
                     />
                   </div>
                   <div className="space-y-2">
-                    <label className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Source trust</label>
+                    <label className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Минимальное доверие</label>
                     <Select
+                      disabled={!metadataFiltersEnabled}
                       value={retrievalFilters.sourceTrustMin ?? "none"}
                       onValueChange={(value) =>
                         onRetrievalFilterChange("sourceTrustMin", value === "none" ? null : (value as SourceTrustLevel))
                       }
                     >
                       <SelectTrigger>
-                        <SelectValue placeholder="Any trust level" />
+                        <SelectValue placeholder="Любой уровень" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="none">Any trust level</SelectItem>
+                        <SelectItem value="none">Любой уровень</SelectItem>
                         {sourceTrustOptions.map((option) => (
                           <SelectItem key={option} value={option}>
-                            {option}
+                            {sourceTrustLabels[option]}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -761,7 +768,7 @@ export function RagChatPanel({
             )}
           </div>
         }
-        title="Ответ по материалам"
+        title="Запрос по материалам"
       />
 
       <Dialog open={openedMaterial !== null || isLoadingMaterial || materialError !== null} onOpenChange={(open) => {

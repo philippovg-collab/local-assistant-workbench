@@ -9,6 +9,7 @@ public class EmbeddingProperties {
 
     private String model = "nomic-embed-text";
     private int timeoutSeconds = 60;
+    private int expectedDimension = 768;
 
     public String getModel() {
         return model;
@@ -24,5 +25,13 @@ public class EmbeddingProperties {
 
     public void setTimeoutSeconds(int timeoutSeconds) {
         this.timeoutSeconds = timeoutSeconds;
+    }
+
+    public int getExpectedDimension() {
+        return expectedDimension;
+    }
+
+    public void setExpectedDimension(int expectedDimension) {
+        this.expectedDimension = expectedDimension;
     }
 }

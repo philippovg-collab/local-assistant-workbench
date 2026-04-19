@@ -51,7 +51,7 @@ describe("useHealth", () => {
       .mockResolvedValueOnce({
         application: "spring-backend",
         status: "DEGRADED",
-        timestamp: "2026-04-17T10:00:15Z",
+        timestamp: "2026-04-17T10:00:30Z",
       });
 
     await act(async () => {
@@ -63,7 +63,7 @@ describe("useHealth", () => {
     expect(screen.getByTestId("health-status").textContent).toBe("UP");
 
     await act(async () => {
-      vi.advanceTimersByTime(15_000);
+      vi.advanceTimersByTime(30_000);
       await Promise.resolve();
     });
 

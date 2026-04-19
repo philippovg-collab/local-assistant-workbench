@@ -1,146 +1,73 @@
-# Аудит Реализации И План Следующих Доработок
+# Актуальный аудит реализации и остаточный план
 
-## Что было проверено
-- Исходный план из `/Users/gleb-imac/Downloads/PLAN.md`.
-- Backend и frontend код в текущем репозитории.
-- Автотесты:
-  - `backend`: `mvn -Dmaven.repo.local=/tmp/codex-m2 test`
-  - `frontend`: `npm test`
+Обновлено по состоянию текущего рабочего дерева на `2026-04-19`.
 
-## Итоговая оценка реализации
+## Итоговая оценка
 
-### Общая картина
-- План реализован в существенной степени.
-- По состоянию на проверку можно считать закрытыми примерно `80-85%` исходных изменений.
-- Наиболее хорошо закрыты: instruction contract, transport/polling, разделение material-репозиториев, runtime probes.
-- Наиболее заметные хвосты: knowledge lifecycle вокруг `source_key`, поведение при удалении активной версии материала, несколько UI-веток всё ещё опираются на общее число материалов, а не на число активных версий.
+Исходный план больше не является активным backlog-документом: основная архитектурная и продуктовая часть закрыта. Текущий статус стоит считать не `80-85%`, а примерно `95%+` по исходному объёму.
 
-### Степень реализации по разделам
-| Раздел | Статус | Оценка |
-|---|---|---:|
-| 1. Архитектурные границы backend | Частично завершён | 85% |
-| 2. Instruction-модель и контракт | Практически завершён | 95% |
-| 3. Health и status plane | В основном завершён | 85% |
-| 4. Knowledge lifecycle и frontend transport | Частично завершён | 70% |
+Закрыты ключевые хвосты прошлого ревью:
+- устойчивый material lineage через `material_lineage_identities`;
+- инварианты `ACTIVE/SUPERSEDED` и single-active-version per lineage;
+- удаление active-версии с promotion последней `SUPERSEDED`-версии;
+- active-only retrieval, ready-count и historical-only readiness;
+- frontend readiness/gating для пустой базы, indexing, historical-only и degraded состояний;
+- edit/revision/restore flow для инструкций;
+- material reindex, фильтры active/all/problematic и lineage view в UI;
+- search/health observability для PostgreSQL/Elasticsearch lexical plane.
 
-## Детальная сверка с исходным планом
+## Статус по направлениям
 
-### 1. Выпрямить архитектурные границы backend
-- Сделано: `MaterialService` больше не содержит ручной composition path и работает через `MaterialQueryService`, `MaterialIngestionService`, `MaterialRetrievalService`.
-- Сделано: `MaterialRepository` разрезан на `MaterialCatalogRepository`, `MaterialSearchRepository`, `MaterialIndexingQueueRepository`.
-- Сделано: production-реализация сведена к `PostgresMaterialRepository`.
-- Сделано: `FileMaterialRepository` переведён в legacy-reader роль и используется импортёром, а не как runtime store.
-- Частично сделано: появились `@SpringBootTest`/IT-тесты, но часть unit-тестов всё ещё собирает сервисы вручную вокруг in-memory зависимостей.
+| Направление | Актуальность | Статус |
+|---|---|---|
+| Backend boundaries | `MaterialService` разделён на ingestion/query/retrieval/indexing контуры, repository interfaces разнесены | Done |
+| Instruction lifecycle | create/update/delete/revisions/diff/restore реализованы, категории нормализованы | Done |
+| Health/status plane | direct/LLM/embedding/RAG/knowledge/OCR/search статусы разделены; `/api/health` теперь refresh-ит search health | Done |
+| Material lineage | source identity, active/superseded, promotion после удаления и active-only counts реализованы | Done |
+| Frontend readiness | UI опирается на backend truth-model и различает active/history/indexing/degraded | Done |
+| Search operations | reindex, rechunk-active, search sync recovery/rebuild scripts и operator runner присутствуют | Mostly done |
 
-### 2. Довести instruction-модель до реального контракта
-- Сделано: backend enum `InstructionCategory` со значениями `system`, `user`, `context`, `safety`.
-- Сделано: миграция `V5__instruction_category_contract.sql` с нормализацией старых значений и DB check constraint.
-- Сделано: `PromptPolicyResolver` разделяет `system`, `safety`, `context`, `user` по разным блокам и по-разному применяет их в `DIRECT` и `RAG`.
-- Сделано: frontend использует те же значения категорий.
-- Сделано: batch-load инструкций с сохранением порядка и валидацией UUID/unknown ids на backend boundary.
-- Остался хвост: нет отдельного edit/update сценария для существующих инструкций, только create/delete/read.
+## Реальные остаточные доработки
 
-### 3. Пересобрать health и status plane
-- Сделано: `RuntimeReadinessService` разделяет `llmStatus` и `directStatus`: catalog/provider readiness идёт через `listModels()`, а direct readiness подтверждается отдельным `chat(...)` probe.
-- Сделано: `HealthController` разделяет `status`, `directStatus`, `ragStatus`, `knowledgeStatus`, `ocrStatus`, а empty/history/indexing corpus не валит общий backend status.
-- Сделано: response shape расширена обратно-совместимо.
-- Сделано: frontend polling для `useHealth` и `useModels` раз в `15s`, для `useMaterials` раз в `5s`, пока есть активная индексация.
-- Сделано: `frontend/src/utils/readiness.ts` использует backend-driven truth-model из `/api/health`, а не локально выводит RAG readiness из `health + materials`.
-- Сделано: `App.tsx`, `StatusSummary`, `RagChatPanel` и `DirectChatPanel` используют один и тот же backend contract для helper text, disabled state и overview messaging.
+1. **Production rollout Elasticsearch**
+   - Оставить безопасные defaults: `app.search-sync.enabled=false`, `app.rag.lexical-provider=postgres`.
+   - Перед включением `auto` прогнать Docker-backed ES tests из обычного shell/CI:
+     `./scripts/test-backend.sh integration -Dit.test=ElasticsearchIndexSyncIT,ElasticsearchPhase4IT,ElasticsearchPhase5IT,ElasticsearchPhase5DownIT`.
+   - После успешного proof подготовить write index, rebuild, smoke search, затем promote read alias.
 
-### 4. Исправить knowledge lifecycle и frontend transport
-- Сделано: `source_key` и `version_state` появились в runtime, БД и API.
-- Сделано: при новой активной версии старые активные версии переводятся в `SUPERSEDED`.
-- Сделано: retrieval и ready-count отфильтрованы по `ACTIVE`.
-- Сделано: `MaterialSummary` и frontend знают про `versionState`.
-- Сделано: единый frontend base URL resolver использован и для `fetch`, и для `curl` preview.
-- Сделано: `useChatExecution` сбрасывает stale response на новом submit и хранит `lastSubmittedRequest`.
-- Частично сделано: версия источника всё ещё определяется эвристикой по `title/originalFileName`, а не устойчивым source identity.
-- Частично сделано: lifecycle удаления активной версии не закрыт.
-- Частично сделано: нет отдельного regression-контура на version lifecycle, удаление активной версии и восстановление предыдущей версии.
+2. **Operator runbook**
+   - Зафиксировать порядок использования:
+     - `scripts/search-prepare-index.sh`
+     - `scripts/search-rebuild-write-index.sh`
+     - `scripts/search-requeue-failed.sh`
+     - `scripts/search-promote-read-alias.sh`
+   - Описать rollback: вернуть `app.rag.lexical-provider=postgres`, оставить ES sync включённым только для догоняющего shadow/rebuild режима.
 
-## Найденные пробелы, которые стоит считать следующей очередью работ
+3. **User-facing lineage override для файлов**
+   - Текущий file lineage уже защищён от false-supersede по одному имени файла через `FILE_STEM_AND_CONTENT_ANCHOR`.
+   - Остаётся продуктовая доработка: дать пользователю явное поле lineage/title override, если разные файлы должны считаться версиями одного документа несмотря на отличающийся content anchor.
 
-### 1. Stabilize Material Lineage
-Цель: сделать versioning детерминированным и безопасным.
+4. **Production quality rollout**
+   - `hybrid-rerank-v1` и quality reports уже есть.
+   - `structured-v1` остаётся за rollout flag, поэтому включение для production-корпуса должно идти отдельным controlled rollout с quality report до/после.
 
-Задачи:
-- Ввести более устойчивый `source_key` contract.
-- Для file-материалов строить ключ не только из имени файла.
-- Добавить явный lineage-identity для text/file материалов.
-- При удалении `ACTIVE`-версии либо:
-  - промотировать последнюю `SUPERSEDED`-версию обратно в `ACTIVE`,
-  - либо явно помечать lineage как archived/empty и корректно отражать это в retrieval/UI.
-- Добавить API/репозиторный метод для подсчёта `activeMaterialsCount`, а не только общего `countMaterials()`.
+## Актуальный порядок работ
 
-Критерии готовности:
-- Два разных документа с одинаковым именем файла не supersede друг друга.
-- Удаление активной версии не оставляет систему в ложном состоянии "индекс ещё строится".
-- Есть интеграционные тесты на create -> supersede -> delete active -> fallback/promotion.
+1. Закрыть Elasticsearch release gate: strict mapping, health refresh, Docker-backed ES integration proof.
+2. Обновить operator runbook и smoke checklist для VM.
+3. Принять product decision по lineage override для файлов.
+4. Отдельно включать `structured-v1`/quality improvements по результатам quality report.
 
-### 2. Align RAG Readiness UX
-Цель: чтобы UI везде говорил правду про активную knowledge base.
+## Проверки
 
-Задачи:
-- Перевести `App.tsx` empty-state и helper logic на `ragReadiness.activeMaterialsCount`.
-- Блокировать или явно деградировать RAG UI, если активных материалов нет, даже если в каталоге есть только `SUPERSEDED`.
-- Добавить отдельный текстовый сценарий для состояния "есть история версий, но нет активной версии".
-- Синхронизировать overview, materials и rag helper по одной модели derived readiness.
+Локальный non-Docker proof:
+- `./scripts/test-backend.sh`
+- `npm test` в `frontend`
+- `./scripts/test-backend.sh fast -Dtest=Phase6RetrievalQualityIT`
 
-Критерии готовности:
-- При наличии только `SUPERSEDED`-материалов UI не предлагает RAG как готовый сценарий.
-- Helper text различает:
-  - пустую базу,
-  - только исторические версии,
-  - индексацию активной версии,
-  - готовый активный контекст.
-
-### 3. Strengthen Versioning Test Contour
-Цель: закрепить knowledge lifecycle тестами, а не договорённостями.
-
-Задачи:
-- Добавить backend tests на:
-  - false-supersede сценарии,
-  - promotion/archival после удаления active версии,
-  - retrieval только по active lineage,
-  - корректные ready counts для active-only модели.
-- Добавить frontend tests на helper/gating при only-superseded состоянии.
-- Добавить один bean-graph smoke test, подтверждающий production topology без legacy runtime path.
-
-Критерии готовности:
-- Все critical lifecycle переходы покрыты unit + integration слоями.
-- Нельзя незаметно сломать version lifecycle без падения тестов.
-
-### 4. Functional Follow-up Roadmap
-Цель: после стабилизации фундамента наращивать полезный продуктовый функционал.
-
-Задачи:
-- Добавить `retry indexing`/`reindex` action для `FAILED` и `PARTIAL_READY`.
-- Добавить редактирование инструкций.
-- Добавить фильтры по материалам:
-  - только активные,
-  - показать исторические,
-  - только проблемные.
-- Добавить lineage view:
-  - текущая активная версия,
-  - предыдущие версии,
-  - причина supersede,
-  - timestamps.
-- Добавить более явную observability по runtime:
-  - последний успешный probe,
-  - причина degraded state,
-  - индексирующая очередь и попытки.
-
-Критерии готовности:
-- Оператор может сам восстановить знания, переиндексировать материал и понять, почему RAG недоступен.
-
-## Приоритетный порядок следующих фаз
-1. `Phase A`: Stabilize Material Lineage
-2. `Phase B`: Align RAG Readiness UX
-3. `Phase C`: Strengthen Versioning Test Contour
-4. `Phase D`: Functional Follow-up Roadmap
+Docker-backed proof для финального Elasticsearch rollout:
+- `./scripts/test-backend.sh integration -Dit.test=ElasticsearchIndexSyncIT,ElasticsearchPhase4IT,ElasticsearchPhase5IT,ElasticsearchPhase5DownIT`
 
 ## Короткий вывод
-- Основа новой архитектуры уже внедрена и подтверждается тестами.
-- Исходный план в целом реализован хорошо.
-- Дальнейшие доработки стоит строить не вокруг новых экранов, а вокруг доведения knowledge lifecycle до надёжного состояния.
+
+Базовый план выполнен. Оставшиеся задачи уже не про восстановление архитектурной целостности, а про production rollout Elasticsearch, операторскую документацию и продуктовый выбор вокруг явного lineage override.

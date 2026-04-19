@@ -1,7 +1,6 @@
 import { useRef, useState, type FormEvent } from "react";
 import {
   FileClock,
-  FileSearch,
   FileText,
   Filter,
   History,
@@ -17,17 +16,27 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { MaterialMetadataDisplay } from "@/components/MaterialMetadataDisplay";
 import { MaterialMetadataFormSection } from "@/components/MaterialMetadataFormSection";
 import type {
+  KnowledgeDocumentClass,
   MaterialLineageResponse,
   MaterialMetadataInput,
   MaterialLineageVersion,
   MaterialPdfUploadPolicy,
   MaterialSummary,
+  MaterialUploadItemInput,
   MaterialUploadPolicy,
+  SourceTrustLevel,
 } from "@/types";
 import { formatBytes, formatDate } from "@/utils/format";
 import {
@@ -36,6 +45,9 @@ import {
 } from "@/utils/materialUploadPolicy";
 import {
   emptyMaterialMetadataFormState,
+  materialKnowledgeDocumentClassLabels,
+  parseTagsInput,
+  sourceTrustLabels,
   type MaterialMetadataValidation,
   toMaterialMetadataInput,
   validateMaterialMetadata,
@@ -44,10 +56,13 @@ import { isActiveMaterialVersion, type RagReadinessPresentation } from "@/utils/
 
 type MaterialsPanelProps = {
   materials: MaterialSummary[];
+  materialTotal: number;
+  hasMoreMaterials: boolean;
   ragPresentation: RagReadinessPresentation;
   uploadPolicy: MaterialUploadPolicy | null;
   policyWarning: string | null;
   isLoading: boolean;
+  isLoadingMore: boolean;
   error: string | null;
   message: string | null;
   actionError: string | null;
@@ -58,16 +73,61 @@ type MaterialsPanelProps = {
   loadingLineageMaterialId: string | null;
   metadataV1Enabled: boolean;
   onCreateText: (input: { title: string; content: string; metadata?: MaterialMetadataInput }) => Promise<unknown>;
-  onUpload: (input: { title: string; file: File; metadata?: MaterialMetadataInput }) => Promise<unknown>;
+  onUpload: (input: { items: MaterialUploadItemInput[] }) => Promise<unknown>;
   onDelete: (materialId: string) => Promise<unknown>;
   onReindex: (materialId: string) => Promise<unknown>;
   onLoadLineage: (materialId: string) => Promise<unknown>;
+  onLoadMore: () => Promise<unknown>;
   onClearLineage: () => void;
 };
 
 type MaterialFilterMode = "active" | "all" | "problematic";
 
+type UploadFileOverrideState = {
+  expanded: boolean;
+  title: string;
+  knowledgeDocumentClass: KnowledgeDocumentClass | "";
+  tags: string;
+  sourceTrust: SourceTrustLevel | "";
+};
+
 const DEFAULT_OCR_LANGUAGES = ["kaz", "rus", "eng"];
+const sourceTrustLevels: SourceTrustLevel[] = ["HIGH", "MEDIUM", "LOW", "UNKNOWN"];
+const knowledgeDocumentClasses: KnowledgeDocumentClass[] = [
+  "contracts",
+  "regulations",
+  "correspondence",
+  "techdocs",
+  "other",
+];
+
+const emptyUploadOverride = (): UploadFileOverrideState => ({
+  expanded: false,
+  title: "",
+  knowledgeDocumentClass: "",
+  tags: "",
+  sourceTrust: "",
+});
+
+const uploadFileKey = (file: File, index: number) =>
+  `${index}:${file.name}:${file.size}:${file.lastModified}`;
+
+const uploadOverrideMetadata = (override: UploadFileOverrideState): Partial<MaterialMetadataInput> => {
+  const tags = parseTagsInput(override.tags);
+  return {
+    ...(override.knowledgeDocumentClass ? { knowledgeDocumentClass: override.knowledgeDocumentClass } : {}),
+    ...(tags.length > 0 ? { tags } : {}),
+    ...(override.sourceTrust ? { sourceTrust: override.sourceTrust } : {}),
+  };
+};
+
+const mergeMetadataInput = (
+  base: MaterialMetadataInput,
+  override: Partial<MaterialMetadataInput>,
+): MaterialMetadataInput => ({
+  ...base,
+  ...override,
+});
 
 const formatOcrLanguageList = (languages: string[] | undefined) => {
   const safeLanguages = languages && languages.length > 0 ? languages : DEFAULT_OCR_LANGUAGES;
@@ -184,10 +244,13 @@ const formatLineageMeta = (version: MaterialLineageVersion) => {
 
 export function MaterialsPanel({
   materials,
+  materialTotal,
+  hasMoreMaterials,
   ragPresentation,
   uploadPolicy,
   policyWarning,
   isLoading,
+  isLoadingMore,
   error,
   message,
   actionError,
@@ -202,14 +265,16 @@ export function MaterialsPanel({
   onDelete,
   onReindex,
   onLoadLineage,
+  onLoadMore,
   onClearLineage,
 }: MaterialsPanelProps) {
   const [textTitle, setTextTitle] = useState("");
   const [textContent, setTextContent] = useState("");
   const [uploadTitle, setUploadTitle] = useState("");
-  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [uploadFiles, setUploadFiles] = useState<File[]>([]);
   const [textMetadata, setTextMetadata] = useState(emptyMaterialMetadataFormState);
   const [uploadMetadata, setUploadMetadata] = useState(emptyMaterialMetadataFormState);
+  const [uploadFileOverrides, setUploadFileOverrides] = useState<Record<string, UploadFileOverrideState>>({});
   const [textMetadataValidation, setTextMetadataValidation] = useState<MaterialMetadataValidation | null>(null);
   const [uploadMetadataValidation, setUploadMetadataValidation] = useState<MaterialMetadataValidation | null>(null);
   const [isSavingText, setIsSavingText] = useState(false);
@@ -235,6 +300,39 @@ export function MaterialsPanel({
     ? `Scanned PDF сейчас не поддерживаются: ${translatePdfCapabilityReason(pdfPolicy)}`
     : null;
   const visibleMaterials = visibleMaterialsForFilter(materials, filterMode);
+  const effectiveMaterialTotal = Math.max(materialTotal, materials.length);
+  const isMultipleUpload = uploadFiles.length > 1;
+  const metadataDisabledReason = "Metadata rollout сейчас выключен: поля показаны для ориентира, но backend получит файл без metadata payload.";
+
+  const updateUploadOverride = (
+    file: File,
+    index: number,
+    updater: (current: UploadFileOverrideState) => UploadFileOverrideState,
+  ) => {
+    const key = uploadFileKey(file, index);
+    setUploadFileOverrides((current) => ({
+      ...current,
+      [key]: updater(current[key] ?? emptyUploadOverride()),
+    }));
+  };
+
+  const buildUploadItems = (): MaterialUploadItemInput[] => {
+    const commonMetadata = metadataV1Enabled ? toMaterialMetadataInput(uploadMetadata) : undefined;
+    return uploadFiles.map((file, index) => {
+      const override = uploadFileOverrides[uploadFileKey(file, index)] ?? emptyUploadOverride();
+      const overrideMetadata = metadataV1Enabled ? uploadOverrideMetadata(override) : {};
+      const metadata = metadataV1Enabled && commonMetadata
+        ? mergeMetadataInput(commonMetadata, overrideMetadata)
+        : undefined;
+      const title = override.title.trim() || (!isMultipleUpload ? uploadTitle.trim() : "");
+
+      return {
+        file,
+        ...(title ? { title } : {}),
+        ...(metadata ? { metadata } : {}),
+      };
+    });
+  };
 
   const handleTextSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -265,7 +363,7 @@ export function MaterialsPanel({
 
   const handleUploadSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!uploadFile) {
+    if (uploadFiles.length === 0) {
       return;
     }
 
@@ -281,12 +379,11 @@ export function MaterialsPanel({
     try {
       setUploadMetadataValidation(null);
       await onUpload({
-        title: uploadTitle,
-        file: uploadFile,
-        ...(metadataV1Enabled ? { metadata: toMaterialMetadataInput(uploadMetadata) } : {}),
+        items: buildUploadItems(),
       });
       setUploadTitle("");
-      setUploadFile(null);
+      setUploadFiles([]);
+      setUploadFileOverrides({});
       setUploadMetadata(emptyMaterialMetadataFormState());
       if (fileInputRef.current) {
         fileInputRef.current.value = "";
@@ -354,26 +451,28 @@ export function MaterialsPanel({
                 />
               </div>
 
-              {metadataV1Enabled ? (
-                <MaterialMetadataFormSection
-                  errors={textMetadataValidation?.fieldErrors}
-                  idPrefix="text-material"
-                  state={textMetadata}
-                  onChange={(next) => {
-                    setTextMetadata(next);
-                    if (textMetadataValidation) {
-                      setTextMetadataValidation(null);
-                    }
-                  }}
-                />
-              ) : (
+              {!metadataV1Enabled ? (
                 <Alert>
-                  <AlertTitle>Metadata capture disabled</AlertTitle>
+                  <AlertTitle>Metadata capture отключён</AlertTitle>
                   <AlertDescription>
-                    Rollout flag metadata-v1 is off, so this form will not validate or send metadata.
+                    Rollout flag metadata-v1 выключен, поэтому поля ниже показаны как контракт, но не будут отправлены.
                   </AlertDescription>
                 </Alert>
-              )}
+              ) : null}
+
+              <MaterialMetadataFormSection
+                disabled={!metadataV1Enabled}
+                disabledReason={metadataDisabledReason}
+                errors={textMetadataValidation?.fieldErrors}
+                idPrefix="text-material"
+                state={textMetadata}
+                onChange={(next) => {
+                  setTextMetadata(next);
+                  if (textMetadataValidation) {
+                    setTextMetadataValidation(null);
+                  }
+                }}
+              />
 
               {metadataV1Enabled && textMetadataValidation?.messages.length ? (
                 <Alert variant="destructive">
@@ -405,6 +504,7 @@ export function MaterialsPanel({
               <div className="space-y-2">
                 <Label htmlFor="upload-material-title">Название</Label>
                 <Input
+                  disabled={isMultipleUpload}
                   id="upload-material-title"
                   placeholder="Опционально переименуй материал"
                   value={uploadTitle}
@@ -413,37 +513,182 @@ export function MaterialsPanel({
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="upload-material-file">Файл</Label>
+                <Label htmlFor="upload-material-file">Файлы</Label>
                 <Input
                   ref={fileInputRef}
                   accept={acceptAttribute}
                   id="upload-material-file"
+                  multiple
                   required
                   type="file"
-                  onChange={(event) => setUploadFile(event.target.files?.[0] ?? null)}
-                />
-              </div>
-
-              {metadataV1Enabled ? (
-                <MaterialMetadataFormSection
-                  errors={uploadMetadataValidation?.fieldErrors}
-                  idPrefix="upload-material"
-                  state={uploadMetadata}
-                  onChange={(next) => {
-                    setUploadMetadata(next);
-                    if (uploadMetadataValidation) {
-                      setUploadMetadataValidation(null);
+                  onChange={(event) => {
+                    const nextFiles = Array.from(event.target.files ?? []);
+                    setUploadFiles(nextFiles);
+                    setUploadFileOverrides((current) => {
+                      const nextOverrides: Record<string, UploadFileOverrideState> = {};
+                      nextFiles.forEach((file, index) => {
+                        const key = uploadFileKey(file, index);
+                        nextOverrides[key] = current[key] ?? emptyUploadOverride();
+                      });
+                      return nextOverrides;
+                    });
+                    if (nextFiles.length > 1) {
+                      setUploadTitle("");
                     }
                   }}
                 />
-              ) : (
+              </div>
+
+              {!metadataV1Enabled ? (
                 <Alert>
-                  <AlertTitle>Metadata capture disabled</AlertTitle>
+                  <AlertTitle>Metadata capture отключён</AlertTitle>
                   <AlertDescription>
-                    Rollout flag metadata-v1 is off, so upload will omit the multipart metadata part.
+                    Rollout flag metadata-v1 выключен, поэтому upload отправит файл без multipart metadata part.
                   </AlertDescription>
                 </Alert>
-              )}
+              ) : null}
+
+              <MaterialMetadataFormSection
+                disabled={!metadataV1Enabled}
+                disabledReason={metadataDisabledReason}
+                errors={uploadMetadataValidation?.fieldErrors}
+                idPrefix="upload-material"
+                state={uploadMetadata}
+                onChange={(next) => {
+                  setUploadMetadata(next);
+                  if (uploadMetadataValidation) {
+                    setUploadMetadataValidation(null);
+                  }
+                }}
+              />
+
+              {uploadFiles.length > 0 ? (
+                <div className="space-y-3">
+                  <div>
+                    <p className="text-sm font-semibold text-foreground">Выбранные файлы</p>
+                    <p className="text-sm text-muted-foreground">
+                      Общие атрибуты применятся ко всем файлам. Для конкретного файла можно переопределить название,
+                      класс корпуса, теги и доверие.
+                    </p>
+                  </div>
+
+                  <div className="space-y-3">
+                    {uploadFiles.map((file, index) => {
+                      const override = uploadFileOverrides[uploadFileKey(file, index)] ?? emptyUploadOverride();
+                      return (
+                        <article className="rounded-[22px] border border-field-border bg-field px-4 py-4" key={uploadFileKey(file, index)}>
+                          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                            <div>
+                              <p className="text-sm font-semibold text-foreground">{file.name || "Файл"}</p>
+                              <p className="text-sm text-muted-foreground">{formatBytes(file.size)}</p>
+                            </div>
+                            <Button
+                              size="sm"
+                              type="button"
+                              variant="secondary"
+                              onClick={() =>
+                                updateUploadOverride(file, index, (current) => ({
+                                  ...current,
+                                  expanded: !current.expanded,
+                                }))
+                              }
+                            >
+                              {override.expanded ? "Скрыть атрибуты" : "Настроить атрибуты"}
+                            </Button>
+                          </div>
+
+                          {override.expanded ? (
+                            <div className="mt-4 grid gap-4 md:grid-cols-2">
+                              <div className="space-y-2 md:col-span-2">
+                                <Label htmlFor={`upload-file-title-${index}`}>Название файла</Label>
+                                <Input
+                                  id={`upload-file-title-${index}`}
+                                  placeholder="Оставь пустым, чтобы backend использовал имя файла"
+                                  value={override.title}
+                                  onChange={(event) =>
+                                    updateUploadOverride(file, index, (current) => ({
+                                      ...current,
+                                      title: event.target.value,
+                                    }))
+                                  }
+                                />
+                              </div>
+
+                              <div className="space-y-2">
+                                <Label>Класс корпуса</Label>
+                                <Select
+                                  disabled={!metadataV1Enabled}
+                                  value={override.knowledgeDocumentClass || "inherit"}
+                                  onValueChange={(value) =>
+                                    updateUploadOverride(file, index, (current) => ({
+                                      ...current,
+                                      knowledgeDocumentClass: value === "inherit" ? "" : (value as KnowledgeDocumentClass),
+                                    }))
+                                  }
+                                >
+                                  <SelectTrigger aria-label={`Класс корпуса для ${file.name || "файла"}`}>
+                                    <SelectValue placeholder="Как в общих атрибутах" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="inherit">Как в общих атрибутах</SelectItem>
+                                    {knowledgeDocumentClasses.map((documentClass) => (
+                                      <SelectItem key={documentClass} value={documentClass}>
+                                        {materialKnowledgeDocumentClassLabels[documentClass]}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+
+                              <div className="space-y-2">
+                                <Label>Доверие</Label>
+                                <Select
+                                  disabled={!metadataV1Enabled}
+                                  value={override.sourceTrust || "inherit"}
+                                  onValueChange={(value) =>
+                                    updateUploadOverride(file, index, (current) => ({
+                                      ...current,
+                                      sourceTrust: value === "inherit" ? "" : (value as SourceTrustLevel),
+                                    }))
+                                  }
+                                >
+                                  <SelectTrigger aria-label={`Доверие для ${file.name || "файла"}`}>
+                                    <SelectValue placeholder="Как в общих атрибутах" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="inherit">Как в общих атрибутах</SelectItem>
+                                    {sourceTrustLevels.map((sourceTrust) => (
+                                      <SelectItem key={sourceTrust} value={sourceTrust}>
+                                        {sourceTrustLabels[sourceTrust]}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+
+                              <div className="space-y-2 md:col-span-2">
+                                <Label htmlFor={`upload-file-tags-${index}`}>Теги / ключевые слова</Label>
+                                <Input
+                                  disabled={!metadataV1Enabled}
+                                  id={`upload-file-tags-${index}`}
+                                  placeholder="Оставь пустым, чтобы использовать общие теги"
+                                  value={override.tags}
+                                  onChange={(event) =>
+                                    updateUploadOverride(file, index, (current) => ({
+                                      ...current,
+                                      tags: event.target.value,
+                                    }))
+                                  }
+                                />
+                              </div>
+                            </div>
+                          ) : null}
+                        </article>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : null}
 
               <Alert>
                 <AlertTitle>Upload policy</AlertTitle>
@@ -471,9 +716,9 @@ export function MaterialsPanel({
                 </Alert>
               ) : null}
 
-              <Button disabled={isUploading || uploadFile === null} type="submit">
+              <Button disabled={isUploading || uploadFiles.length === 0} type="submit">
                 <Upload className="h-4 w-4" />
-                {isUploading ? "Загружаем..." : "Загрузить файл"}
+                {isUploading ? "Загружаем..." : isMultipleUpload ? "Загрузить файлы" : "Загрузить файл"}
               </Button>
             </form>
           </CardContent>
@@ -510,6 +755,10 @@ export function MaterialsPanel({
             eyebrow="Catalog"
             title="Локальное хранилище"
           />
+
+          <p className="text-sm text-muted-foreground">
+            Показано {materials.length} из {effectiveMaterialTotal}
+          </p>
 
           {ragPresentation.materialsMessage ? (
             <Alert
@@ -566,9 +815,10 @@ export function MaterialsPanel({
               title="По этому фильтру пока пусто"
             />
           ) : (
-            <div className="space-y-3">
-              {visibleMaterials.map((material) => (
-                <article className="surface-subtle space-y-4 rounded-[24px] p-5" key={material.id}>
+            <div className="space-y-4">
+              <div className="space-y-3">
+                {visibleMaterials.map((material) => (
+                  <article className="surface-subtle space-y-4 rounded-[24px] p-5" key={material.id}>
                   <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
                     <div className="space-y-2">
                       <div className="flex flex-wrap items-center gap-2">
@@ -655,8 +905,21 @@ export function MaterialsPanel({
                       <AlertDescription>{material.statusReasonMessage}</AlertDescription>
                     </Alert>
                   ) : null}
-                </article>
-              ))}
+                  </article>
+                ))}
+              </div>
+              {hasMoreMaterials ? (
+                <Button
+                  className="w-full sm:w-auto"
+                  disabled={isLoadingMore}
+                  type="button"
+                  variant="secondary"
+                  onClick={() => void onLoadMore()}
+                >
+                  <RefreshCcw className="h-4 w-4" />
+                  {isLoadingMore ? "Загружаем..." : "Показать ещё"}
+                </Button>
+              ) : null}
             </div>
           )}
         </CardContent>

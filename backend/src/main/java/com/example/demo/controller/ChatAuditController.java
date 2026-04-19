@@ -2,6 +2,7 @@ package com.example.demo.controller;
 
 import com.example.demo.model.ChatAuditRunDetail;
 import com.example.demo.model.ChatAuditRunSummary;
+import com.example.demo.model.ChatRunTraceDetail;
 import com.example.demo.service.ChatAuditService;
 import java.util.List;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -27,5 +28,10 @@ public class ChatAuditController {
     @GetMapping("/{id}")
     public ChatAuditRunDetail getRun(@PathVariable String id) {
         return chatAuditService.getRun(id);
+    }
+
+    @GetMapping("/{id}/trace")
+    public ChatRunTraceDetail getTrace(@PathVariable String id) {
+        return chatAuditService.getTrace(id);
     }
 }

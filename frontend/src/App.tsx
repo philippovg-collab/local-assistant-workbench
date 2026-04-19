@@ -9,7 +9,6 @@ import {
   NotebookPen,
   Radar,
 } from "lucide-react";
-import kegocLogo from "@/assets/logo-kegoc.png";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -40,7 +39,10 @@ import {
   buildRagReadinessPresentation,
   deriveRagReadiness,
 } from "@/utils/readiness";
+import { buildSearchPresentation } from "@/utils/searchPresentation";
 import { DEFAULT_KNOWLEDGE_SCOPE } from "@/utils/workbenchPresentation";
+
+const kegocLogo = "https://ai.kegoc.kz/assets/kegoc-logo-new-nY5PHfMg.svg";
 
 type WorkspaceTab = "overview" | "materials" | "instructions" | "rag" | "direct";
 
@@ -164,13 +166,10 @@ function App() {
     selectedModel: ragChat.model,
   });
   const directPresentation = buildDirectReadinessPresentation(health, directChat.model);
+  const searchPresentation = buildSearchPresentation(health);
 
   const activeWorkspace = tabs.find((tab) => tab.id === activeTab) ?? tabs[0];
   const backendStatus = health?.status ?? "Unknown";
-  const searchStatus = health?.searchStatus ?? "DISABLED";
-  const searchLabel = health?.searchMode && health?.searchProvider
-    ? `${health.searchMode} -> ${health.searchProvider}`
-    : health?.searchProvider ?? searchStatus;
   const navMetrics = [
     {
       label: "Models",
@@ -242,16 +241,10 @@ function App() {
             </div>
             <div className="space-y-1">
               <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-sidebar-foreground/60">
-                KEGOC Workspace
+                ПАНЕЛЬ УПРАВЛЕНИЯ
               </p>
-              <h1 className="text-xl font-semibold tracking-[-0.04em]">AI Frontline Console</h1>
+              <h1 className="text-xl font-semibold tracking-[-0.04em]">KEGOC RAG</h1>
             </div>
-          </div>
-
-          <div className="rounded-[28px] border border-white/8 bg-white/6 p-4">
-            <p className="text-sm leading-6 text-sidebar-foreground/74">
-              Корпоративная оболочка для `Direct` и `RAG` сценариев, локальной knowledge base и prompt policy.
-            </p>
           </div>
         </div>
 
@@ -275,8 +268,18 @@ function App() {
       </aside>
 
       <div className="min-w-0 flex-1">
-        <header className="surface-panel mb-6 rounded-[34px] px-5 py-5 sm:px-6 lg:px-7">
-          <div className="mb-5 flex items-center justify-between gap-3 lg:hidden">
+        <header
+          className={cn(
+            "surface-panel mb-6 rounded-[34px] px-5 py-5 sm:px-6 lg:px-7",
+            activeTab !== "overview" && "lg:hidden",
+          )}
+        >
+          <div
+            className={cn(
+              "flex items-center justify-between gap-3 lg:hidden",
+              activeTab === "overview" && "mb-5",
+            )}
+          >
             <div>
               <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-primary">
                 Workspace
@@ -295,7 +298,7 @@ function App() {
               </SheetTrigger>
               <SheetContent side="left">
                 <SheetHeader className="mb-6">
-                  <SheetTitle>AI Frontline Console</SheetTitle>
+                  <SheetTitle>KEGOC RAG</SheetTitle>
                   <SheetDescription>
                     Навигация по основным разделам фронтенда.
                   </SheetDescription>
@@ -305,89 +308,94 @@ function App() {
             </Sheet>
           </div>
 
-          <div className="grid gap-6 xl:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)]">
-            <div className="space-y-5">
-              <div className="flex flex-wrap items-center gap-3">
-                <Badge variant="default">KEGOC AI RAG Workspace</Badge>
-                <Badge variant="secondary">{activeWorkspace.label}</Badge>
-                <Badge variant={backendStatus === "UP" ? "success" : "warning"}>
-                  Backend {backendStatus}
-                </Badge>
-              </div>
-
-              <div className="space-y-3">
-                <h2 className="max-w-[14ch] text-balance text-4xl font-semibold leading-none tracking-[-0.06em] text-foreground sm:text-5xl">
-                  Фронтенд-контур для direct и RAG сценариев
-                </h2>
-                <p className="max-w-3xl text-sm leading-7 text-muted-foreground sm:text-base">
-                  Рабочее пространство объединяет материалы, локальные модели и instruction snippets,
-                  чтобы direct- и RAG-сценарии собирались в одном управляемом интерфейсе без
-                  переключения между разными экранами.
-                </p>
-              </div>
-
-              <div className="flex flex-wrap gap-2">
-                <Badge variant="secondary">Knowledge Base</Badge>
-                <Badge variant="secondary">Prompt Policy</Badge>
-                <Badge variant="secondary">Runtime Signals</Badge>
-                <Badge variant="secondary">Search Plane</Badge>
-              </div>
-            </div>
-
-            <div className="grid gap-4 sm:grid-cols-3 xl:grid-cols-1">
-              <div className="rounded-[28px] border border-border/80 bg-[#0b243a] p-5 text-white shadow-panel">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex h-12 w-12 items-center justify-center rounded-[18px] bg-white/10">
-                    <BrainCircuit className="h-5 w-5" />
-                  </div>
-                  <Badge variant="inverted">{ragPresentation.badgeLabel}</Badge>
+          {activeTab === "overview" && (
+            <div className="grid gap-6 xl:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)]">
+              <div className="space-y-5">
+                <div className="flex flex-wrap items-center gap-3">
+                  <Badge variant="default">KEGOC AI RAG Workspace</Badge>
+                  <Badge variant="secondary">{activeWorkspace.label}</Badge>
+                  <Badge variant={backendStatus === "UP" ? "success" : "warning"}>
+                    Backend {backendStatus}
+                  </Badge>
                 </div>
-                <div className="mt-4 space-y-2">
-                  <p className="text-sm font-medium text-white/74">RAG readiness</p>
-                  <strong className="block text-2xl font-semibold tracking-[-0.04em]">
-                    {ragPresentation.headline}
-                  </strong>
-                  <p className="text-sm leading-6 text-white/70">{ragPresentation.overviewMessage}</p>
-                </div>
-              </div>
 
-              <div className="surface-subtle rounded-[28px] p-5 shadow-soft">
-                <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-                  <BookOpenText className="h-4 w-4 text-primary" />
-                  Search plane
-                </div>
-                <div className="mt-3 space-y-1">
-                  <strong className="block text-lg font-semibold tracking-[-0.03em] text-foreground">
-                    {searchLabel}
-                  </strong>
-                  <p className="text-sm leading-6 text-muted-foreground">
-                    Статус: {searchStatus}
+                <div className="space-y-3">
+                  <h2 className="max-w-[14ch] text-balance text-4xl font-semibold leading-none tracking-[-0.06em] text-foreground sm:text-5xl">
+                    Фронтенд-контур для direct и RAG сценариев
+                  </h2>
+                  <p className="max-w-3xl text-sm leading-7 text-muted-foreground sm:text-base">
+                    Рабочее пространство объединяет материалы, локальные модели и instruction snippets,
+                    чтобы direct- и RAG-сценарии собирались в одном управляемом интерфейсе без
+                    переключения между разными экранами.
                   </p>
                 </div>
+
+                <div className="flex flex-wrap gap-2">
+                  <Badge variant="secondary">Knowledge Base</Badge>
+                  <Badge variant="secondary">Prompt Policy</Badge>
+                  <Badge variant="secondary">Runtime Signals</Badge>
+                  <Badge variant="secondary">Search Plane</Badge>
+                </div>
               </div>
 
-              <div className="surface-subtle rounded-[28px] p-5 shadow-soft">
-                <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-                  <Files className="h-4 w-4 text-primary" />
-                  Workspace context
+              <div className="grid gap-4 sm:grid-cols-3 xl:grid-cols-1">
+                <div className="rounded-[28px] border border-border/80 bg-[#0b243a] p-5 text-white shadow-panel">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex h-12 w-12 items-center justify-center rounded-[18px] bg-white/10">
+                      <BrainCircuit className="h-5 w-5" />
+                    </div>
+                    <Badge variant="inverted">{ragPresentation.badgeLabel}</Badge>
+                  </div>
+                  <div className="mt-4 space-y-2">
+                    <p className="text-sm font-medium text-white/74">RAG readiness</p>
+                    <strong className="block text-2xl font-semibold tracking-[-0.04em]">
+                      {ragPresentation.headline}
+                    </strong>
+                    <p className="text-sm leading-6 text-white/70">{ragPresentation.overviewMessage}</p>
+                  </div>
                 </div>
-                <dl className="mt-3 grid gap-2 text-sm">
-                  <div className="flex items-center justify-between gap-3">
-                    <dt className="text-muted-foreground">Материалы</dt>
-                    <dd className="font-semibold text-foreground">{materials.materials.length}</dd>
+
+                <div className="surface-subtle rounded-[28px] p-5 shadow-soft">
+                  <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                    <BookOpenText className="h-4 w-4 text-primary" />
+                    Search plane
                   </div>
-                  <div className="flex items-center justify-between gap-3">
-                    <dt className="text-muted-foreground">Инструкции</dt>
-                    <dd className="font-semibold text-foreground">{instructions.instructions.length}</dd>
+                  <div className="mt-3 space-y-1">
+                    <strong className="block text-lg font-semibold tracking-[-0.03em] text-foreground">
+                      {searchPresentation.label}
+                    </strong>
+                    <p className="text-sm leading-6 text-muted-foreground">
+                      Статус: {searchPresentation.statusLabel}
+                    </p>
+                    <p className="text-sm leading-6 text-muted-foreground">
+                      {searchPresentation.syncLabel}
+                    </p>
                   </div>
-                  <div className="flex items-center justify-between gap-3">
-                    <dt className="text-muted-foreground">Модели</dt>
-                    <dd className="font-semibold text-foreground">{models.length}</dd>
+                </div>
+
+                <div className="surface-subtle rounded-[28px] p-5 shadow-soft">
+                  <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                    <Files className="h-4 w-4 text-primary" />
+                    Workspace context
                   </div>
-                </dl>
+                  <dl className="mt-3 grid gap-2 text-sm">
+                    <div className="flex items-center justify-between gap-3">
+                      <dt className="text-muted-foreground">Материалы</dt>
+                      <dd className="font-semibold text-foreground">{materials.materialTotal}</dd>
+                    </div>
+                    <div className="flex items-center justify-between gap-3">
+                      <dt className="text-muted-foreground">Инструкции</dt>
+                      <dd className="font-semibold text-foreground">{instructions.instructions.length}</dd>
+                    </div>
+                    <div className="flex items-center justify-between gap-3">
+                      <dt className="text-muted-foreground">Модели</dt>
+                      <dd className="font-semibold text-foreground">{models.length}</dd>
+                    </div>
+                  </dl>
+                </div>
               </div>
             </div>
-          </div>
+          )}
         </header>
 
         <main className="space-y-6">
@@ -418,14 +426,18 @@ function App() {
               deletingMaterialId={materials.deletingMaterialId}
               error={materials.error}
               isLoading={materials.isLoading}
+              isLoadingMore={materials.isLoadingMore}
               lineageError={materials.lineageError}
               loadingLineageMaterialId={materials.loadingLineageMaterialId}
               materials={materials.materials}
+              materialTotal={materials.materialTotal}
+              hasMoreMaterials={materials.hasMoreMaterials}
               metadataV1Enabled={health?.qualityLayer?.flags.metadataV1 === true}
               message={materials.message}
               onClearLineage={materials.clearLineage}
               onCreateText={materials.createTextMaterial}
               onDelete={materials.deleteMaterial}
+              onLoadMore={materials.loadMoreMaterials}
               onLoadLineage={(materialId) => materials.loadLineage(materialId)}
               onReindex={materials.reindexMaterial}
               onUpload={materials.uploadMaterial}
@@ -563,7 +575,6 @@ function App() {
                     model: directChat.model,
                     prompt: directChat.prompt,
                     instructionIds: directInstructionIds,
-                    scenarioInstructionIds: directInstructionIds,
                     answerMode: directChat.answerMode,
                     ...(directChat.temporaryInstruction.trim()
                       ? { temporaryInstruction: directChat.temporaryInstruction.trim() }

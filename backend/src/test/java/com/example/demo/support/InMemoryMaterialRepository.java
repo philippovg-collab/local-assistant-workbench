@@ -26,16 +26,19 @@ import com.example.demo.infrastructure.material.StoredMaterialRecord;
 import com.example.demo.infrastructure.material.StoredMaterialSegment;
 import com.example.demo.model.KnowledgeScope;
 import com.example.demo.model.MaterialIndexingStatus;
+import com.example.demo.model.MaterialSummary;
 import com.example.demo.model.RetrievalFilters;
 import com.example.demo.model.MaterialVersionState;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
@@ -72,6 +75,32 @@ public class InMemoryMaterialRepository implements
     @Override
     public synchronized List<StoredMaterialRecord> findAll() {
         return recordsById.values().stream().toList();
+    }
+
+    @Override
+    public synchronized List<MaterialSummary> findSummaries(int offset, int limit) {
+        if (limit <= 0) {
+            return List.of();
+        }
+        return recordsById.values().stream()
+            .sorted(Comparator.comparing(StoredMaterialRecord::createdAt).reversed())
+            .skip(Math.max(0, offset))
+            .limit(limit)
+            .map(this::toSummary)
+            .toList();
+    }
+
+    @Override
+    public synchronized List<StoredMaterialRecord> findByIds(Collection<String> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return List.of();
+        }
+        return ids.stream()
+            .filter(id -> id != null && !id.isBlank())
+            .distinct()
+            .map(recordsById::get)
+            .filter(Objects::nonNull)
+            .toList();
     }
 
     @Override
@@ -954,6 +983,28 @@ public class InMemoryMaterialRepository implements
     private boolean isAfterCursor(StoredMaterialRecord record, Instant createdAt, String id) {
         return record.createdAt().isAfter(createdAt)
             || (record.createdAt().equals(createdAt) && record.id().compareTo(id) > 0);
+    }
+
+    private MaterialSummary toSummary(StoredMaterialRecord record) {
+        String content = record.content() == null ? "" : record.content();
+        String preview = content.length() <= 180 ? content : content.substring(0, 180) + "...";
+        return new MaterialSummary(
+            record.id(),
+            record.title(),
+            record.sourceType(),
+            record.originalFileName(),
+            record.status(),
+            record.versionState(),
+            record.statusReasonCode(),
+            record.statusReasonMessage(),
+            record.createdAt(),
+            record.updatedAt(),
+            record.indexingAttempts(),
+            record.nextRetryAt(),
+            content.length(),
+            preview,
+            record.metadata()
+        );
     }
 
     private boolean isSearchable(StoredMaterialRecord record) {

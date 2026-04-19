@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from "react";
+import { useMemo, useState, type Dispatch, type FormEvent, type SetStateAction } from "react";
 import { BookText, Database, Eye, History, Pencil, PlusCircle, RotateCcw, Trash2 } from "lucide-react";
 import { EmptyState } from "@/components/app/EmptyState";
 import { SectionIntro } from "@/components/app/SectionIntro";
@@ -10,6 +10,13 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
 import type {
   CreateKnowledgePresetRequest,
@@ -105,10 +112,12 @@ export function KnowledgePresetLibraryPanel({
   onRestoreRevision,
   onDeletePreset,
 }: KnowledgePresetLibraryPanelProps) {
-  const [form, setForm] = useState<KnowledgePresetFormState>(initialPresetForm);
+  const [createForm, setCreateForm] = useState<KnowledgePresetFormState>(initialPresetForm);
+  const [editForm, setEditForm] = useState<KnowledgePresetFormState>(initialPresetForm);
   const [editingPresetId, setEditingPresetId] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const formModeLabel = editingPresetId ? "Редактирование" : "Создание";
+  const [isEditingSubmitting, setIsEditingSubmitting] = useState(false);
+  const [isEditSheetOpen, setIsEditSheetOpen] = useState(false);
 
   const selectedScopeSummary = useMemo(() => {
     if (!selectedPreset) {
@@ -135,14 +144,31 @@ export function KnowledgePresetLibraryPanel({
     return parts.length > 0 ? parts.join(" · ") : "Preset не ограничивает корпус дополнительными фасетами.";
   }, [selectedPreset]);
 
-  const toggleDocumentClass = (documentClass: KnowledgeDocumentClass) => {
-    setForm((current) => ({
-      ...current,
-      documentClasses: current.documentClasses.includes(documentClass)
-        ? current.documentClasses.filter((item) => item !== documentClass)
-        : [...current.documentClasses, documentClass],
-    }));
+  const toggleDocumentClass = (
+    form: KnowledgePresetFormState,
+    setForm: Dispatch<SetStateAction<KnowledgePresetFormState>>,
+    documentClass: KnowledgeDocumentClass,
+  ) => {
+    setForm({
+      ...form,
+      documentClasses: form.documentClasses.includes(documentClass)
+        ? form.documentClasses.filter((item) => item !== documentClass)
+        : [...form.documentClasses, documentClass],
+    });
   };
+
+  const buildPayload = (form: KnowledgePresetFormState): CreateKnowledgePresetRequest => ({
+    name: form.name.trim(),
+    description: form.description.trim() || null,
+    active: form.active,
+    scope: {
+      presetIds: [],
+      documentClasses: form.documentClasses,
+      tags: normalizeTags(form.tagsText),
+      workspaceKey: form.workspaceKey.trim() || null,
+      uploadedTodayOnly: form.uploadedTodayOnly,
+    },
+  });
 
   const loadInspector = async (presetId: string) => {
     await Promise.all([onLoadPreset(presetId), onLoadRevisions(presetId)]);
@@ -155,7 +181,7 @@ export function KnowledgePresetLibraryPanel({
     }
     await onLoadRevisions(presetId);
     setEditingPresetId(presetId);
-    setForm({
+    setEditForm({
       name: detail.name,
       description: detail.description ?? "",
       documentClasses: detail.scope.documentClasses,
@@ -164,41 +190,40 @@ export function KnowledgePresetLibraryPanel({
       uploadedTodayOnly: detail.scope.uploadedTodayOnly,
       active: detail.active,
     });
+    setIsEditSheetOpen(true);
   };
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setIsSubmitting(true);
 
-    const payload: CreateKnowledgePresetRequest = {
-      name: form.name.trim(),
-      description: form.description.trim() || null,
-      active: form.active,
-      scope: {
-        presetIds: [],
-        documentClasses: form.documentClasses,
-        tags: normalizeTags(form.tagsText),
-        workspaceKey: form.workspaceKey.trim() || null,
-        uploadedTodayOnly: form.uploadedTodayOnly,
-      },
-    };
-
     try {
-      if (editingPresetId) {
-        await onUpdatePreset(editingPresetId, payload);
-      } else {
-        await onCreatePreset(payload);
-      }
-      setEditingPresetId(null);
-      setForm(initialPresetForm);
+      await onCreatePreset(buildPayload(createForm));
+      setCreateForm(initialPresetForm);
     } finally {
       setIsSubmitting(false);
     }
   };
 
+  const handleEditSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!editingPresetId) {
+      return;
+    }
+    setIsEditingSubmitting(true);
+
+    try {
+      await onUpdatePreset(editingPresetId, buildPayload(editForm));
+      cancelEditing();
+    } finally {
+      setIsEditingSubmitting(false);
+    }
+  };
+
   const cancelEditing = () => {
+    setIsEditSheetOpen(false);
     setEditingPresetId(null);
-    setForm(initialPresetForm);
+    setEditForm(initialPresetForm);
   };
 
   const handleDelete = async (presetId: string) => {
@@ -213,9 +238,129 @@ export function KnowledgePresetLibraryPanel({
     }
   };
 
+  const renderPresetForm = ({
+    form,
+    setForm,
+    isBusy,
+    busyLabel,
+    idleLabel,
+    idPrefix,
+    onSubmit,
+    showCancel = false,
+  }: {
+    form: KnowledgePresetFormState;
+    setForm: Dispatch<SetStateAction<KnowledgePresetFormState>>;
+    isBusy: boolean;
+    busyLabel: string;
+    idleLabel: string;
+    idPrefix: string;
+    onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+    showCancel?: boolean;
+  }) => (
+    <form className="space-y-4" onSubmit={onSubmit}>
+      <div className="space-y-2">
+        <Label htmlFor={`${idPrefix}-preset-name`}>Название</Label>
+        <Input
+          id={`${idPrefix}-preset-name`}
+          placeholder="Например: Договоры"
+          required
+          value={form.name}
+          onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
+        />
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor={`${idPrefix}-preset-description`}>Описание</Label>
+        <Textarea
+          id={`${idPrefix}-preset-description`}
+          placeholder="Кратко опиши, когда использовать этот набор знаний."
+          rows={3}
+          value={form.description}
+          onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))}
+        />
+      </div>
+
+      <div className="space-y-3">
+        <Label>Классы документов</Label>
+        <div className="grid gap-3 sm:grid-cols-2">
+          {documentClasses.map((documentClass) => (
+            <label
+              className="flex items-center gap-3 rounded-[20px] border border-field-border bg-field px-4 py-3"
+              key={documentClass}
+            >
+              <Checkbox
+                aria-label={`Выбрать класс ${knowledgeDocumentClassLabels[documentClass]}`}
+                checked={form.documentClasses.includes(documentClass)}
+                onCheckedChange={() => toggleDocumentClass(form, setForm, documentClass)}
+              />
+              <span className="text-sm text-foreground">
+                {knowledgeDocumentClassLabels[documentClass]}
+              </span>
+            </label>
+          ))}
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor={`${idPrefix}-preset-tags`}>Теги</Label>
+        <Textarea
+          id={`${idPrefix}-preset-tags`}
+          placeholder="Например: procurement, premium, invoice"
+          rows={2}
+          value={form.tagsText}
+          onChange={(event) => setForm((current) => ({ ...current, tagsText: event.target.value }))}
+        />
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor={`${idPrefix}-preset-workspace`}>Workspace key</Label>
+        <Input
+          id={`${idPrefix}-preset-workspace`}
+          placeholder="Например: legal-assistant"
+          value={form.workspaceKey}
+          onChange={(event) => setForm((current) => ({ ...current, workspaceKey: event.target.value }))}
+        />
+      </div>
+
+      <label className="flex items-center gap-3 rounded-[20px] border border-field-border bg-field px-4 py-3">
+        <Checkbox
+          aria-label="Ограничить preset файлами, загруженными сегодня"
+          checked={form.uploadedTodayOnly}
+          onCheckedChange={(checked) =>
+            setForm((current) => ({ ...current, uploadedTodayOnly: Boolean(checked) }))
+          }
+        />
+        <span className="text-sm text-foreground">Только загруженные сегодня файлы</span>
+      </label>
+
+      <label className="flex items-center gap-3 rounded-[20px] border border-field-border bg-field px-4 py-3">
+        <Checkbox
+          aria-label="Сделать knowledge preset активным"
+          checked={form.active}
+          onCheckedChange={(checked) =>
+            setForm((current) => ({ ...current, active: Boolean(checked) }))
+          }
+        />
+        <span className="text-sm text-foreground">Preset активен и доступен в выборе корпуса</span>
+      </label>
+
+      <div className="flex flex-wrap gap-3">
+        <Button disabled={isBusy} type="submit">
+          <PlusCircle className="h-4 w-4" />
+          {isBusy ? busyLabel : idleLabel}
+        </Button>
+        {showCancel ? (
+          <Button type="button" variant="secondary" onClick={cancelEditing}>
+            Отменить редактирование
+          </Button>
+        ) : null}
+      </div>
+    </form>
+  );
+
   return (
-    <div className="grid gap-6 xl:grid-cols-[minmax(0,1.02fr)_minmax(380px,0.98fr)]">
-      <Card>
+    <div className="grid gap-6">
+      <Card className="order-2">
         <CardHeader>
           <SectionIntro
             badge={`${presets.length} corpus preset(s)`}
@@ -277,119 +422,27 @@ export function KnowledgePresetLibraryPanel({
         </CardContent>
       </Card>
 
-      <div className="space-y-6">
-        <Card>
+      <div className="contents">
+        <Card className="order-1">
           <CardHeader>
             <SectionIntro
-              badge={formModeLabel}
-              badgeVariant={editingPresetId ? "default" : "secondary"}
-              description="Preset задаёт, по какому корпусу документов стоит искать ответ, и тоже имеет историю ревизий."
+              badge="Создание"
+              badgeVariant="secondary"
+              description="Preset задаёт, по какому корпусу документов стоит искать ответ. Редактирование существующего preset открывается отдельно по кнопке в списке."
               eyebrow="Preset Editor"
-              title={editingPresetId ? "Редактировать knowledge preset" : "Создать knowledge preset"}
+              title="Создать knowledge preset"
             />
           </CardHeader>
           <CardContent className="mt-0 space-y-4">
-            <form className="space-y-4" onSubmit={handleSubmit}>
-              <div className="space-y-2">
-                <Label htmlFor="preset-name">Название</Label>
-                <Input
-                  id="preset-name"
-                  placeholder="Например: Договоры"
-                  required
-                  value={form.name}
-                  onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="preset-description">Описание</Label>
-                <Textarea
-                  id="preset-description"
-                  placeholder="Кратко опиши, когда использовать этот набор знаний."
-                  rows={3}
-                  value={form.description}
-                  onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))}
-                />
-              </div>
-
-              <div className="space-y-3">
-                <Label>Классы документов</Label>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  {documentClasses.map((documentClass) => (
-                    <label
-                      className="flex items-center gap-3 rounded-[20px] border border-field-border bg-field px-4 py-3"
-                      key={documentClass}
-                    >
-                      <Checkbox
-                        aria-label={`Выбрать класс ${knowledgeDocumentClassLabels[documentClass]}`}
-                        checked={form.documentClasses.includes(documentClass)}
-                        onCheckedChange={() => toggleDocumentClass(documentClass)}
-                      />
-                      <span className="text-sm text-foreground">
-                        {knowledgeDocumentClassLabels[documentClass]}
-                      </span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="preset-tags">Теги</Label>
-                <Textarea
-                  id="preset-tags"
-                  placeholder="Например: procurement, premium, invoice"
-                  rows={2}
-                  value={form.tagsText}
-                  onChange={(event) => setForm((current) => ({ ...current, tagsText: event.target.value }))}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="preset-workspace">Workspace key</Label>
-                <Input
-                  id="preset-workspace"
-                  placeholder="Например: legal-assistant"
-                  value={form.workspaceKey}
-                  onChange={(event) => setForm((current) => ({ ...current, workspaceKey: event.target.value }))}
-                />
-              </div>
-
-              <label className="flex items-center gap-3 rounded-[20px] border border-field-border bg-field px-4 py-3">
-                <Checkbox
-                  aria-label="Ограничить preset файлами, загруженными сегодня"
-                  checked={form.uploadedTodayOnly}
-                  onCheckedChange={(checked) =>
-                    setForm((current) => ({ ...current, uploadedTodayOnly: Boolean(checked) }))
-                  }
-                />
-                <span className="text-sm text-foreground">Только загруженные сегодня файлы</span>
-              </label>
-
-              <label className="flex items-center gap-3 rounded-[20px] border border-field-border bg-field px-4 py-3">
-                <Checkbox
-                  aria-label="Сделать knowledge preset активным"
-                  checked={form.active}
-                  onCheckedChange={(checked) =>
-                    setForm((current) => ({ ...current, active: Boolean(checked) }))
-                  }
-                />
-                <span className="text-sm text-foreground">Preset активен и доступен в выборе корпуса</span>
-              </label>
-
-              <div className="flex flex-wrap gap-3">
-                <Button disabled={isSubmitting} type="submit">
-                  <PlusCircle className="h-4 w-4" />
-                  {isSubmitting
-                    ? editingPresetId ? "Сохраняем..." : "Создаём..."
-                    : editingPresetId ? "Сохранить изменения" : "Сохранить preset"}
-                </Button>
-                {editingPresetId ? (
-                  <Button type="button" variant="secondary" onClick={cancelEditing}>
-                    Отменить редактирование
-                  </Button>
-                ) : null}
-              </div>
-            </form>
+            {renderPresetForm({
+              form: createForm,
+              setForm: setCreateForm,
+              idPrefix: "create",
+              isBusy: isSubmitting,
+              busyLabel: "Создаём...",
+              idleLabel: "Сохранить preset",
+              onSubmit: handleSubmit,
+            })}
 
             {message ? (
               <Alert variant="success">
@@ -407,7 +460,7 @@ export function KnowledgePresetLibraryPanel({
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="order-3">
           <CardHeader>
             <SectionIntro
               badge={selectedPreset ? `rev ${selectedPreset.revision}` : "preview"}
@@ -540,6 +593,40 @@ export function KnowledgePresetLibraryPanel({
           </CardContent>
         </Card>
       </div>
+
+      <Sheet
+        open={isEditSheetOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            cancelEditing();
+          } else {
+            setIsEditSheetOpen(true);
+          }
+        }}
+      >
+        <SheetContent
+          className="w-[92vw] max-w-2xl overflow-y-auto border-border bg-popover text-foreground"
+          side="right"
+        >
+          <SheetHeader className="mb-6">
+            <SheetTitle>Редактировать knowledge preset</SheetTitle>
+            <SheetDescription className="text-muted-foreground">
+              Изменения сохраняются отдельной ревизией. Блок создания preset на странице остаётся независимым.
+            </SheetDescription>
+          </SheetHeader>
+
+          {renderPresetForm({
+            form: editForm,
+            setForm: setEditForm,
+            idPrefix: "edit",
+            isBusy: isEditingSubmitting,
+            busyLabel: "Сохраняем...",
+            idleLabel: "Сохранить изменения",
+            onSubmit: handleEditSubmit,
+            showCancel: true,
+          })}
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }

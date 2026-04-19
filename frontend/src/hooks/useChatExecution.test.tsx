@@ -223,7 +223,6 @@ describe("useChatExecution", () => {
           model: "qwen2.5:7b",
           prompt: "Какая цена?",
           instructionIds: ["instruction-1", "instruction-2"],
-          scenarioInstructionIds: ["instruction-1", "instruction-2"],
           answerMode: "brief",
           knowledgeScope: {
             presetIds: [],

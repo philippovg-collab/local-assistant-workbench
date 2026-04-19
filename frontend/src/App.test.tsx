@@ -2,8 +2,8 @@ import { act, cleanup, render, screen, waitFor, within } from "@testing-library/
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
-import type { HealthResponse, MaterialSummary } from "./types";
-import { buildChatExecutionResponse, buildMaterialSummary } from "./testBuilders";
+import type { HealthResponse, MaterialListResponse, MaterialSummary } from "./types";
+import { buildChatExecutionResponse, buildMaterialListResponse, buildMaterialSummary } from "./testBuilders";
 import {
   EMPTY_KNOWLEDGE_SCOPE_RESOLVED,
   EMPTY_RETRIEVAL_TRACE,
@@ -59,7 +59,7 @@ const buildMaterial = (overrides: Partial<MaterialSummary> = {}): MaterialSummar
 });
 
 const materialUploadPolicyResponse = {
-  maxUploadBytes: 2_000_000,
+  maxUploadBytes: 8_388_608,
   acceptedExtensions: ["txt", "pdf"],
   acceptedMimeHints: ["text/plain", "application/pdf"],
   richDocumentSupport: true,
@@ -73,7 +73,7 @@ const materialUploadPolicyResponse = {
 };
 
 const legacyMaterialUploadPolicyResponse = {
-  maxUploadBytes: 2_000_000,
+  maxUploadBytes: 8_388_608,
   acceptedExtensions: ["txt", "pdf"],
   acceptedMimeHints: ["text/plain", "application/pdf"],
   richDocumentSupport: true,
@@ -187,7 +187,7 @@ describe("App", () => {
   let currentMaterialUploadPolicyResponse:
     | typeof materialUploadPolicyResponse
     | typeof legacyMaterialUploadPolicyResponse;
-  let currentMaterialsResponse: MaterialSummary[];
+  let currentMaterialsResponse: MaterialListResponse;
   let chatRequests: Array<{
     mode: "direct" | "rag";
     model: string;
@@ -202,7 +202,7 @@ describe("App", () => {
     vi.useRealTimers();
     currentHealthResponse = buildHealthResponse();
     currentMaterialUploadPolicyResponse = materialUploadPolicyResponse;
-    currentMaterialsResponse = materialsResponse;
+    currentMaterialsResponse = buildMaterialListResponse(materialsResponse);
     chatRequests = [];
 
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
@@ -220,7 +220,7 @@ describe("App", () => {
         return jsonResponse(currentMaterialUploadPolicyResponse);
       }
 
-      if (url.endsWith("/api/materials")) {
+      if (new URL(url).pathname === "/api/materials") {
         return jsonResponse(currentMaterialsResponse);
       }
 
@@ -408,9 +408,8 @@ describe("App", () => {
 
     await user.click(ragButton);
     expect(ragPanel.hidden).toBe(false);
-    expect(
-      within(ragPanel).getAllByRole("heading", { name: "Ответ по материалам" }).length,
-    ).toBeGreaterThan(0);
+    expect(within(ragPanel).getByRole("heading", { name: "Запрос по материалам" })).toBeTruthy();
+    expect(within(ragPanel).getByRole("heading", { name: "Ответ по материалам" })).toBeTruthy();
     expect(
       within(ragPanel).getByRole("checkbox", {
         name: "Выбрать инструкцию Базовая роль ассистента",
@@ -634,7 +633,7 @@ describe("App", () => {
 
   it("renders the empty presentation consistently across dashboard, materials and RAG studio", async () => {
     const user = userEvent.setup();
-    currentMaterialsResponse = [];
+    currentMaterialsResponse = buildMaterialListResponse();
     currentHealthResponse = buildHealthResponse({
       ragStatus: "DOWN",
       knowledgeStatus: "EMPTY",
@@ -665,12 +664,12 @@ describe("App", () => {
 
   it("renders the indexing presentation consistently across dashboard, materials and RAG studio", async () => {
     const user = userEvent.setup();
-    currentMaterialsResponse = [
+    currentMaterialsResponse = buildMaterialListResponse([
       buildMaterial({
         status: "IN_PROGRESS",
         preview: "Индекс ещё строится.",
       }),
-    ];
+    ]);
     currentHealthResponse = buildHealthResponse({
       ragStatus: "DOWN",
       knowledgeStatus: "INDEXING",
@@ -731,6 +730,7 @@ describe("App", () => {
   it("keeps RAG ready when only the Elasticsearch shadow plane is down", async () => {
     const user = userEvent.setup();
     currentHealthResponse = buildHealthResponse({
+      status: "DEGRADED",
       searchStatus: "DEGRADED",
       searchMode: "auto",
       searchProvider: "postgres",
@@ -754,13 +754,15 @@ describe("App", () => {
 
     await openSection(user, /dashboard/i);
     const overviewPanel = getPanel("overview");
-    expect(within(overviewPanel).getByText("auto -> postgres / DEGRADED")).toBeTruthy();
-    expect(within(overviewPanel).getAllByText(/PostgreSQL fallback/i)).toHaveLength(1);
+    expect(within(overviewPanel).getByText("DEGRADED")).toBeTruthy();
+    expect(within(overviewPanel).getByText("PostgreSQL fallback")).toBeTruthy();
+    expect(within(overviewPanel).getByText("Fallback активен")).toBeTruthy();
+    expect(within(overviewPanel).getByText("Elasticsearch sync: DEGRADED")).toBeTruthy();
     expect(
-      within(overviewPanel).getByText(
-        "Elasticsearch sync backlog is older than the safe threshold of 120 seconds.",
-      ),
-    ).toBeTruthy();
+      within(overviewPanel).getAllByText((content) =>
+        content.includes("Elasticsearch sync backlog is older than the safe threshold of 120 seconds."),
+      ).length,
+    ).toBeGreaterThan(0);
 
     await openSection(user, /rag studio/i);
     const ragPanel = getPanel("rag");
@@ -826,7 +828,7 @@ describe("App", () => {
 
   it("degrades RAG UX when only superseded materials remain in the catalog", async () => {
     const user = userEvent.setup();
-    currentMaterialsResponse = [
+    currentMaterialsResponse = buildMaterialListResponse([
       buildMaterial({
         id: "material-archived-1",
         title: "Archived pricing note",
@@ -834,7 +836,7 @@ describe("App", () => {
         versionState: "SUPERSEDED",
         preview: "Историческая версия тарифа.",
       }),
-    ];
+    ]);
     currentHealthResponse = buildHealthResponse({
       ragStatus: "DOWN",
       knowledgeStatus: "HISTORICAL_ONLY",
@@ -866,14 +868,14 @@ describe("App", () => {
 
   it("transitions to historical-only readiness after polling without remounting the app", async () => {
     const user = userEvent.setup();
-    currentMaterialsResponse = [
+    currentMaterialsResponse = buildMaterialListResponse([
       buildMaterial({
         id: "material-active-1",
         status: "PENDING",
         versionState: "ACTIVE",
         preview: "Активная версия ещё индексируется.",
       }),
-    ];
+    ]);
     currentHealthResponse = buildHealthResponse({
       ragStatus: "DOWN",
       knowledgeStatus: "INDEXING",
@@ -901,14 +903,14 @@ describe("App", () => {
       badgeLabel: "1 active / 1 total",
     });
 
-    currentMaterialsResponse = [
+    currentMaterialsResponse = buildMaterialListResponse([
       buildMaterial({
         id: "material-archived-1",
         status: "READY",
         versionState: "SUPERSEDED",
         preview: "Историческая версия тарифа.",
       }),
-    ];
+    ]);
     currentHealthResponse = buildHealthResponse({
       ragStatus: "DOWN",
       knowledgeStatus: "HISTORICAL_ONLY",

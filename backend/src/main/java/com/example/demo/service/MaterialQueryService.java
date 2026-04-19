@@ -15,6 +15,7 @@ import com.example.demo.infrastructure.material.StoredMaterialSegment;
 import com.example.demo.model.MaterialIndexingStatus;
 import com.example.demo.model.MaterialChunkDetail;
 import com.example.demo.model.MaterialDetail;
+import com.example.demo.model.MaterialListResponse;
 import com.example.demo.model.MaterialLineageResponse;
 import com.example.demo.model.MaterialLineageVersion;
 import com.example.demo.model.MaterialPdfUploadPolicyResponse;
@@ -33,6 +34,7 @@ import java.util.List;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -49,6 +51,8 @@ public class MaterialQueryService {
     private static final String RECHUNK_BATCH_INVALID_CURSOR = "material.rechunk_batch_invalid_cursor";
     private static final int DEFAULT_RECHUNK_BATCH_LIMIT = 100;
     private static final int MAX_RECHUNK_BATCH_LIMIT = 500;
+    private static final int DEFAULT_MATERIAL_LIST_LIMIT = 100;
+    private static final int MAX_MATERIAL_LIST_LIMIT = 500;
     private static final String BATCH_CURSOR_VERSION = "v1";
 
     private final MaterialCatalogRepository repository;
@@ -62,6 +66,7 @@ public class MaterialQueryService {
     private final AfterCommitExecutor afterCommitExecutor;
     private final RolloutProperties rolloutProperties;
 
+    @Autowired
     public MaterialQueryService(
         MaterialCatalogRepository repository,
         MaterialChunkingRepository chunkingRepository,
@@ -112,10 +117,22 @@ public class MaterialQueryService {
     }
 
     public List<MaterialSummary> listSummaries() {
-        return repository.findAll().stream()
-            .sorted(Comparator.comparing(record -> record.createdAt(), Comparator.reverseOrder()))
-            .map(contentSupport::toSummary)
-            .toList();
+        return listSummaries(0, DEFAULT_MATERIAL_LIST_LIMIT);
+    }
+
+    public List<MaterialSummary> listSummaries(Integer offset, Integer limit) {
+        int normalizedOffset = normalizeMaterialListOffset(offset);
+        int normalizedLimit = normalizeMaterialListLimit(limit);
+        return repository.findSummaries(normalizedOffset, normalizedLimit);
+    }
+
+    public MaterialListResponse listSummariesPage(Integer offset, Integer limit) {
+        int normalizedOffset = normalizeMaterialListOffset(offset);
+        int normalizedLimit = normalizeMaterialListLimit(limit);
+        List<MaterialSummary> items = repository.findSummaries(normalizedOffset, normalizedLimit);
+        int total = repository.countMaterials();
+        boolean hasMore = normalizedOffset + items.size() < total;
+        return new MaterialListResponse(items, total, normalizedOffset, normalizedLimit, hasMore);
     }
 
     public MaterialUploadPolicyResponse getUploadPolicy() {
@@ -390,6 +407,41 @@ public class MaterialQueryService {
             "material.structured_rollout_disabled",
             "Structured chunking rollout is disabled."
         );
+    }
+
+    private int normalizeMaterialListOffset(Integer offset) {
+        if (offset == null) {
+            return 0;
+        }
+        if (offset < 0) {
+            throw new ApiException(
+                HttpStatus.BAD_REQUEST,
+                "material.invalid_list_offset",
+                "Material list offset must be zero or greater"
+            );
+        }
+        return offset;
+    }
+
+    private int normalizeMaterialListLimit(Integer limit) {
+        if (limit == null) {
+            return DEFAULT_MATERIAL_LIST_LIMIT;
+        }
+        if (limit <= 0) {
+            throw new ApiException(
+                HttpStatus.BAD_REQUEST,
+                "material.invalid_list_limit",
+                "Material list limit must be greater than zero"
+            );
+        }
+        if (limit > MAX_MATERIAL_LIST_LIMIT) {
+            throw new ApiException(
+                HttpStatus.BAD_REQUEST,
+                "material.list_limit_too_large",
+                "Material list limit must not exceed " + MAX_MATERIAL_LIST_LIMIT
+            );
+        }
+        return limit;
     }
 
     private RechunkPreparation prepareRechunk(StoredMaterialRecord record, ChunkProfile targetProfile) {

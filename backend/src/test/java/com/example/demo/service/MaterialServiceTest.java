@@ -413,7 +413,7 @@ class MaterialServiceTest {
             "file",
             "big.txt",
             "text/plain",
-            new byte[2_000_001]
+            new byte[8_388_609]
         );
 
         ApiException exception = assertThrows(ApiException.class, () -> service.saveUpload("Big", file));

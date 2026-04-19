@@ -2,6 +2,7 @@ package com.example.demo.model;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import java.util.List;
+import java.util.Map;
 
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record HealthResponse(
@@ -49,7 +50,8 @@ public record HealthResponse(
     Integer indexingInProgressCount,
     Integer indexingFailedCount,
     String indexingNextRetryAt,
-    QualityLayerHealth qualityLayer
+    QualityLayerHealth qualityLayer,
+    Map<String, ReadinessComponent> readiness
 ) {
     public HealthResponse(
         String application,
@@ -134,6 +136,7 @@ public record HealthResponse(
             null,
             null,
             null,
+            null,
             null
         );
     }
@@ -146,6 +149,15 @@ public record HealthResponse(
         String nextRetryAt,
         String oldestOutstandingAt,
         String lastSuccessfulSyncAt
+    ) {
+    }
+
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record ReadinessComponent(
+        String status,
+        String reasonCode,
+        String reasonMessage,
+        String observedAt
     ) {
     }
 }

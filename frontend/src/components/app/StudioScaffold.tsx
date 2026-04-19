@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { SectionIntro } from "@/components/app/SectionIntro";
+import { cn } from "@/lib/utils";
 
 type StudioScaffoldProps = {
   eyebrow: string;
@@ -9,6 +10,7 @@ type StudioScaffoldProps = {
   badge: string;
   controls: ReactNode;
   results: ReactNode;
+  layout?: "split" | "stacked";
 };
 
 export function StudioScaffold({
@@ -18,9 +20,15 @@ export function StudioScaffold({
   badge,
   controls,
   results,
+  layout = "split",
 }: StudioScaffoldProps) {
   return (
-    <div className="grid gap-6 xl:grid-cols-[minmax(0,1.05fr)_minmax(340px,0.95fr)]">
+    <div
+      className={cn(
+        "grid gap-6",
+        layout === "split" && "xl:grid-cols-[minmax(0,1.05fr)_minmax(340px,0.95fr)]",
+      )}
+    >
       <Card className="overflow-hidden">
         <CardHeader>
           <SectionIntro

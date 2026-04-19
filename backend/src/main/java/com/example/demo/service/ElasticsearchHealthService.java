@@ -104,7 +104,12 @@ public class ElasticsearchHealthService {
 
         synchronized (this) {
             if (cachedHealth == null) {
-                cachedHealth = new CachedSearchSyncHealth(loadCachedHealth(null, "UP", null, null), null);
+                cachedHealth = new CachedSearchSyncHealth(loadCachedHealth(
+                    null,
+                    "UNKNOWN",
+                    "search.health_unprobed",
+                    "Elasticsearch health has not been probed yet."
+                ), null);
             }
             return cachedHealth;
         }

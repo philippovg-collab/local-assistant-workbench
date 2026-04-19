@@ -474,10 +474,10 @@ public class InstructionService {
     }
 
     private String workspaceTargetOf(ChatExecutionRequest request) {
-        if (request == null || request.knowledgeScope() == null) {
+        if (request == null) {
             return DEFAULT_WORKSPACE_TARGET;
         }
-        String workspaceKey = sanitizeOptional(request.knowledgeScope().workspaceKey());
+        String workspaceKey = sanitizeOptional(request.instructionWorkspaceKey());
         return workspaceKey == null ? DEFAULT_WORKSPACE_TARGET : workspaceKey;
     }
 

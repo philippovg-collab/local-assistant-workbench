@@ -9,6 +9,7 @@ import com.example.demo.infrastructure.material.MaterialFormatRegistry;
 import com.example.demo.infrastructure.material.OcrCapabilityProvider;
 import com.example.demo.infrastructure.material.StoredMaterialRecord;
 import com.example.demo.model.MaterialMetadataInput;
+import com.example.demo.model.MaterialListResponse;
 import com.example.demo.model.MaterialLineageResponse;
 import com.example.demo.model.MaterialDetail;
 import com.example.demo.model.KnowledgeScope;
@@ -43,6 +44,14 @@ public class MaterialService {
 
     public List<MaterialSummary> listSummaries() {
         return queryService.listSummaries();
+    }
+
+    public List<MaterialSummary> listSummaries(Integer offset, Integer limit) {
+        return queryService.listSummaries(offset, limit);
+    }
+
+    public MaterialListResponse listSummariesPage(Integer offset, Integer limit) {
+        return queryService.listSummariesPage(offset, limit);
     }
 
     public MaterialUploadPolicyResponse getUploadPolicy() {

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { apiClient } from "../api/client";
 import type { HealthResponse } from "../types";
 
-const POLL_INTERVAL_MS = 15_000;
+const POLL_INTERVAL_MS = 30_000;
 const getErrorMessage = (error: unknown, fallback: string) =>
   error instanceof Error ? error.message : fallback;
 const isPageVisible = () => typeof document === "undefined" || document.visibilityState !== "hidden";

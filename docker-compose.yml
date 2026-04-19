@@ -1,0 +1,140 @@
+name: ${COMPOSE_PROJECT_NAME:-ragstudio}
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-ragstudio}
+      POSTGRES_USER: ${POSTGRES_USER:-ragstudio}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ragstudio-change-me}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    volumes:
+      - ollama-data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 30s
+    # For NVIDIA GPU hosts, install NVIDIA Container Toolkit and add:
+    # gpus: all
+
+  ollama-init:
+    image: ollama/ollama:latest
+    restart: "no"
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+      APP_LLM_MODEL: ${APP_LLM_MODEL:-qwen2.5:7b}
+      APP_EMBEDDINGS_MODEL: ${APP_EMBEDDINGS_MODEL:-nomic-embed-text}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -eu
+        ollama pull "$${APP_LLM_MODEL}"
+        ollama pull "$${APP_EMBEDDINGS_MODEL}"
+        ollama list
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ollama-init:
+        condition: service_completed_successfully
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-ragstudio}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-ragstudio}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-ragstudio-change-me}
+      SPRING_ELASTICSEARCH_URIS: ${SPRING_ELASTICSEARCH_URIS:-http://elasticsearch:9200}
+      SPRING_ELASTICSEARCH_USERNAME: ${SPRING_ELASTICSEARCH_USERNAME:-}
+      SPRING_ELASTICSEARCH_PASSWORD: ${SPRING_ELASTICSEARCH_PASSWORD:-}
+      APP_CORS_ALLOWED_ORIGINS: ${APP_CORS_ALLOWED_ORIGINS:-http://localhost,http://127.0.0.1}
+      APP_LLM_BASE_URL: http://ollama:11434
+      APP_LLM_MODEL: ${APP_LLM_MODEL:-qwen2.5:7b}
+      APP_LLM_TIMEOUT_SECONDS: ${APP_LLM_TIMEOUT_SECONDS:-600}
+      APP_EMBEDDINGS_MODEL: ${APP_EMBEDDINGS_MODEL:-nomic-embed-text}
+      APP_EMBEDDINGS_TIMEOUT_SECONDS: ${APP_EMBEDDINGS_TIMEOUT_SECONDS:-60}
+      APP_EMBEDDINGS_EXPECTED_DIMENSION: ${APP_EMBEDDINGS_EXPECTED_DIMENSION:-768}
+      APP_OCR_ENABLED: ${APP_OCR_ENABLED:-true}
+      APP_OCR_BINARY_PATH: ${APP_OCR_BINARY_PATH:-tesseract}
+      APP_OCR_LANGUAGES: ${APP_OCR_LANGUAGES:-kaz+rus+eng}
+      APP_OCR_TIMEOUT_SECONDS: ${APP_OCR_TIMEOUT_SECONDS:-20}
+      APP_OCR_MAX_PAGES: ${APP_OCR_MAX_PAGES:-12}
+      APP_OCR_RENDER_DPI: ${APP_OCR_RENDER_DPI:-200}
+      APP_MATERIALS_MAX_UPLOAD_BYTES: ${APP_MATERIALS_MAX_UPLOAD_BYTES:-8388608}
+      APP_MATERIALS_MAX_UPLOAD_REQUEST_BYTES: ${APP_MATERIALS_MAX_UPLOAD_REQUEST_BYTES:-9437184}
+      APP_RAG_LEXICAL_PROVIDER: ${APP_RAG_LEXICAL_PROVIDER:-postgres}
+      APP_SEARCH_SYNC_ENABLED: ${APP_SEARCH_SYNC_ENABLED:-false}
+      APP_SEARCH_SYNC_INDEX_PREFIX: ${APP_SEARCH_SYNC_INDEX_PREFIX:-rag-chunks}
+      APP_STORAGE_DIR: /app/storage
+      JAVA_TOOL_OPTIONS: ${BACKEND_JAVA_TOOL_OPTIONS:--Djava.awt.headless=true -XX:MaxRAMPercentage=75}
+    volumes:
+      - backend-storage:/app/storage
+    expose:
+      - "8080"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/api/health"]
+      interval: 30s
+      timeout: ${BACKEND_HEALTHCHECK_TIMEOUT:-45s}
+      retries: 10
+      start_period: 90s
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${FRONTEND_HTTP_PORT:-80}:80"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.13.4
+    profiles: ["search"]
+    restart: unless-stopped
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: ${ELASTICSEARCH_JAVA_OPTS:--Xms1g -Xmx1g}
+    volumes:
+      - elasticsearch-data:/usr/share/elasticsearch/data
+    expose:
+      - "9200"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9200/_cluster/health >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 20
+      start_period: 60s
+
+volumes:
+  postgres-data:
+  ollama-data:
+  backend-storage:
+  elasticsearch-data:

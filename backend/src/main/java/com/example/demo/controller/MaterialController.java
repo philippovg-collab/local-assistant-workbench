@@ -3,6 +3,7 @@ package com.example.demo.controller;
 import com.example.demo.api.ApiException;
 import com.example.demo.model.CreateTextMaterialRequest;
 import com.example.demo.model.MaterialMetadataInput;
+import com.example.demo.model.MaterialListResponse;
 import com.example.demo.model.MaterialLineageResponse;
 import com.example.demo.model.MaterialDetail;
 import com.example.demo.model.RechunkActiveMaterialsBatchRequest;
@@ -12,7 +13,6 @@ import com.example.demo.model.RechunkActiveMaterialsResponse;
 import com.example.demo.model.MaterialSummary;
 import com.example.demo.service.MaterialService;
 import java.util.UUID;
-import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -38,8 +38,11 @@ public class MaterialController {
     }
 
     @GetMapping
-    public List<MaterialSummary> listMaterials() {
-        return materialService.listSummaries();
+    public MaterialListResponse listMaterials(
+        @RequestParam(required = false) Integer offset,
+        @RequestParam(required = false) Integer limit
+    ) {
+        return materialService.listSummariesPage(offset, limit);
     }
 
     @GetMapping("/policy")

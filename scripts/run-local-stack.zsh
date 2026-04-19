@@ -6,6 +6,9 @@ IMPLEMENTATION_PATH=$(cd "$(dirname "$0")" && pwd)/$(basename "$0")
 LAUNCHER_PATH="${RUN_LOCAL_STACK_LAUNCHER:-$0}"
 DEFAULT_JAVA_21_HOME="/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home"
 DATASOURCE_URL="${SPRING_DATASOURCE_URL:-jdbc:postgresql://127.0.0.1:5432/ragstudio}"
+export APP_ROLLOUT_METADATA_V1="${APP_ROLLOUT_METADATA_V1:-true}"
+export APP_ROLLOUT_METADATA_FILTERS_V1="${APP_ROLLOUT_METADATA_FILTERS_V1:-true}"
+export APP_ROLLOUT_QUERY_HINTS_V1="${APP_ROLLOUT_QUERY_HINTS_V1:-true}"
 OLLAMA_BIN="${OLLAMA_BIN:-/opt/homebrew/bin/ollama}"
 OLLAMA_URL="${OLLAMA_URL:-http://127.0.0.1:11434}"
 OLLAMA_LOG_FILE="${OLLAMA_LOG_FILE:-/tmp/ollama.log}"
@@ -240,8 +243,45 @@ is_ollama_ready() {
   http_ready "$OLLAMA_URL/api/tags" || listener_name_matches "$OLLAMA_URL_PORT" "ollama"
 }
 
+rollout_flag_expected() {
+  [[ "$1" == "true" || "$1" == "TRUE" ]]
+}
+
+backend_quality_layer_flags_match_expected() {
+  local health_response
+
+  health_response=$(command curl --max-time 2 -fsS "$BACKEND_HEALTH_URL" 2>/dev/null || true)
+
+  if rollout_flag_expected "$APP_ROLLOUT_METADATA_V1"; then
+    [[ "$health_response" == *'"metadataV1":true'* ]] || return 1
+  fi
+  if rollout_flag_expected "$APP_ROLLOUT_METADATA_FILTERS_V1"; then
+    [[ "$health_response" == *'"metadataFiltersV1":true'* ]] || return 1
+  fi
+  if rollout_flag_expected "$APP_ROLLOUT_QUERY_HINTS_V1"; then
+    [[ "$health_response" == *'"queryHintsV1":true'* ]] || return 1
+  fi
+
+  return 0
+}
+
+backend_health_responds() {
+  command curl --max-time 2 -fsS "$BACKEND_HEALTH_URL" >/dev/null 2>&1
+}
+
 is_backend_ready() {
-  http_ready "$BACKEND_MODELS_URL" || http_ready "$BACKEND_HEALTH_URL" || listener_name_matches "$BACKEND_PORT" "java"
+  if http_ready "$BACKEND_MODELS_URL" || http_ready "$BACKEND_HEALTH_URL"; then
+    backend_quality_layer_flags_match_expected
+    return $?
+  fi
+
+  if rollout_flag_expected "$APP_ROLLOUT_METADATA_V1" \
+    || rollout_flag_expected "$APP_ROLLOUT_METADATA_FILTERS_V1" \
+    || rollout_flag_expected "$APP_ROLLOUT_QUERY_HINTS_V1"; then
+    return 1
+  fi
+
+  listener_name_matches "$BACKEND_PORT" "java"
 }
 
 is_frontend_ready() {
@@ -428,6 +468,11 @@ start_ollama() {
 start_backend() {
   local java21_home
 
+  if backend_health_responds && ! backend_metadata_v1_matches_expected; then
+    echo "Existing backend has metadata-v1 disabled; restarting for local metadata capture." >&2
+    "$ROOT_DIR/scripts/stop-backend.sh"
+  fi
+
   if reuse_existing_service_if_available "backend" "http://127.0.0.1:${BACKEND_PORT}" "$LOCAL_HOST" "$BACKEND_PORT" is_backend_ready; then
     return 0
   fi
@@ -444,6 +489,9 @@ start_backend() {
   (
     export JAVA_HOME="$java21_home"
     export PATH="$JAVA_HOME/bin:$PATH"
+    export APP_ROLLOUT_METADATA_V1="${APP_ROLLOUT_METADATA_V1:-true}"
+    export APP_ROLLOUT_METADATA_FILTERS_V1="${APP_ROLLOUT_METADATA_FILTERS_V1:-true}"
+    export APP_ROLLOUT_QUERY_HINTS_V1="${APP_ROLLOUT_QUERY_HINTS_V1:-true}"
     cd "$ROOT_DIR/backend"
     exec mvn spring-boot:run
   ) >"$BACKEND_LOG_FILE" 2>&1 &
@@ -527,6 +575,9 @@ echo "  Frontend: $FRONTEND_URL"
 echo "  Backend:  http://127.0.0.1:8080"
 echo "  Ollama:   $OLLAMA_URL ($OLLAMA_MODE_DESCRIPTION)"
 echo "  Postgres: $DATASOURCE_URL"
+echo "  metadata-v1: $APP_ROLLOUT_METADATA_V1"
+echo "  metadata-filters-v1: $APP_ROLLOUT_METADATA_FILTERS_V1"
+echo "  query-hints-v1: $APP_ROLLOUT_QUERY_HINTS_V1"
 echo "  Logs:     $OLLAMA_LOG_FILE | $BACKEND_LOG_FILE | $FRONTEND_LOG_FILE"
 echo
 echo "Keep this process alive while you work. Press Ctrl+C to stop managed services."

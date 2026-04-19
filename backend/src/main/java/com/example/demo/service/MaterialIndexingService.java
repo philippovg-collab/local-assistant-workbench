@@ -15,6 +15,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Executor;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -67,7 +68,12 @@ public class MaterialIndexingService {
             return;
         }
 
-        materialIndexingExecutor.execute(this::drainQueue);
+        try {
+            materialIndexingExecutor.execute(this::drainQueue);
+        } catch (RejectedExecutionException exception) {
+            drainScheduled.set(false);
+            logger.warn("Material indexing executor rejected queue processing request; leaving jobs pending", exception);
+        }
     }
 
     private void drainQueue() {
@@ -75,13 +81,16 @@ public class MaterialIndexingService {
             Instant now = Instant.now();
             indexingQueueRepository.resetExpiredIndexingClaims(now.minusSeconds(properties.getIndexingLeaseSeconds()), now);
 
-            while (true) {
+            int processedJobs = 0;
+            int maxJobs = Math.max(1, properties.getIndexingDrainMaxJobs());
+            while (processedJobs < maxJobs) {
                 MaterialIndexingLease lease = indexingQueueRepository.claimNextIndexing(Instant.now())
                     .orElse(null);
                 if (lease == null) {
                     break;
                 }
                 processLease(lease);
+                processedJobs += 1;
             }
         } finally {
             drainScheduled.set(false);
@@ -175,7 +184,8 @@ public class MaterialIndexingService {
 
     private long backoffSeconds(int attemptNumber) {
         long base = Math.max(1, properties.getIndexingRetryBaseSeconds());
-        long candidate = base * (1L << Math.max(0, attemptNumber - 1));
+        int exponent = Math.min(30, Math.max(0, attemptNumber - 1));
+        long candidate = base * (1L << exponent);
         return Math.min(candidate, Math.max(base, properties.getIndexingRetryMaxSeconds()));
     }
 

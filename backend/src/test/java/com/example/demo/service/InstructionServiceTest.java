@@ -18,7 +18,7 @@ import org.junit.jupiter.api.Test;
 class InstructionServiceTest {
 
     @Test
-    void resolvesWorkspaceInstructionsUsingKnowledgeScopeWorkspaceKey() {
+    void resolvesWorkspaceInstructionsUsingExplicitInstructionWorkspaceKey() {
         InstructionService service = new InstructionService(new InMemoryInstructionRepository());
         service.createInstruction(new CreateInstructionRequest(
             "Sales workspace",
@@ -45,7 +45,9 @@ class InstructionServiceTest {
             List.of(),
             null,
             new KnowledgeScope(List.of(), List.of(), List.of(), "sales-workspace", false),
-            List.of(),
+            "sales-workspace",
+            null,
+            null,
             null
         ));
 

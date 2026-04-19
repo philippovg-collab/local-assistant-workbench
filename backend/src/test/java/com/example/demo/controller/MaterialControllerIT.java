@@ -100,10 +100,12 @@ class MaterialControllerIT extends PostgresIntegrationTestSupport {
 
         mockMvc.perform(get("/api/materials"))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$", hasSize(1)))
-            .andExpect(jsonPath("$[0].id").value(first.id()))
-            .andExpect(jsonPath("$[0].versionState").value("ACTIVE"))
-            .andExpect(jsonPath("$[0].preview").value(containsString("9000")));
+            .andExpect(jsonPath("$.items", hasSize(1)))
+            .andExpect(jsonPath("$.total").value(1))
+            .andExpect(jsonPath("$.hasMore").value(false))
+            .andExpect(jsonPath("$.items[0].id").value(first.id()))
+            .andExpect(jsonPath("$.items[0].versionState").value("ACTIVE"))
+            .andExpect(jsonPath("$.items[0].preview").value(containsString("9000")));
     }
 
     @Test

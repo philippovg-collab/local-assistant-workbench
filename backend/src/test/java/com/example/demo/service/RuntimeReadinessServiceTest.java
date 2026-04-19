@@ -10,6 +10,10 @@ import com.example.demo.embedding.EmbeddingClient;
 import com.example.demo.llm.LlmClient;
 import com.example.demo.model.OllamaModelInfo;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 
 class RuntimeReadinessServiceTest {
@@ -97,6 +101,38 @@ class RuntimeReadinessServiceTest {
         assertEquals(0, llmClient.chatCalls);
     }
 
+    @Test
+    void coalescesConcurrentRefreshesOnCacheMiss() throws Exception {
+        SlowCountingLlmClient llmClient = new SlowCountingLlmClient();
+        RuntimeReadinessService service = new RuntimeReadinessService(
+            llmClient,
+            new StaticEmbeddingClient(false),
+            new LlmProperties(),
+            new HealthProperties()
+        );
+        CountDownLatch start = new CountDownLatch(1);
+        var executor = Executors.newFixedThreadPool(8);
+        try {
+            List<java.util.concurrent.Future<RuntimeReadinessService.RuntimeReadiness>> futures =
+                java.util.stream.IntStream.range(0, 8)
+                    .mapToObj(index -> executor.submit(() -> {
+                        start.await();
+                        return service.currentReadiness();
+                    }))
+                    .toList();
+
+            start.countDown();
+            for (var future : futures) {
+                assertEquals("UP", future.get(2, TimeUnit.SECONDS).directStatus());
+            }
+        } finally {
+            executor.shutdownNow();
+        }
+
+        assertEquals(1, llmClient.listModelCalls.get());
+        assertEquals(1, llmClient.chatCalls.get());
+    }
+
     private static final class CountingLlmClient implements LlmClient {
 
         private int listModelCalls = 0;
@@ -143,6 +179,34 @@ class RuntimeReadinessServiceTest {
                 );
             }
             return new ChatResult("qwen2.5:7b", "ok", "2026-04-16T10:00:00Z", 1, 1, 2);
+        }
+    }
+
+    private static final class SlowCountingLlmClient implements LlmClient {
+
+        private final AtomicInteger listModelCalls = new AtomicInteger();
+        private final AtomicInteger chatCalls = new AtomicInteger();
+
+        @Override
+        public List<OllamaModelInfo> listModels() {
+            listModelCalls.incrementAndGet();
+            sleepBriefly();
+            return List.of(new OllamaModelInfo("qwen2.5:7b"));
+        }
+
+        @Override
+        public ChatResult chat(ChatRequest request) {
+            chatCalls.incrementAndGet();
+            sleepBriefly();
+            return new ChatResult("qwen2.5:7b", "ok", "2026-04-16T10:00:00Z", 1, 1, 2);
+        }
+
+        private void sleepBriefly() {
+            try {
+                Thread.sleep(50);
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+            }
         }
     }
 

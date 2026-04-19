@@ -65,7 +65,7 @@ class MaterialControllerContractTest {
     @Test
     void returnsUploadPolicyFromTheService() throws Exception {
         when(materialService.getUploadPolicy()).thenReturn(new MaterialUploadPolicyResponse(
-            2_000_000,
+            8_388_608,
             List.of("txt", "docx", "xlsx", "pptx", "pdf"),
             List.of(
                 "text/plain",
@@ -87,7 +87,7 @@ class MaterialControllerContractTest {
 
         mockMvc.perform(get("/api/materials/policy"))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.maxUploadBytes").value(2_000_000))
+            .andExpect(jsonPath("$.maxUploadBytes").value(8_388_608))
             .andExpect(jsonPath("$.acceptedExtensions[0]").value("txt"))
             .andExpect(jsonPath("$.acceptedExtensions", hasItems("xlsx", "pptx")))
             .andExpect(jsonPath("$.pdf.mode").value("embedded_text_only"))

@@ -125,6 +125,38 @@ class SearchControllerFlowTest {
     }
 
     @Test
+    void exposesSuppressedMetadataFiltersInSearchDebugWhenRolloutIsDisabled() throws Exception {
+        RolloutProperties rolloutProperties = RolloutProperties.enabledForTests();
+        rolloutProperties.setMetadataFiltersV1(false);
+        rolloutProperties.setQueryHintsV1(true);
+        MaterialService disabledFiltersMaterialService = createMaterialService(rolloutProperties);
+        MockMvc disabledFiltersMockMvc = MockMvcBuilders
+            .standaloneSetup(new SearchController(disabledFiltersMaterialService))
+            .setControllerAdvice(new ApiExceptionHandler(materialProperties))
+            .setMessageConverters(new MappingJackson2HttpMessageConverter())
+            .build();
+
+        disabledFiltersMockMvc.perform(post("/api/search")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "query": "dispatch matrix",
+                      "filters": {
+                        "department": "South operations"
+                      },
+                      "debug": true
+                    }
+                    """))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.hits[0].title").exists())
+            .andExpect(jsonPath("$.debug.manualFilters.department").value("South operations"))
+            .andExpect(jsonPath("$.debug.activeRolloutFlags.metadataFiltersV1").value(false))
+            .andExpect(jsonPath("$.debug.activeRolloutFlags.queryHintsV1").value(true))
+            .andExpect(jsonPath("$.debug.suppressedCapabilities[0]").value("metadata-filters-v1"))
+            .andExpect(jsonPath("$.debug.suppressedCapabilities[1]").value("query-hints-v1"));
+    }
+
+    @Test
     void rejectsBlankQueriesFromRealSearchService() throws Exception {
         mockMvc.perform(post("/api/search")
                 .contentType(MediaType.APPLICATION_JSON)

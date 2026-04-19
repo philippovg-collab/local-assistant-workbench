@@ -15,7 +15,9 @@ import com.example.demo.infrastructure.material.MaterialCatalogRepository;
 import com.example.demo.infrastructure.material.MaterialIndexingQueueRepository;
 import com.example.demo.infrastructure.material.OcrCapability;
 import com.example.demo.infrastructure.material.OcrCapabilityProvider;
+import com.example.demo.service.ChatAuditService;
 import com.example.demo.service.ElasticsearchHealthService;
+import com.example.demo.service.HealthStatusService;
 import com.example.demo.service.ProductionLexicalSearchRouter;
 import com.example.demo.service.QualityLayerHealthService;
 import com.example.demo.service.RagStorageHealthService;
@@ -37,6 +39,7 @@ class HealthControllerTest {
     private MaterialCatalogRepository materialCatalogRepository;
     private MaterialIndexingQueueRepository indexingQueueRepository;
     private ProductionLexicalSearchRouter productionLexicalSearchRouter;
+    private ChatAuditService chatAuditService;
 
     @BeforeEach
     void setUp() {
@@ -47,8 +50,10 @@ class HealthControllerTest {
         materialCatalogRepository = org.mockito.Mockito.mock(MaterialCatalogRepository.class);
         indexingQueueRepository = org.mockito.Mockito.mock(MaterialIndexingQueueRepository.class);
         productionLexicalSearchRouter = org.mockito.Mockito.mock(ProductionLexicalSearchRouter.class);
+        chatAuditService = org.mockito.Mockito.mock(ChatAuditService.class);
+        when(chatAuditService.currentHealth()).thenReturn(new ChatAuditService.AuditHealth("UP", null, null, 0, null));
         mockMvc = MockMvcBuilders
-            .standaloneSetup(new HealthController(
+            .standaloneSetup(new HealthController(new HealthStatusService(
                 ocrProperties,
                 ocrCapabilityProvider,
                 ragStorageHealthService,
@@ -56,8 +61,9 @@ class HealthControllerTest {
                 materialCatalogRepository,
                 indexingQueueRepository,
                 productionLexicalSearchRouter,
-                QualityLayerHealthService.noop(new RolloutProperties())
-            ))
+                QualityLayerHealthService.noop(new RolloutProperties()),
+                chatAuditService
+            )))
             .setMessageConverters(new MappingJackson2HttpMessageConverter())
             .build();
     }
@@ -83,7 +89,7 @@ class HealthControllerTest {
 
         mockMvc.perform(get("/api/health"))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.status").value("UP"))
+            .andExpect(jsonPath("$.status").value("DEGRADED"))
             .andExpect(jsonPath("$.ragStatus").value("DOWN"))
             .andExpect(jsonPath("$.knowledgeStatus").value("EMPTY"))
             .andExpect(jsonPath("$.knowledgeReasonCode").value("knowledge.empty"))
@@ -116,7 +122,7 @@ class HealthControllerTest {
 
         mockMvc.perform(get("/api/health"))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.status").value("UP"))
+            .andExpect(jsonPath("$.status").value("DEGRADED"))
             .andExpect(jsonPath("$.ragStatus").value("DOWN"))
             .andExpect(jsonPath("$.knowledgeStatus").value("HISTORICAL_ONLY"))
             .andExpect(jsonPath("$.knowledgeReasonCode").value("knowledge.historical_only"))
@@ -156,7 +162,7 @@ class HealthControllerTest {
 
         mockMvc.perform(get("/api/health"))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.status").value("UP"))
+            .andExpect(jsonPath("$.status").value("DEGRADED"))
             .andExpect(jsonPath("$.ragStatus").value("DOWN"))
             .andExpect(jsonPath("$.knowledgeStatus").value("INDEXING"))
             .andExpect(jsonPath("$.knowledgeReasonCode").value("knowledge.indexing_in_progress"))
@@ -369,7 +375,7 @@ class HealthControllerTest {
         String fallbackReasonMessage,
         ElasticsearchHealthService.SearchSyncHealth searchSyncHealth
     ) {
-        when(productionLexicalSearchRouter.currentDecisionWithRefresh()).thenReturn(
+        ProductionLexicalSearchRouter.LexicalRoutingDecision decision =
             new ProductionLexicalSearchRouter.LexicalRoutingDecision(
                 configuredMode,
                 effectiveProvider,
@@ -377,7 +383,7 @@ class HealthControllerTest {
                 fallbackReasonCode,
                 fallbackReasonMessage,
                 searchSyncHealth
-            )
-        );
+            );
+        when(productionLexicalSearchRouter.currentDecisionWithRefresh()).thenReturn(decision);
     }
 }

@@ -32,7 +32,6 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.slf4j.Logger;
@@ -289,7 +288,8 @@ public class MaterialRetrievalService {
                     : null,
                 execution.relevanceProfile().propertyValue(),
                 execution.activeRolloutFlags(),
-                withCapability(execution.appliedCapabilities(), "search-api-v1")
+                withCapability(execution.appliedCapabilities(), "search-api-v1"),
+                execution.suppressedCapabilities()
             )
             : null;
 
@@ -321,9 +321,11 @@ public class MaterialRetrievalService {
         RetrievalFilters effectiveFilters = safeFilters;
         RetrievalQueryHints queryHints = RetrievalQueryHints.empty();
         List<String> appliedCapabilities = new ArrayList<>();
+        List<String> suppressedCapabilities = new ArrayList<>();
         boolean metadataFiltersEnabled = rolloutProperties.isMetadataFiltersV1();
         if (!metadataFiltersEnabled && !safeFilters.isEmpty()) {
             logSuppressedCapability("metadata-filters-v1", "manual retrieval filters");
+            suppressedCapabilities.add("metadata-filters-v1");
             effectiveFilters = RetrievalFilters.empty();
         }
         if (metadataFiltersEnabled && !effectiveFilters.isEmpty()) {
@@ -338,6 +340,7 @@ public class MaterialRetrievalService {
             effectiveFilters = effectiveFilters.mergeMissing(queryHints.toRetrievalFilters());
         } else if (rolloutProperties.isQueryHintsV1() && !metadataFiltersEnabled) {
             logSuppressedCapability("query-hints-v1", "metadata filters rollout is disabled");
+            suppressedCapabilities.add("query-hints-v1");
         }
         KnowledgeScope effectiveScope = knowledgeScope == null ? KnowledgeScope.empty() : knowledgeScope;
         RelevanceProfile relevanceProfile = configuredRelevancePolicy().profile();
@@ -362,17 +365,6 @@ public class MaterialRetrievalService {
         int scopedActiveMaterialCount = scopeSnapshot.scopedActiveMaterialCount();
         int scopedReadyMaterialCount = scopeSnapshot.scopedReadyMaterialCount();
         Set<String> scopedReadyMaterialIds = scopeSnapshot.scopedReadyMaterialIds();
-        Map<String, StoredMaterialRecord> scopedReadyRecordsById = scopedReadyMaterialIds.stream()
-            .map(catalogRepository::findById)
-            .flatMap(Optional::stream)
-            .collect(Collectors.toMap(
-                StoredMaterialRecord::id,
-                record -> record,
-                (left, right) -> left,
-                LinkedHashMap::new
-            ));
-        scopedReadyMaterialIds = Set.copyOf(scopedReadyRecordsById.keySet());
-        scopedReadyMaterialCount = scopedReadyMaterialIds.size();
 
         if (materialCount == 0 || activeMaterialCount == 0 || readyMaterialCount == 0
             || scopedMaterialCount == 0 || scopedActiveMaterialCount == 0 || scopedReadyMaterialCount == 0) {
@@ -407,7 +399,7 @@ public class MaterialRetrievalService {
                 List.of(),
                 0,
                 List.of(),
-                scopedReadyRecordsById,
+                Map.of(),
                 trace,
                 new RetrievalDebug(
                     queryHints,
@@ -420,11 +412,13 @@ public class MaterialRetrievalService {
                     trace.supportVerdict(),
                     relevanceProfile.propertyValue(),
                     activeRolloutFlags,
-                    appliedCapabilities
+                    appliedCapabilities,
+                    suppressedCapabilities
                 ),
                 relevanceProfile,
                 activeRolloutFlags,
-                appliedCapabilities
+                appliedCapabilities,
+                suppressedCapabilities
             );
         }
 
@@ -458,6 +452,7 @@ public class MaterialRetrievalService {
         );
         List<HybridChunkRanker.RankedChunk> preRerankMatches = List.copyOf(rankedMatches);
         int rerankCandidateCount = rankedMatches.size();
+        Map<String, StoredMaterialRecord> candidateRecordsById = loadRecordsByMaterialId(rankedMatches);
         if (relevanceProfile == RelevanceProfile.HYBRID_RERANK_V1) {
             Map<String, List<StoredMaterialChunk>> chunksByMaterialId = loadChunksByMaterialId(rankedMatches);
             rankedMatches = chunkReranker.rerank(
@@ -465,7 +460,7 @@ public class MaterialRetrievalService {
                 queryHints,
                 effectiveFilters,
                 rankedMatches,
-                scopedReadyRecordsById,
+                candidateRecordsById,
                 chunksByMaterialId,
                 finalLimit
             );
@@ -497,7 +492,7 @@ public class MaterialRetrievalService {
         List<RetrievedMaterialChunk> matches = rankedMatches.stream()
             .map(chunk -> new RetrievedMaterialChunk(
                 chunk.match().chunkText(),
-                buildChatSource(chunk, queryTokens, scopedReadyRecordsById.get(chunk.match().materialId()))
+                buildChatSource(chunk, queryTokens, candidateRecordsById.get(chunk.match().materialId()))
             ))
             .toList();
 
@@ -515,43 +510,45 @@ public class MaterialRetrievalService {
             supportVerdict
         );
         if (recordWindow) {
-            recordRetrievalWindow(matches, scopedReadyRecordsById, preRerankMatches, rankedMatches);
+            recordRetrievalWindow(matches, candidateRecordsById, preRerankMatches, rankedMatches);
         }
         return new SearchExecution(
-                queryTokens,
-                safeFilters,
-                effectiveFilters,
-                queryHints,
-                materialCount,
-                activeMaterialCount,
-                readyMaterialCount,
+            queryTokens,
+            safeFilters,
+            effectiveFilters,
+            queryHints,
+            materialCount,
+            activeMaterialCount,
+            readyMaterialCount,
             scopedMaterialCount,
             scopedActiveMaterialCount,
             scopedReadyMaterialCount,
-                semanticMatches,
-                lexicalSearchResult,
-                rankedMatches,
+            semanticMatches,
+            lexicalSearchResult,
+            rankedMatches,
+            rerankCandidateCount,
+            matches,
+            candidateRecordsById,
+            trace,
+            new RetrievalDebug(
+                queryHints,
+                safeFilters,
+                effectiveFilters,
+                semanticMatches.size(),
+                lexicalMatches.size(),
                 rerankCandidateCount,
-                matches,
-                scopedReadyRecordsById,
-                trace,
-                new RetrievalDebug(
-                    queryHints,
-                    safeFilters,
-                    effectiveFilters,
-                    semanticMatches.size(),
-                    lexicalMatches.size(),
-                    rerankCandidateCount,
-                    matches.size(),
-                    supportVerdict,
-                    relevanceProfile.propertyValue(),
-                    activeRolloutFlags,
-                    appliedCapabilities
-                ),
-                relevanceProfile,
+                matches.size(),
+                supportVerdict,
+                relevanceProfile.propertyValue(),
                 activeRolloutFlags,
-                appliedCapabilities
-            );
+                appliedCapabilities,
+                suppressedCapabilities
+            ),
+            relevanceProfile,
+            activeRolloutFlags,
+            appliedCapabilities,
+            suppressedCapabilities
+        );
     }
 
     private List<MaterialSearchHit> buildSearchHits(SearchExecution execution, boolean includeNeighbors) {
@@ -693,6 +690,14 @@ public class MaterialRetrievalService {
                 "Field 'limit' must be greater than zero"
             );
         }
+        int maxSearchLimit = Math.max(1, ragProperties.getMaxSearchLimit());
+        if (limit > maxSearchLimit) {
+            throw new ApiException(
+                HttpStatus.BAD_REQUEST,
+                "search.limit_too_large",
+                "Field 'limit' must not exceed " + maxSearchLimit
+            );
+        }
         return limit;
     }
 
@@ -725,6 +730,30 @@ public class MaterialRetrievalService {
             );
         }
         return chunksByMaterialId;
+    }
+
+    private Map<String, StoredMaterialRecord> loadRecordsByMaterialId(List<HybridChunkRanker.RankedChunk> rankedMatches) {
+        if (rankedMatches == null || rankedMatches.isEmpty()) {
+            return Map.of();
+        }
+        List<String> materialIds = rankedMatches.stream()
+            .map(rankedChunk -> rankedChunk.match().materialId())
+            .distinct()
+            .toList();
+        List<StoredMaterialRecord> records = catalogRepository.findByIds(materialIds);
+        if (records == null) {
+            records = materialIds.stream()
+                .map(catalogRepository::findById)
+                .flatMap(java.util.Optional::stream)
+                .toList();
+        }
+        return records.stream()
+            .collect(Collectors.toMap(
+                StoredMaterialRecord::id,
+                record -> record,
+                (left, right) -> left,
+                LinkedHashMap::new
+            ));
     }
 
     private double confidenceOf(MaterialChunkSearchMatch match, int score) {
@@ -850,7 +879,8 @@ public class MaterialRetrievalService {
         RetrievalDebug retrievalDebug,
         RelevanceProfile relevanceProfile,
         QualityLayerFlags activeRolloutFlags,
-        List<String> appliedCapabilities
+        List<String> appliedCapabilities,
+        List<String> suppressedCapabilities
     ) {
         private SearchExecution {
             queryTokens = queryTokens == null ? Set.of() : Set.copyOf(queryTokens);
@@ -863,6 +893,7 @@ public class MaterialRetrievalService {
             recordsById = recordsById == null ? Map.of() : Map.copyOf(recordsById);
             activeRolloutFlags = activeRolloutFlags == null ? QualityLayerFlags.none() : activeRolloutFlags;
             appliedCapabilities = appliedCapabilities == null ? List.of() : List.copyOf(appliedCapabilities);
+            suppressedCapabilities = suppressedCapabilities == null ? List.of() : List.copyOf(suppressedCapabilities);
             retrievalDebug = retrievalDebug == null
                 ? new RetrievalDebug(
                     queryHints,
@@ -875,7 +906,8 @@ public class MaterialRetrievalService {
                     retrievalTrace == null ? "none" : retrievalTrace.supportVerdict(),
                     relevanceProfile == null ? RelevanceProfile.LEGACY.propertyValue() : relevanceProfile.propertyValue(),
                     activeRolloutFlags,
-                    appliedCapabilities
+                    appliedCapabilities,
+                    suppressedCapabilities
                 )
                 : retrievalDebug;
             relevanceProfile = relevanceProfile == null ? RelevanceProfile.LEGACY : relevanceProfile;

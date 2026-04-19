@@ -6,6 +6,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 
@@ -21,6 +22,7 @@ public class SearchSyncRecoveryService {
     private final Clock clock;
     private final Sleeper sleeper;
 
+    @Autowired
     public SearchSyncRecoveryService(
         MaterialSearchSyncQueueRepository queueRepository,
         MaterialSearchableSnapshotRepository searchableSnapshotRepository,

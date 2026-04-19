@@ -3,7 +3,10 @@ package com.example.demo.llm;
 import com.example.demo.api.ApiException;
 import com.example.demo.config.LlmProperties;
 import com.example.demo.model.OllamaModelInfo;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.json.JsonMapper;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -12,6 +15,8 @@ import org.springframework.stereotype.Component;
 
 @Component
 public class OllamaLlmClient implements LlmClient {
+
+    private static final ObjectMapper JSON_MAPPER = JsonMapper.builder().findAndAddModules().build();
 
     private final LlmProperties properties;
     private final OllamaApiTransport transport;
@@ -59,6 +64,7 @@ public class OllamaLlmClient implements LlmClient {
 
     @Override
     public ChatResult chat(ChatRequest request) {
+        Instant startedAt = Instant.now();
         OpenAiChatCompletionRequest payload = new OpenAiChatCompletionRequest(
             request.model(),
             request.messages().stream()
@@ -96,6 +102,7 @@ public class OllamaLlmClient implements LlmClient {
             }
 
             OpenAiMessage message = completion.choices().getFirst().message();
+            String finishReason = completion.choices().getFirst().finishReason();
             OpenAiUsage usage = completion.usage();
             String createdAt = completion.created() == null
                 ? Instant.now().toString()
@@ -107,7 +114,10 @@ public class OllamaLlmClient implements LlmClient {
                 createdAt,
                 usage == null ? null : usage.promptTokens(),
                 usage == null ? null : usage.completionTokens(),
-                usage == null ? null : usage.totalTokens()
+                usage == null ? null : usage.totalTokens(),
+                rawResponseOf(completion),
+                finishReason,
+                Duration.between(startedAt, Instant.now()).toMillis()
             );
         } catch (IllegalArgumentException exception) {
             throw new ApiException(
@@ -116,6 +126,14 @@ public class OllamaLlmClient implements LlmClient {
                 "Invalid LLM configuration: " + exception.getMessage(),
                 exception
             );
+        }
+    }
+
+    private String rawResponseOf(OpenAiChatCompletionResponse completion) {
+        try {
+            return JSON_MAPPER.writeValueAsString(completion);
+        } catch (JsonProcessingException exception) {
+            return null;
         }
     }
 

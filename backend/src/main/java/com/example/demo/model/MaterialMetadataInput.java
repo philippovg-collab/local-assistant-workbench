@@ -34,6 +34,9 @@ public record MaterialMetadataInput(
         project = normalizeText(project);
         counterparty = normalizeText(counterparty);
         businessStatus = normalizeText(businessStatus);
+        if (periodStart != null && periodEnd != null && periodStart.isAfter(periodEnd)) {
+            throw new IllegalArgumentException("periodStart must not be after periodEnd");
+        }
     }
 
     public MaterialMetadataInput(

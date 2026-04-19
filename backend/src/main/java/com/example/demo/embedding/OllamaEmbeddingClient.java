@@ -14,8 +14,6 @@ import org.springframework.util.StringUtils;
 @Component
 public class OllamaEmbeddingClient implements EmbeddingClient {
 
-    private static final int EXPECTED_EMBEDDING_DIMENSION = 768;
-
     private final EmbeddingProperties embeddingProperties;
     private final LlmProperties llmProperties;
     private final OllamaApiTransport transport;
@@ -117,12 +115,13 @@ public class OllamaEmbeddingClient implements EmbeddingClient {
             );
         }
 
-        if (values.size() != EXPECTED_EMBEDDING_DIMENSION) {
+        int expectedDimension = Math.max(1, embeddingProperties.getExpectedDimension());
+        if (values.size() != expectedDimension) {
             throw new ApiException(
                 HttpStatus.BAD_GATEWAY,
                 "embedding.provider_dimension_mismatch",
                 "Embedding provider returned " + values.size()
-                    + " dimensions, expected " + EXPECTED_EMBEDDING_DIMENSION
+                    + " dimensions, expected " + expectedDimension
             );
         }
 

@@ -12,6 +12,7 @@ public class RagProperties {
     private int semanticCandidateLimit = 12;
     private int lexicalCandidateLimit = 12;
     private int finalContextLimit = 4;
+    private int maxSearchLimit = 20;
     private int rerankCandidateLimit = 12;
     private double maxSemanticDistance = 0.72d;
     private String lexicalProvider = LexicalProviderMode.POSTGRES.propertyValue();
@@ -41,6 +42,14 @@ public class RagProperties {
 
     public void setFinalContextLimit(int finalContextLimit) {
         this.finalContextLimit = finalContextLimit;
+    }
+
+    public int getMaxSearchLimit() {
+        return maxSearchLimit;
+    }
+
+    public void setMaxSearchLimit(int maxSearchLimit) {
+        this.maxSearchLimit = maxSearchLimit;
     }
 
     public int getRerankCandidateLimit() {

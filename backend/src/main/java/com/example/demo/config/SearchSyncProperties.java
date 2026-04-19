@@ -15,6 +15,8 @@ public class SearchSyncProperties {
     private int maxAttempts = 3;
     private int retryBaseSeconds = 5;
     private int retryMaxSeconds = 60;
+    private int maxDrainBatches = 16;
+    private int maxBulkActions = 500;
     private int maxOutstandingSeconds = 120;
     private int maxFailedEventsBeforeFallback = 0;
     private int healthSnapshotTtlSeconds = 15;
@@ -84,6 +86,22 @@ public class SearchSyncProperties {
         this.retryMaxSeconds = retryMaxSeconds;
     }
 
+    public int getMaxDrainBatches() {
+        return maxDrainBatches;
+    }
+
+    public void setMaxDrainBatches(int maxDrainBatches) {
+        this.maxDrainBatches = maxDrainBatches;
+    }
+
+    public int getMaxBulkActions() {
+        return maxBulkActions;
+    }
+
+    public void setMaxBulkActions(int maxBulkActions) {
+        this.maxBulkActions = maxBulkActions;
+    }
+
     public int getMaxOutstandingSeconds() {
         return maxOutstandingSeconds;
     }
@@ -131,6 +149,7 @@ public class SearchSyncProperties {
     public static class OperatorProperties {
 
         private String command;
+        private boolean enabled = false;
         private int waitTimeoutSeconds = 300;
         private int pollIntervalMillis = 250;
 
@@ -140,6 +159,14 @@ public class SearchSyncProperties {
 
         public void setCommand(String command) {
             this.command = command;
+        }
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
         }
 
         public int getWaitTimeoutSeconds() {

@@ -1,6 +1,7 @@
 package com.example.demo.infrastructure.material;
 
 import com.example.demo.model.KnowledgeScope;
+import com.example.demo.model.MaterialSummary;
 import com.example.demo.model.RetrievalFilters;
 import java.time.Instant;
 import java.util.Collection;
@@ -80,6 +81,16 @@ final class PostgresMaterialCatalogRepository implements MaterialCatalogReposito
     @Override
     public List<StoredMaterialRecord> findAll() {
         return support.findAll();
+    }
+
+    @Override
+    public List<MaterialSummary> findSummaries(int offset, int limit) {
+        return support.findSummaries(offset, limit);
+    }
+
+    @Override
+    public List<StoredMaterialRecord> findByIds(Collection<String> ids) {
+        return support.findByIds(ids);
     }
 
     @Override
@@ -327,6 +338,16 @@ final class PostgresMaterialSemanticSearchRepository implements SemanticSearchRe
     public List<MaterialChunkSearchMatch> searchSemantic(float[] queryEmbedding, int limit, Set<String> allowedMaterialIds) {
         return support.searchSemantic(queryEmbedding, limit, allowedMaterialIds);
     }
+
+    @Override
+    public List<MaterialChunkSearchMatch> searchSemantic(
+        float[] queryEmbedding,
+        int limit,
+        Set<String> allowedMaterialIds,
+        RetrievalFilters filters
+    ) {
+        return support.searchSemantic(queryEmbedding, limit, allowedMaterialIds, filters);
+    }
 }
 
 final class PostgresLexicalSearchProvider implements LexicalSearchProvider {
@@ -350,6 +371,16 @@ final class PostgresLexicalSearchProvider implements LexicalSearchProvider {
     @Override
     public List<MaterialChunkSearchMatch> search(String query, int limit, Set<String> allowedMaterialIds) {
         return support.search(query, limit, allowedMaterialIds);
+    }
+
+    @Override
+    public List<MaterialChunkSearchMatch> search(
+        String query,
+        int limit,
+        Set<String> allowedMaterialIds,
+        RetrievalFilters filters
+    ) {
+        return support.search(query, limit, allowedMaterialIds, filters);
     }
 }
 

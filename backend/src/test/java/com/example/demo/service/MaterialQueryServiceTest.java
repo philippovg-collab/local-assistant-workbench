@@ -9,6 +9,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.example.demo.api.ApiException;
 import com.example.demo.config.MaterialProperties;
 import com.example.demo.infrastructure.material.ChunkProfile;
+import com.example.demo.infrastructure.material.MaterialCatalogRepository;
+import com.example.demo.infrastructure.material.MaterialChunkingRepository;
 import com.example.demo.infrastructure.material.MaterialFormatRegistry;
 import com.example.demo.infrastructure.material.OcrCapability;
 import com.example.demo.infrastructure.material.OcrCapabilityProvider;
@@ -17,6 +19,8 @@ import com.example.demo.infrastructure.material.StoredMaterialRecord;
 import com.example.demo.infrastructure.material.StoredMaterialSegment;
 import com.example.demo.model.MaterialLineageResponse;
 import com.example.demo.model.MaterialIndexingStatus;
+import com.example.demo.model.MaterialListResponse;
+import com.example.demo.model.MaterialSummary;
 import com.example.demo.model.RechunkActiveMaterialsBatchRequest;
 import com.example.demo.model.RechunkActiveMaterialsBatchResponse;
 import com.example.demo.model.RechunkActiveMaterialsResponse;
@@ -49,7 +53,7 @@ class MaterialQueryServiceTest {
 
         MaterialUploadPolicyResponse response = service.getUploadPolicy();
 
-        assertEquals(2_000_000, response.maxUploadBytes());
+        assertEquals(8_388_608, response.maxUploadBytes());
         assertTrue(response.acceptedExtensions().contains("pdf"));
         assertTrue(response.pdf().scannedPdfSupport());
         assertEquals("embedded_text_and_ocr", response.pdf().mode());
@@ -83,6 +87,69 @@ class MaterialQueryServiceTest {
         assertFalse(response.pdf().scannedPdfSupport());
         assertEquals("embedded_text_only", response.pdf().mode());
         assertEquals("material.ocr_unavailable", response.pdf().ocrReasonCode());
+    }
+
+    @Test
+    void listSummariesUsesRepositoryProjectionInsteadOfLoadingFullRecords() {
+        MaterialProperties properties = new MaterialProperties();
+        MaterialCatalogRepository repository = org.mockito.Mockito.mock(MaterialCatalogRepository.class);
+        org.mockito.Mockito.when(repository.findSummaries(0, 100)).thenReturn(List.of());
+        MaterialQueryService service = new MaterialQueryService(
+            repository,
+            org.mockito.Mockito.mock(MaterialChunkingRepository.class),
+            properties,
+            new MaterialFormatRegistry(),
+            () -> OcrCapability.embeddedTextOnly("unused", "unused", List.of("kaz"), 12),
+            new MaterialContentSupport(properties),
+            org.mockito.Mockito.mock(MaterialSearchSyncLifecycleService.class),
+            org.mockito.Mockito.mock(MaterialIndexingService.class),
+            new AfterCommitExecutor()
+        );
+
+        assertTrue(service.listSummaries().isEmpty());
+
+        org.mockito.Mockito.verify(repository).findSummaries(0, 100);
+        org.mockito.Mockito.verify(repository, org.mockito.Mockito.never()).findAll();
+    }
+
+    @Test
+    void listSummariesPageReturnsCatalogTotalAndHasMore() {
+        MaterialProperties properties = new MaterialProperties();
+        MaterialCatalogRepository repository = org.mockito.Mockito.mock(MaterialCatalogRepository.class);
+        MaterialSummary summary = new MaterialSummary(
+            "00000000-0000-0000-0000-000000000001",
+            "Pricing FAQ",
+            "text",
+            null,
+            MaterialIndexingStatus.READY,
+            MaterialVersionState.ACTIVE,
+            null,
+            null,
+            Instant.parse("2026-04-17T10:00:00Z"),
+            42,
+            "Pricing preview"
+        );
+        org.mockito.Mockito.when(repository.findSummaries(100, 100)).thenReturn(List.of(summary));
+        org.mockito.Mockito.when(repository.countMaterials()).thenReturn(201);
+        MaterialQueryService service = new MaterialQueryService(
+            repository,
+            org.mockito.Mockito.mock(MaterialChunkingRepository.class),
+            properties,
+            new MaterialFormatRegistry(),
+            () -> OcrCapability.embeddedTextOnly("unused", "unused", List.of("kaz"), 12),
+            new MaterialContentSupport(properties),
+            org.mockito.Mockito.mock(MaterialSearchSyncLifecycleService.class),
+            org.mockito.Mockito.mock(MaterialIndexingService.class),
+            new AfterCommitExecutor()
+        );
+
+        MaterialListResponse page = service.listSummariesPage(100, 100);
+
+        assertEquals(1, page.items().size());
+        assertEquals(201, page.total());
+        assertEquals(100, page.offset());
+        assertEquals(100, page.limit());
+        assertTrue(page.hasMore());
     }
 
     @Test

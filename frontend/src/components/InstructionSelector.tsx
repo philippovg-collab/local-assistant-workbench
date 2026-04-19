@@ -52,7 +52,7 @@ export function InstructionSelector({
               const revision = instruction.revision ?? 1;
 
               return (
-                <label
+                <div
                   className={cn(
                     "group flex cursor-pointer flex-col gap-3 rounded-[24px] border px-4 py-4 transition",
                     selectedOrder
@@ -82,7 +82,7 @@ export function InstructionSelector({
                       <p className="text-sm leading-6 text-muted-foreground">{instruction.preview}</p>
                     </div>
                   </div>
-                </label>
+                </div>
               );
             })}
           </div>

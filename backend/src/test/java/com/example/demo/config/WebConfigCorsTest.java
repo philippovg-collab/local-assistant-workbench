@@ -5,13 +5,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.example.demo.controller.HealthController;
-import com.example.demo.infrastructure.material.MaterialCatalogRepository;
-import com.example.demo.infrastructure.material.MaterialIndexingQueueRepository;
-import com.example.demo.infrastructure.material.OcrCapabilityProvider;
-import com.example.demo.service.ProductionLexicalSearchRouter;
-import com.example.demo.service.QualityLayerHealthService;
-import com.example.demo.service.RagStorageHealthService;
-import com.example.demo.service.RuntimeReadinessService;
+import com.example.demo.service.HealthStatusService;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -30,28 +24,7 @@ class WebConfigCorsTest {
     private MockMvc mockMvc;
 
     @MockBean
-    private OcrProperties ocrProperties;
-
-    @MockBean
-    private OcrCapabilityProvider ocrCapabilityProvider;
-
-    @MockBean
-    private RagStorageHealthService ragStorageHealthService;
-
-    @MockBean
-    private RuntimeReadinessService runtimeReadinessService;
-
-    @MockBean
-    private MaterialCatalogRepository materialCatalogRepository;
-
-    @MockBean
-    private MaterialIndexingQueueRepository materialIndexingQueueRepository;
-
-    @MockBean
-    private ProductionLexicalSearchRouter productionLexicalSearchRouter;
-
-    @MockBean
-    private QualityLayerHealthService qualityLayerHealthService;
+    private HealthStatusService healthStatusService;
 
     @ParameterizedTest
     @ValueSource(strings = {

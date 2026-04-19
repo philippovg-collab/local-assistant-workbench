@@ -7,6 +7,9 @@ BACKEND_HEALTH_URL="http://127.0.0.1:8080/api/health"
 BACKEND_POLICY_URL="http://127.0.0.1:8080/api/materials/policy"
 DEFAULT_JAVA_21_HOME="/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home"
 DATASOURCE_URL="${SPRING_DATASOURCE_URL:-jdbc:postgresql://127.0.0.1:5432/ragstudio}"
+export APP_ROLLOUT_METADATA_V1="${APP_ROLLOUT_METADATA_V1:-true}"
+export APP_ROLLOUT_METADATA_FILTERS_V1="${APP_ROLLOUT_METADATA_FILTERS_V1:-true}"
+export APP_ROLLOUT_QUERY_HINTS_V1="${APP_ROLLOUT_QUERY_HINTS_V1:-true}"
 
 resolve_java_21_home() {
   if [[ -n "${JAVA_21_HOME:-}" && -x "${JAVA_21_HOME}/bin/java" ]]; then
@@ -47,6 +50,28 @@ is_backend_healthy() {
   [[ "$health_response" == *'"status":"UP"'* ]] || return 1
 }
 
+rollout_flag_expected() {
+  [[ "$1" == "true" || "$1" == "TRUE" ]]
+}
+
+has_expected_quality_layer_flags() {
+  local health_response
+
+  health_response=$(curl -fsS "$BACKEND_HEALTH_URL" 2>/dev/null || true)
+
+  if rollout_flag_expected "$APP_ROLLOUT_METADATA_V1"; then
+    [[ "$health_response" == *'"metadataV1":true'* ]] || return 1
+  fi
+  if rollout_flag_expected "$APP_ROLLOUT_METADATA_FILTERS_V1"; then
+    [[ "$health_response" == *'"metadataFiltersV1":true'* ]] || return 1
+  fi
+  if rollout_flag_expected "$APP_ROLLOUT_QUERY_HINTS_V1"; then
+    [[ "$health_response" == *'"queryHintsV1":true'* ]] || return 1
+  fi
+
+  return 0
+}
+
 is_backend_compatible() {
   local policy_response
 
@@ -58,6 +83,7 @@ is_backend_compatible() {
   [[ -n "$policy_response" ]] || return 1
   [[ "$policy_response" == *'"pdf"'* ]] || return 1
   [[ "$policy_response" == *'"mode":"'* ]] || return 1
+  has_expected_quality_layer_flags || return 1
 }
 
 extract_postgres_host() {
@@ -118,7 +144,7 @@ if is_backend_compatible; then
 fi
 
 if is_backend_healthy; then
-  echo "Existing backend is incompatible with the current upload policy contract. Restarting..." >&2
+  echo "Existing backend is incompatible with the current local startup contract. Restarting..." >&2
   "$ROOT_DIR/scripts/stop-backend.sh"
 fi
 
@@ -130,6 +156,9 @@ fi
 
 export JAVA_HOME="$JAVA21_HOME"
 export PATH="$JAVA_HOME/bin:$PATH"
+export APP_ROLLOUT_METADATA_V1="${APP_ROLLOUT_METADATA_V1:-true}"
+export APP_ROLLOUT_METADATA_FILTERS_V1="${APP_ROLLOUT_METADATA_FILTERS_V1:-true}"
+export APP_ROLLOUT_QUERY_HINTS_V1="${APP_ROLLOUT_QUERY_HINTS_V1:-true}"
 
 ensure_postgres_ready
 
@@ -143,6 +172,9 @@ for _ in {1..30}; do
     echo "Backend started successfully (pid $PID)"
     echo "API: http://127.0.0.1:8080"
     echo "PostgreSQL: $DATASOURCE_URL"
+    echo "metadata-v1: $APP_ROLLOUT_METADATA_V1"
+    echo "metadata-filters-v1: $APP_ROLLOUT_METADATA_FILTERS_V1"
+    echo "query-hints-v1: $APP_ROLLOUT_QUERY_HINTS_V1"
     echo "Log: $LOG_FILE"
     exit 0
   fi

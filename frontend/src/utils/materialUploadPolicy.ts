@@ -7,7 +7,7 @@ type MaterialUploadPolicyNormalization = {
   warning: string | null;
 };
 
-const DEFAULT_MAX_UPLOAD_BYTES = 2_000_000;
+const DEFAULT_MAX_UPLOAD_BYTES = 8_388_608;
 const DEFAULT_ACCEPTED_MIME_HINTS: string[] = [];
 const DEFAULT_OCR_LANGUAGES = ["kaz", "rus", "eng"];
 const DEFAULT_OCR_MAX_PAGES = 12;

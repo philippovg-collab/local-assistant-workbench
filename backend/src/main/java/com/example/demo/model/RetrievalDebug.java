@@ -13,7 +13,8 @@ public record RetrievalDebug(
     String supportVerdict,
     String relevanceProfile,
     QualityLayerFlags activeRolloutFlags,
-    List<String> appliedCapabilities
+    List<String> appliedCapabilities,
+    List<String> suppressedCapabilities
 ) {
     public RetrievalDebug(
         RetrievalQueryHints queryHints,
@@ -37,6 +38,36 @@ public record RetrievalDebug(
             supportVerdict,
             relevanceProfile,
             QualityLayerFlags.none(),
+            List.of(),
+            List.of()
+        );
+    }
+
+    public RetrievalDebug(
+        RetrievalQueryHints queryHints,
+        RetrievalFilters manualFilters,
+        RetrievalFilters effectiveFilters,
+        int semanticCandidateCount,
+        int lexicalCandidateCount,
+        int rerankCandidateCount,
+        int finalChunkCount,
+        String supportVerdict,
+        String relevanceProfile,
+        QualityLayerFlags activeRolloutFlags,
+        List<String> appliedCapabilities
+    ) {
+        this(
+            queryHints,
+            manualFilters,
+            effectiveFilters,
+            semanticCandidateCount,
+            lexicalCandidateCount,
+            rerankCandidateCount,
+            finalChunkCount,
+            supportVerdict,
+            relevanceProfile,
+            activeRolloutFlags,
+            appliedCapabilities,
             List.of()
         );
     }
@@ -48,5 +79,6 @@ public record RetrievalDebug(
         supportVerdict = supportVerdict == null ? "none" : supportVerdict;
         activeRolloutFlags = activeRolloutFlags == null ? QualityLayerFlags.none() : activeRolloutFlags;
         appliedCapabilities = appliedCapabilities == null ? List.of() : List.copyOf(appliedCapabilities);
+        suppressedCapabilities = suppressedCapabilities == null ? List.of() : List.copyOf(suppressedCapabilities);
     }
 }

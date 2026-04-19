@@ -107,6 +107,7 @@ class ProductionLexicalSearchRouterTest {
             )
         );
 
+        router.currentDecisionWithRefresh();
         ProductionLexicalSearchRouter.LexicalSearchResult firstResult = router.search("pricing", 5);
         ProductionLexicalSearchRouter.LexicalSearchResult secondResult = router.search("pricing", 5);
         int elasticsearchCallsAfterSecond = elasticsearch.searchCalls;
@@ -127,6 +128,38 @@ class ProductionLexicalSearchRouterTest {
         assertEquals(LexicalProviderType.ELASTICSEARCH, thirdResult.effectiveProvider());
         assertEquals(2, elasticsearch.searchCalls);
         assertEquals(2, postgres.searchCalls);
+    }
+
+    @Test
+    void autoModeUsesPostgresUntilElasticsearchHasBeenProbed() throws Exception {
+        StubLexicalSearchProvider postgres = new StubLexicalSearchProvider(LexicalProviderType.POSTGRES);
+        StubLexicalSearchProvider elasticsearch = new StubLexicalSearchProvider(LexicalProviderType.ELASTICSEARCH);
+        MutableClock clock = new MutableClock(Instant.parse("2026-04-17T10:00:00Z"));
+        MaterialSearchSyncQueueRepository queueRepository = org.mockito.Mockito.mock(MaterialSearchSyncQueueRepository.class);
+        when(queueRepository.getSearchSyncQueueSnapshot()).thenReturn(
+            new MaterialSearchSyncQueueRepository.SearchSyncQueueSnapshot(0, 0, 0, null, null)
+        );
+        ElasticsearchClient elasticsearchClient = org.mockito.Mockito.mock(ElasticsearchClient.class);
+        when(elasticsearchClient.info()).thenReturn(null);
+        ProductionLexicalSearchRouter router = router(
+            "auto",
+            postgres,
+            elasticsearch,
+            new ElasticsearchHealthService(
+                properties(15),
+                queueRepository,
+                providerOf(elasticsearchClient),
+                clock
+            )
+        );
+
+        ProductionLexicalSearchRouter.LexicalSearchResult result = router.search("pricing", 5);
+
+        assertEquals(LexicalProviderType.POSTGRES, result.effectiveProvider());
+        assertEquals("search.health_unprobed", result.fallbackReasonCode());
+        assertEquals(1, postgres.searchCalls);
+        assertEquals(0, elasticsearch.searchCalls);
+        org.mockito.Mockito.verify(elasticsearchClient, org.mockito.Mockito.never()).info();
     }
 
     private ProductionLexicalSearchRouter router(

@@ -524,7 +524,7 @@ DELETE /api/materials/{id}
 
 ```json
 {
-  "maxUploadBytes": 2000000,
+  "maxUploadBytes": 8388608,
   "acceptedExtensions": [
     "txt",
     "md",
@@ -596,7 +596,7 @@ DELETE /api/materials/{id}
 }
 ```
 
-Frontend использует этот endpoint для preflight-проверок до отправки multipart-запроса и для helper/warning текста в upload-форме.
+Frontend использует этот endpoint для preflight-проверок до отправки multipart-запроса и для helper/warning текста в upload-форме. UI поддерживает выбор нескольких файлов, но backend-контракт upload остаётся single-file: каждый файл отправляется отдельным `POST /api/materials/upload`.
 
 ### Health readiness
 

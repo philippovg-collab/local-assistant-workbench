@@ -2,6 +2,7 @@ import type {
   AppliedInstruction,
   ChatExecutionResponse,
   RetrievalDebug,
+  MaterialListResponse,
   MaterialSummary,
 } from "@/types";
 import {
@@ -33,6 +34,17 @@ export const buildMaterialSummary = (overrides: Partial<MaterialSummary> = {}): 
     metadata: overrides.metadata ?? DEFAULT_MATERIAL_METADATA,
   };
 };
+
+export const buildMaterialListResponse = (
+  items: MaterialSummary[] = [],
+  overrides: Partial<Omit<MaterialListResponse, "items">> = {},
+): MaterialListResponse => ({
+  items,
+  total: overrides.total ?? items.length,
+  offset: overrides.offset ?? 0,
+  limit: overrides.limit ?? Math.max(items.length, 100),
+  hasMore: overrides.hasMore ?? false,
+});
 
 export const buildChatExecutionResponse = (
   overrides: Partial<ChatExecutionResponse> = {},

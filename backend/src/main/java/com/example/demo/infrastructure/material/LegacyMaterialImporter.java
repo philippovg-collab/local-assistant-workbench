@@ -3,6 +3,7 @@ package com.example.demo.infrastructure.material;
 import com.example.demo.service.MaterialService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -21,6 +22,7 @@ public class LegacyMaterialImporter implements ApplicationRunner {
     private final FileMaterialRepository fileMaterialRepository;
     private final MaterialService materialService;
 
+    @Autowired
     public LegacyMaterialImporter(
         com.fasterxml.jackson.databind.ObjectMapper objectMapper,
         @Value("${app.storage-dir:./storage}") String storageDir,

@@ -36,6 +36,11 @@ public class SearchSyncOperatorRunner implements ApplicationRunner {
         if (!StringUtils.hasText(searchSyncProperties.getOperator().getCommand())) {
             return;
         }
+        if (!searchSyncProperties.getOperator().isEnabled()) {
+            throw new IllegalStateException(
+                "Search sync operator command is configured, but app.search-sync.operator.enabled is false."
+            );
+        }
 
         String command = normalizedCommand();
         Duration timeout = Duration.ofSeconds(searchSyncProperties.getOperator().getWaitTimeoutSeconds());

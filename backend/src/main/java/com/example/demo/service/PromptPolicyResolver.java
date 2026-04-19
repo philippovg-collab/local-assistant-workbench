@@ -3,10 +3,16 @@ package com.example.demo.service;
 import com.example.demo.config.LlmProperties;
 import com.example.demo.model.AppliedInstruction;
 import com.example.demo.model.AnswerMode;
+import com.example.demo.model.ChatRunMessage;
 import com.example.demo.model.ChatExecutionRequest;
 import com.example.demo.model.ChatMode;
 import com.example.demo.model.InstructionCategory;
 import com.example.demo.model.InstructionDetail;
+import com.example.demo.model.PromptPolicySnapshot;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.function.Predicate;
 import org.springframework.stereotype.Component;
@@ -65,21 +71,24 @@ public class PromptPolicyResolver {
         String temporaryInstructionBlock = StringUtils.hasText(temporaryInstruction)
             ? "Temporary request instruction:\n" + temporaryInstruction.trim()
             : "";
+        String answerModeBlock = answerModeBlock(answerMode, request.mode());
         String systemPrompt = joinBlocks(
             baseSystemPrompt,
             systemInstructions,
             safetyInstructions,
             temporaryInstructionBlock,
-            answerModeBlock(answerMode, request.mode())
+            answerModeBlock
         );
 
+        String groundingBlock = "";
         if (request.mode() == ChatMode.RAG) {
-            systemPrompt = joinBlocks(systemPrompt, """
+            groundingBlock = """
                 Grounding rules:
                 - Answer only from the retrieved context.
                 - If the context is incomplete, say so explicitly.
                 - Do not invent facts that are not present in the context.
-                """.strip());
+                """.strip();
+            systemPrompt = joinBlocks(systemPrompt, groundingBlock);
         }
 
         List<AppliedInstruction> appliedInstructions = instructions.stream()
@@ -99,7 +108,23 @@ public class PromptPolicyResolver {
             contextInstructions,
             userInstructions,
             appliedInstructions,
-            answerMode
+            answerMode,
+            new PromptPolicySnapshot(
+                baseSystemPrompt,
+                systemInstructions,
+                safetyInstructions,
+                contextInstructions,
+                userInstructions,
+                temporaryInstructionBlock,
+                answerModeBlock,
+                groundingBlock,
+                systemPrompt,
+                List.of(),
+                sha256(systemPrompt),
+                List.of(),
+                null,
+                StringUtils.hasText(groundingBlock)
+            )
         );
     }
 
@@ -173,13 +198,57 @@ public class PromptPolicyResolver {
         };
     }
 
+    private String sha256(String value) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest((value == null ? "" : value).getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(hash);
+        } catch (NoSuchAlgorithmException exception) {
+            throw new IllegalStateException("SHA-256 digest is not available", exception);
+        }
+    }
+
     public record ResolvedPromptPolicy(
         String model,
         String systemPrompt,
         String contextInstructions,
         String userInstructions,
         List<AppliedInstruction> appliedInstructions,
-        AnswerMode answerMode
+        AnswerMode answerMode,
+        PromptPolicySnapshot snapshot
     ) {
+        public ResolvedPromptPolicy(
+            String model,
+            String systemPrompt,
+            String contextInstructions,
+            String userInstructions,
+            List<AppliedInstruction> appliedInstructions,
+            AnswerMode answerMode
+        ) {
+            this(
+                model,
+                systemPrompt,
+                contextInstructions,
+                userInstructions,
+                appliedInstructions,
+                answerMode,
+                new PromptPolicySnapshot(
+                    "",
+                    "",
+                    "",
+                    contextInstructions,
+                    userInstructions,
+                    "",
+                    "",
+                    "",
+                    systemPrompt,
+                    List.<ChatRunMessage>of(),
+                    null,
+                    List.of(),
+                    null,
+                    false
+                )
+            );
+        }
     }
 }

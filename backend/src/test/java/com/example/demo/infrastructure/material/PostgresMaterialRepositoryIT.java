@@ -11,11 +11,14 @@ import com.example.demo.config.MaterialProperties;
 import com.example.demo.infrastructure.material.DocumentBlockConfidence;
 import com.example.demo.infrastructure.material.DocumentBlockType;
 import com.example.demo.model.DocumentType;
+import com.example.demo.model.KnowledgeDocumentClass;
+import com.example.demo.model.KnowledgeScope;
 import com.example.demo.model.MaterialIndexingStatus;
 import com.example.demo.model.MaterialMetadataInput;
 import com.example.demo.model.MaterialMetadataSnapshot;
 import com.example.demo.model.MaterialVersionState;
 import com.example.demo.model.MetadataValueOrigin;
+import com.example.demo.model.RetrievalFilters;
 import com.example.demo.model.SourceTrustLevel;
 import com.example.demo.service.MaterialContentSupport;
 import com.example.demo.support.DeterministicEmbeddingClient;
@@ -326,6 +329,89 @@ class PostgresMaterialRepositoryIT extends PostgresIntegrationTestSupport {
         assertEquals(SourceTrustLevel.HIGH, reloaded.metadata().sourceTrust());
         assertEquals(MetadataValueOrigin.MANUAL, reloaded.metadata().provenance().fieldOrigins().get("documentType"));
         assertTrue(reloaded.metadata().provenance().fieldConfidence().isEmpty());
+    }
+
+    @Test
+    void persistsKnowledgeScopeColumnsAndFiltersRetrievalScopeFromPostgres() {
+        MaterialMetadataSnapshot metadata = MaterialMetadataSnapshot.fromInput(new MaterialMetadataInput(
+            DocumentType.POLICY,
+            KnowledgeDocumentClass.REGULATIONS,
+            LocalDate.parse("2026-04-17"),
+            "POL-2026-17",
+            "Ops lead",
+            "Grid operations",
+            "v1",
+            "ru",
+            List.of("policy"),
+            SourceTrustLevel.HIGH,
+            "North Upgrade",
+            "north-upgrade",
+            "Internal",
+            "ACTIVE",
+            LocalDate.parse("2026-04-01"),
+            LocalDate.parse("2026-12-31")
+        ));
+        StoredMaterialRecord record = new StoredMaterialRecord(
+            UUID.randomUUID().toString(),
+            "Dispatch policy",
+            "file",
+            "dispatch-policy.txt",
+            "text/plain",
+            "Регламент диспетчеризации для north upgrade.",
+            "Регламент диспетчеризации для north upgrade.",
+            "hash-scope-columns",
+            "scope-columns-lineage",
+            "direct-text",
+            false,
+            1,
+            List.of(),
+            MaterialIndexingStatus.READY,
+            MaterialVersionState.ACTIVE,
+            null,
+            null,
+            Instant.parse("2026-04-17T10:00:00Z"),
+            Instant.parse("2026-04-17T10:00:00Z"),
+            0,
+            null,
+            null,
+            null,
+            metadata
+        );
+
+        saveReadyMaterial(record, record.content());
+
+        assertEquals(
+            "REGULATIONS",
+            jdbcTemplate.queryForObject("SELECT knowledge_document_class FROM materials WHERE id = ?", String.class, UUID.fromString(record.id()))
+        );
+        assertEquals(
+            "north-upgrade",
+            jdbcTemplate.queryForObject("SELECT workspace_key FROM materials WHERE id = ?", String.class, UUID.fromString(record.id()))
+        );
+
+        MaterialRetrievalScopeSnapshot matchingScope = repository.describeRetrievalScope(
+            new KnowledgeScope(List.of(), List.of(KnowledgeDocumentClass.REGULATIONS), List.of(), "north-upgrade", false),
+            RetrievalFilters.empty(),
+            null,
+            null
+        );
+        MaterialRetrievalScopeSnapshot wrongClassScope = repository.describeRetrievalScope(
+            new KnowledgeScope(List.of(), List.of(KnowledgeDocumentClass.CONTRACTS), List.of(), "north-upgrade", false),
+            RetrievalFilters.empty(),
+            null,
+            null
+        );
+        MaterialRetrievalScopeSnapshot wrongWorkspaceScope = repository.describeRetrievalScope(
+            new KnowledgeScope(List.of(), List.of(KnowledgeDocumentClass.REGULATIONS), List.of(), "south-upgrade", false),
+            RetrievalFilters.empty(),
+            null,
+            null
+        );
+
+        assertEquals(1, matchingScope.scopedReadyMaterialCount());
+        assertEquals(List.of(record.id()), matchingScope.scopedReadyMaterialIds().stream().toList());
+        assertEquals(0, wrongClassScope.scopedReadyMaterialCount());
+        assertEquals(0, wrongWorkspaceScope.scopedReadyMaterialCount());
     }
 
     @Test

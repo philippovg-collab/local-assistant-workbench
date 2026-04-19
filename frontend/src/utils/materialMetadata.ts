@@ -1,5 +1,6 @@
 import type {
   DocumentType,
+  KnowledgeDocumentClass,
   MaterialMetadata,
   MaterialMetadataInput,
   MetadataValueOrigin,
@@ -8,6 +9,7 @@ import type {
 
 export type MaterialMetadataFormState = {
   documentType: DocumentType | "";
+  knowledgeDocumentClass: KnowledgeDocumentClass | "";
   documentDate: string;
   documentNumber: string;
   author: string;
@@ -21,6 +23,7 @@ export type MaterialMetadataFormState = {
   businessStatus: string;
   periodStart: string;
   periodEnd: string;
+  workspaceKey: string;
 };
 
 export type MaterialMetadataFormErrors = Partial<Record<keyof MaterialMetadataFormState, string>>;
@@ -58,8 +61,17 @@ export const sourceTrustLabels: Record<SourceTrustLevel, string> = {
   UNKNOWN: "Unknown trust",
 };
 
+export const materialKnowledgeDocumentClassLabels: Record<KnowledgeDocumentClass, string> = {
+  contracts: "Договоры",
+  regulations: "Регламенты",
+  correspondence: "Переписка",
+  techdocs: "Техдоки",
+  other: "Прочее",
+};
+
 export const DEFAULT_MATERIAL_METADATA: MaterialMetadata = {
   documentType: "OTHER",
+  knowledgeDocumentClass: "other",
   documentDate: null,
   documentNumber: null,
   author: null,
@@ -73,9 +85,11 @@ export const DEFAULT_MATERIAL_METADATA: MaterialMetadata = {
   businessStatus: null,
   periodStart: null,
   periodEnd: null,
+  workspaceKey: null,
   provenance: {
     fieldOrigins: {
       documentType: "DEFAULT",
+      knowledgeDocumentClass: "DEFAULT",
       sourceTrust: "DEFAULT",
     },
     fieldConfidence: {},
@@ -84,6 +98,7 @@ export const DEFAULT_MATERIAL_METADATA: MaterialMetadata = {
 
 const metadataFieldLabels: Record<keyof Omit<MaterialMetadata, "provenance">, string> = {
   documentType: "Тип",
+  knowledgeDocumentClass: "Класс знаний",
   documentDate: "Дата",
   documentNumber: "Номер",
   author: "Автор",
@@ -97,10 +112,12 @@ const metadataFieldLabels: Record<keyof Omit<MaterialMetadata, "provenance">, st
   businessStatus: "Статус",
   periodStart: "Период с",
   periodEnd: "Период по",
+  workspaceKey: "Workspace",
 };
 
 export const emptyMaterialMetadataFormState = (): MaterialMetadataFormState => ({
   documentType: "",
+  knowledgeDocumentClass: "",
   documentDate: "",
   documentNumber: "",
   author: "",
@@ -114,6 +131,7 @@ export const emptyMaterialMetadataFormState = (): MaterialMetadataFormState => (
   businessStatus: "",
   periodStart: "",
   periodEnd: "",
+  workspaceKey: "",
 });
 
 export const parseTagsInput = (value: string) => {
@@ -138,6 +156,7 @@ export const toMaterialMetadataInput = (state: MaterialMetadataFormState): Mater
 
   return {
     documentType: state.documentType || undefined,
+    knowledgeDocumentClass: state.knowledgeDocumentClass || undefined,
     documentDate: state.documentDate || undefined,
     documentNumber: normalizeOptionalText(state.documentNumber),
     author: normalizeOptionalText(state.author),
@@ -151,29 +170,13 @@ export const toMaterialMetadataInput = (state: MaterialMetadataFormState): Mater
     businessStatus: normalizeOptionalText(state.businessStatus),
     periodStart: state.periodStart || undefined,
     periodEnd: state.periodEnd || undefined,
+    workspaceKey: normalizeOptionalText(state.workspaceKey),
   };
 };
 
 export const validateMaterialMetadata = (state: MaterialMetadataFormState): MaterialMetadataValidation => {
   const fieldErrors: MaterialMetadataFormErrors = {};
   const messages: string[] = [];
-
-  if (!state.documentType) {
-    fieldErrors.documentType = "Выбери тип документа.";
-    messages.push("Выбери тип документа.");
-  }
-
-  if (!state.sourceTrust) {
-    fieldErrors.sourceTrust = "Выбери уровень доверия к источнику.";
-    messages.push("Выбери уровень доверия к источнику.");
-  }
-
-  if (!state.author.trim() && !state.department.trim()) {
-    const message = "Заполни автора или подразделение.";
-    fieldErrors.author = message;
-    fieldErrors.department = message;
-    messages.push(message);
-  }
 
   if (state.periodStart && state.periodEnd && state.periodStart > state.periodEnd) {
     const message = "Дата начала периода не может быть позже даты окончания.";
@@ -225,6 +228,12 @@ export const buildMaterialMetadataEntries = (
       label: metadataFieldLabels.documentType,
       value: documentTypeLabels[resolved.documentType],
       origin: resolved.provenance.fieldOrigins.documentType ?? "DEFAULT",
+    },
+    {
+      key: "knowledgeDocumentClass",
+      label: metadataFieldLabels.knowledgeDocumentClass,
+      value: materialKnowledgeDocumentClassLabels[resolved.knowledgeDocumentClass],
+      origin: resolved.provenance.fieldOrigins.knowledgeDocumentClass ?? "DEFAULT",
     },
     resolved.documentDate ? {
       key: "documentDate",
@@ -303,6 +312,12 @@ export const buildMaterialMetadataEntries = (
       label: metadataFieldLabels.periodEnd,
       value: resolved.periodEnd,
       origin: resolved.provenance.fieldOrigins.periodEnd ?? "DEFAULT",
+    } : null,
+    resolved.workspaceKey ? {
+      key: "workspaceKey",
+      label: metadataFieldLabels.workspaceKey,
+      value: resolved.workspaceKey,
+      origin: resolved.provenance.fieldOrigins.workspaceKey ?? "DEFAULT",
     } : null,
   ];
 

@@ -48,7 +48,7 @@ class ElasticsearchHealthServiceTest {
             clock
         );
 
-        ElasticsearchHealthService.SearchSyncHealth health = service.currentHealth();
+        ElasticsearchHealthService.SearchSyncHealth health = service.refreshHealthSnapshotIfStale();
 
         assertEquals("DISABLED", health.clusterStatus());
         assertEquals("search.sync_disabled", health.reasonCode());
@@ -64,7 +64,7 @@ class ElasticsearchHealthServiceTest {
             clock
         );
 
-        ElasticsearchHealthService.SearchSyncHealth health = service.currentHealth();
+        ElasticsearchHealthService.SearchSyncHealth health = service.refreshHealthSnapshotIfStale();
 
         assertEquals("DOWN", health.clusterStatus());
         assertTrue(health.reasonMessage().contains("not configured"));
@@ -86,7 +86,7 @@ class ElasticsearchHealthServiceTest {
         );
         service.recordSuccessfulSync(Instant.parse("2026-04-17T10:15:00Z"));
 
-        ElasticsearchHealthService.SearchSyncHealth health = service.currentHealth();
+        ElasticsearchHealthService.SearchSyncHealth health = service.refreshHealthSnapshotIfStale();
 
         assertEquals("UP", health.clusterStatus());
         assertEquals(Instant.parse("2026-04-17T10:15:00Z"), health.lastSuccessfulSyncAt());
@@ -105,7 +105,7 @@ class ElasticsearchHealthServiceTest {
             clock
         );
 
-        ElasticsearchHealthService.SearchSyncHealth health = service.currentHealth();
+        ElasticsearchHealthService.SearchSyncHealth health = service.refreshHealthSnapshotIfStale();
 
         assertEquals("DEGRADED", health.clusterStatus());
         assertEquals("search.sync_failures", health.reasonCode());
@@ -151,11 +151,34 @@ class ElasticsearchHealthServiceTest {
         clock.advanceSeconds(6);
         ElasticsearchHealthService.SearchSyncHealth thirdRefresh = service.refreshHealthSnapshotIfStale();
 
-        assertEquals("UP", initialHealth.clusterStatus());
+        assertEquals("UNKNOWN", initialHealth.clusterStatus());
+        assertEquals("search.health_unprobed", initialHealth.reasonCode());
         assertEquals("UP", firstRefresh.clusterStatus());
         assertEquals("UP", secondRefresh.clusterStatus());
         assertEquals("UP", thirdRefresh.clusterStatus());
         verify(elasticsearchClient, org.mockito.Mockito.times(2)).info();
+    }
+
+    @Test
+    void initialSnapshotWithClientDoesNotReportUpBeforeProbe() throws Exception {
+        ElasticsearchClient elasticsearchClient = org.mockito.Mockito.mock(ElasticsearchClient.class);
+        when(elasticsearchClient.info()).thenReturn(null);
+        when(queueRepository.getSearchSyncQueueSnapshot()).thenReturn(
+            new MaterialSearchSyncQueueRepository.SearchSyncQueueSnapshot(0, 0, 0, null, null)
+        );
+
+        ElasticsearchHealthService service = new ElasticsearchHealthService(
+            properties(true),
+            queueRepository,
+            providerOf(elasticsearchClient),
+            clock
+        );
+
+        ElasticsearchHealthService.SearchSyncHealth health = service.currentHealth();
+
+        assertEquals("UNKNOWN", health.clusterStatus());
+        assertEquals("search.health_unprobed", health.reasonCode());
+        verify(elasticsearchClient, never()).info();
     }
 
     @Test

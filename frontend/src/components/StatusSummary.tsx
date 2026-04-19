@@ -12,6 +12,7 @@ import { Separator } from "@/components/ui/separator";
 import type { HealthResponse, ModelInfo } from "@/types";
 import type { RagReadinessPresentation } from "@/utils/readiness";
 import { formatDate } from "@/utils/format";
+import { buildSearchPresentation } from "@/utils/searchPresentation";
 
 type StatusSummaryProps = {
   health: HealthResponse | null;
@@ -43,10 +44,9 @@ export function StatusSummary({
   instructionsCount,
 }: StatusSummaryProps) {
   const isBackendHealthy = health?.status === "UP";
-  const searchStatus = health?.searchStatus ?? "DISABLED";
-  const searchStatusDotClass = searchStatus === "UP" ? "online" : searchStatus === "DISABLED" ? "idle" : "warn";
   const searchMode = health?.searchMode;
   const searchProvider = health?.searchProvider;
+  const searchPresentation = buildSearchPresentation(health);
   const backendMessage = health
     ? isBackendHealthy
       ? health.application
@@ -88,31 +88,6 @@ export function StatusSummary({
   const qualityRetrievalWindowSummary = health?.qualityLayer
     ? `sample=${health.qualityLayer.retrievalWindow.sampleSize} · no-context=${Math.round(health.qualityLayer.retrievalWindow.noContextRate * 100)}%`
     : "Ждём retrieval window.";
-  const searchHeaderLabel = searchMode && searchProvider
-    ? `${searchMode} -> ${searchProvider} / ${searchStatus}`
-    : searchProvider
-      ? `${searchProvider} / ${searchStatus}`
-      : searchStatus;
-  const searchMessage = (() => {
-    if (searchStatus === "UP" && searchMode === "auto" && searchProvider === "elasticsearch") {
-      return "Production lexical retrieval идёт через Elasticsearch; PostgreSQL остаётся fallback path.";
-    }
-    if (searchStatus === "UP" && searchMode === "postgres") {
-      return "Production lexical retrieval сейчас закреплён за PostgreSQL.";
-    }
-    if ((searchStatus === "DOWN" || searchStatus === "DEGRADED" || searchStatus === "DISABLED")
-      && searchMode === "auto"
-      && searchProvider === "postgres") {
-      return health?.searchReasonMessage
-        ? `RAG lexical retrieval продолжает работать через PostgreSQL fallback: ${health.searchReasonMessage}`
-        : "RAG lexical retrieval продолжает работать через PostgreSQL fallback.";
-    }
-    if (searchStatus === "DISABLED") {
-      return health?.searchReasonMessage ?? "Search sync plane сейчас выключен конфигом.";
-    }
-    return health?.searchReasonMessage ?? "Search plane сейчас не деградирован.";
-  })();
-
   const summaryCards = [
     {
       icon: Activity,
@@ -145,9 +120,9 @@ export function StatusSummary({
     {
       icon: DatabaseZap,
       label: "Search",
-      headline: searchHeaderLabel,
-      message: searchMessage,
-      tone: searchStatusDotClass,
+      headline: searchPresentation.label,
+      message: searchPresentation.detail,
+      tone: searchPresentation.tone,
     },
     {
       icon: BookCopy,
@@ -241,11 +216,15 @@ export function StatusSummary({
     },
     {
       label: "Search status",
-      value: searchStatus,
+      value: searchPresentation.statusLabel,
     },
     {
-      label: "Причина search degraded",
-      value: health?.searchReasonMessage ?? "Search plane сейчас не деградирован.",
+      label: "Elasticsearch sync",
+      value: searchPresentation.syncLabel,
+    },
+    {
+      label: "Search пояснение",
+      value: searchPresentation.detail,
     },
     {
       label: "Search sync backlog",

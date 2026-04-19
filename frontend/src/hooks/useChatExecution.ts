@@ -146,9 +146,9 @@ export const useChatExecution = ({
       model,
       prompt,
       instructionIds: selectedInstructionIds,
-      scenarioInstructionIds: selectedInstructionIds,
       answerMode,
       ...(mode === "rag" || hasKnowledgeScope ? { knowledgeScope } : {}),
+      ...(knowledgeScope.workspaceKey?.trim() ? { instructionWorkspaceKey: knowledgeScope.workspaceKey.trim() } : {}),
       ...(mode === "rag" && metadataFiltersEnabled && (hintOwnedFields.length > 0 || manualOwnedFields.length > 0)
         ? { retrievalFilters: effectiveRetrievalFilters }
         : {}),

@@ -8,7 +8,8 @@ import org.springframework.stereotype.Component;
 @ConfigurationProperties(prefix = "app.materials")
 public class MaterialProperties {
 
-    private int maxUploadBytes = 2_000_000;
+    private int maxUploadBytes = 8_388_608;
+    private int maxUploadRequestBytes = 9_437_184;
     private int maxTextChars = 200_000;
     private int chunkSize = 900;
     private int chunkOverlap = 180;
@@ -20,6 +21,7 @@ public class MaterialProperties {
     private int indexingMaxAttempts = 3;
     private int indexingRetryBaseSeconds = 5;
     private int indexingRetryMaxSeconds = 60;
+    private int indexingDrainMaxJobs = 64;
 
     public int getMaxUploadBytes() {
         return maxUploadBytes;
@@ -27,6 +29,14 @@ public class MaterialProperties {
 
     public void setMaxUploadBytes(int maxUploadBytes) {
         this.maxUploadBytes = maxUploadBytes;
+    }
+
+    public int getMaxUploadRequestBytes() {
+        return maxUploadRequestBytes;
+    }
+
+    public void setMaxUploadRequestBytes(int maxUploadRequestBytes) {
+        this.maxUploadRequestBytes = maxUploadRequestBytes;
     }
 
     public int getMaxTextChars() {
@@ -115,5 +125,13 @@ public class MaterialProperties {
 
     public void setIndexingRetryMaxSeconds(int indexingRetryMaxSeconds) {
         this.indexingRetryMaxSeconds = indexingRetryMaxSeconds;
+    }
+
+    public int getIndexingDrainMaxJobs() {
+        return indexingDrainMaxJobs;
+    }
+
+    public void setIndexingDrainMaxJobs(int indexingDrainMaxJobs) {
+        this.indexingDrainMaxJobs = indexingDrainMaxJobs;
     }
 }

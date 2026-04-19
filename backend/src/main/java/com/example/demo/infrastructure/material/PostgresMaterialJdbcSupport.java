@@ -1,21 +1,21 @@
 package com.example.demo.infrastructure.material;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.json.JsonMapper;
+import static com.example.demo.infrastructure.material.MaterialJdbcRowMappers.CHUNK_SEARCH_ROW_MAPPER;
+import static com.example.demo.infrastructure.material.MaterialJdbcRowMappers.MATERIAL_ROW_MAPPER;
+import static com.example.demo.infrastructure.material.MaterialJdbcRowMappers.MATERIAL_SUMMARY_ROW_MAPPER;
+import static com.example.demo.infrastructure.material.MaterialJdbcRowMappers.RAW_CHUNK_ROW_MAPPER;
+import static com.example.demo.infrastructure.material.MaterialJdbcRowMappers.SEARCHABLE_CHUNK_ROW_MAPPER;
+import static com.example.demo.infrastructure.material.MaterialJdbcRowMappers.SEARCH_SYNC_QUEUE_ROW_MAPPER;
+import static com.example.demo.infrastructure.material.MaterialJdbcRowMappers.SEGMENT_ROW_MAPPER;
+
 import com.example.demo.api.ApiException;
-import com.example.demo.model.DocumentType;
-import com.example.demo.model.KnowledgeDocumentClass;
 import com.example.demo.model.KnowledgeScope;
 import com.example.demo.model.MaterialIndexingStatus;
-import com.example.demo.model.MaterialMetadataProvenance;
-import com.example.demo.model.MaterialMetadataSnapshot;
+import com.example.demo.model.MaterialSummary;
 import com.example.demo.model.MaterialVersionState;
 import com.example.demo.model.RetrievalFilters;
 import com.example.demo.model.SourceTrustLevel;
 import com.pgvector.PGvector;
-import java.sql.Array;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.sql.Timestamp;
@@ -36,15 +36,10 @@ import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.BatchPreparedStatementSetter;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.jdbc.core.RowMapper;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 class PostgresMaterialJdbcSupport {
-
-    private static final ObjectMapper JSON_MAPPER = JsonMapper.builder()
-        .findAndAddModules()
-        .build();
 
     private static final String MATERIAL_COLUMNS = """
         id,
@@ -72,6 +67,8 @@ class PostgresMaterialJdbcSupport {
         business_status,
         period_start,
         period_end,
+        knowledge_document_class,
+        workspace_key,
         metadata_jsonb,
         lineage_version,
         indexing_status,
@@ -85,96 +82,6 @@ class PostgresMaterialJdbcSupport {
         created_at,
         updated_at
         """;
-
-    private static final RowMapper<StoredMaterialRecord> MATERIAL_ROW_MAPPER = (resultSet, rowNum) -> new StoredMaterialRecord(
-        resultSet.getObject("id").toString(),
-        resultSet.getString("title"),
-        resultSet.getString("source_type"),
-        resultSet.getString("original_file_name"),
-        resultSet.getString("media_type"),
-        resultSet.getString("content"),
-        resultSet.getString("normalized_content"),
-        resultSet.getString("content_hash"),
-        resultSet.getString("source_key"),
-        resultSet.getString("extractor"),
-        resultSet.getBoolean("ocr_used"),
-        resultSet.getObject("page_count", Integer.class),
-        List.of(),
-        MaterialIndexingStatus.valueOf(resultSet.getString("indexing_status")),
-        MaterialVersionState.valueOf(resultSet.getString("version_state")),
-        resultSet.getString("status_reason_code"),
-        resultSet.getString("status_reason_message"),
-        toInstant(resultSet.getTimestamp("created_at")),
-        toInstant(resultSet.getTimestamp("updated_at")),
-        resultSet.getInt("indexing_attempts"),
-        toInstantOrNull(resultSet.getTimestamp("next_retry_at")),
-        resultSet.getString("superseded_by_material_id"),
-        resultSet.getString("supersede_reason"),
-        resultSet.getInt("lineage_version"),
-        materialMetadataOf(resultSet)
-    );
-
-    private static final RowMapper<MaterialChunkSearchMatch> CHUNK_SEARCH_ROW_MAPPER = (resultSet, rowNum) -> new MaterialChunkSearchMatch(
-        resultSet.getObject("material_id").toString(),
-        resultSet.getInt("chunk_index"),
-        resultSet.getString("title"),
-        resultSet.getString("chunk_text"),
-        resultSet.getObject("page", Integer.class),
-        resultSet.getString("extractor"),
-        resultSet.getBoolean("ocr_used"),
-        chunkTypeOf(resultSet.getString("chunk_type")),
-        resultSet.getObject("semantic_distance", Double.class),
-        resultSet.getObject("lexical_score", Double.class)
-    );
-
-    private static final RowMapper<StoredMaterialChunk> RAW_CHUNK_ROW_MAPPER = (resultSet, rowNum) -> new StoredMaterialChunk(
-        resultSet.getInt("chunk_index"),
-        resultSet.getString("chunk_text"),
-        List.of(),
-        resultSet.getObject("page", Integer.class),
-        resultSet.getString("extractor"),
-        resultSet.getBoolean("ocr_used"),
-        chunkTypeOf(resultSet.getString("chunk_type")),
-        textArrayOf(resultSet.getArray("section_path")),
-        textArrayOf(resultSet.getArray("heading_trail")),
-        resultSet.getString("table_id"),
-        resultSet.getString("slide_id"),
-        parserConfidenceOf(resultSet.getString("parser_confidence"), resultSet.getBoolean("ocr_used"))
-    );
-    private static final RowMapper<StoredMaterialSegment> SEGMENT_ROW_MAPPER = (resultSet, rowNum) -> new StoredMaterialSegment(
-        resultSet.getInt("segment_index"),
-        resultSet.getString("segment_text"),
-        resultSet.getObject("page", Integer.class),
-        resultSet.getString("extractor"),
-        resultSet.getBoolean("ocr_used")
-    );
-    private static final RowMapper<SearchableMaterialChunkSnapshot> SEARCHABLE_CHUNK_ROW_MAPPER = (resultSet, rowNum) ->
-        new SearchableMaterialChunkSnapshot(
-            resultSet.getInt("chunk_index"),
-            resultSet.getString("chunk_text"),
-            resultSet.getObject("page", Integer.class),
-            resultSet.getString("extractor"),
-            resultSet.getBoolean("ocr_used"),
-            chunkTypeOf(resultSet.getString("chunk_type")),
-            textArrayOf(resultSet.getArray("section_path")),
-            textArrayOf(resultSet.getArray("heading_trail")),
-            resultSet.getString("table_id"),
-            resultSet.getString("slide_id"),
-            parserConfidenceOf(resultSet.getString("parser_confidence"), resultSet.getBoolean("ocr_used"))
-        );
-    private static final RowMapper<MaterialSearchSyncQueueEntry> SEARCH_SYNC_QUEUE_ROW_MAPPER = (resultSet, rowNum) ->
-        new MaterialSearchSyncQueueEntry(
-            resultSet.getObject("material_id").toString(),
-            SearchSyncDeliveryState.valueOf(resultSet.getString("delivery_state")),
-            resultSet.getInt("attempt_count"),
-            toInstantOrNull(resultSet.getTimestamp("next_attempt_at")),
-            toInstantOrNull(resultSet.getTimestamp("claimed_at")),
-            resultSet.getString("last_error_code"),
-            resultSet.getString("last_error_message"),
-            toInstant(resultSet.getTimestamp("requested_at")),
-            toInstant(resultSet.getTimestamp("created_at")),
-            toInstant(resultSet.getTimestamp("updated_at"))
-        );
 
     private final JdbcTemplate jdbcTemplate;
     private final TransactionTemplate transactionTemplate;
@@ -195,6 +102,33 @@ class PostgresMaterialJdbcSupport {
         Map<String, List<String>> tagsByMaterialId = loadTagsByMaterialIds(records.stream().map(StoredMaterialRecord::id).toList());
         return records.stream()
             .map(record -> record.withMetadata(record.metadata().withTags(tagsByMaterialId.getOrDefault(record.id(), List.of()))))
+            .toList();
+    }
+
+    private List<MaterialSummary> enrichSummaryMetadata(List<MaterialSummary> summaries) {
+        if (summaries == null || summaries.isEmpty()) {
+            return List.of();
+        }
+
+        Map<String, List<String>> tagsByMaterialId = loadTagsByMaterialIds(summaries.stream().map(MaterialSummary::id).toList());
+        return summaries.stream()
+            .map(summary -> new MaterialSummary(
+                summary.id(),
+                summary.title(),
+                summary.sourceType(),
+                summary.originalFileName(),
+                summary.status(),
+                summary.versionState(),
+                summary.statusReasonCode(),
+                summary.statusReasonMessage(),
+                summary.createdAt(),
+                summary.updatedAt(),
+                summary.indexingAttempts(),
+                summary.nextRetryAt(),
+                summary.contentLength(),
+                summary.preview(),
+                summary.metadata().withTags(tagsByMaterialId.getOrDefault(summary.id(), List.of()))
+            ))
             .toList();
     }
 
@@ -231,6 +165,67 @@ class PostgresMaterialJdbcSupport {
             "SELECT " + MATERIAL_COLUMNS + " FROM materials ORDER BY created_at DESC",
             MATERIAL_ROW_MAPPER
         ));
+    }
+
+    public List<MaterialSummary> findSummaries(int offset, int limit) {
+        if (limit <= 0) {
+            return List.of();
+        }
+        int safeOffset = Math.max(0, offset);
+        try {
+            return enrichSummaryMetadata(jdbcTemplate.query(
+                """
+                    SELECT
+                        id,
+                        title,
+                        source_type,
+                        original_file_name,
+                        document_type,
+                        document_date,
+                        document_number,
+                        author_name,
+                        department,
+                        version_label,
+                        language_code,
+                        source_trust,
+                        project_name,
+                        counterparty,
+                        business_status,
+                        period_start,
+                        period_end,
+                        knowledge_document_class,
+                        workspace_key,
+                        metadata_jsonb,
+                        indexing_status,
+                        version_state,
+                        status_reason_code,
+                        status_reason_message,
+                        indexing_attempts,
+                        next_retry_at,
+                        created_at,
+                        updated_at,
+                        CHAR_LENGTH(COALESCE(content, '')) AS content_length,
+                        CASE
+                            WHEN CHAR_LENGTH(COALESCE(content, '')) > 180
+                                THEN LEFT(COALESCE(content, ''), 180) || '...'
+                            ELSE COALESCE(content, '')
+                        END AS preview
+                    FROM materials
+                    ORDER BY created_at DESC, id DESC
+                    LIMIT ? OFFSET ?
+                    """,
+                MATERIAL_SUMMARY_ROW_MAPPER,
+                limit,
+                safeOffset
+            ));
+        } catch (DataAccessException exception) {
+            throw new ApiException(
+                HttpStatus.INTERNAL_SERVER_ERROR,
+                "material.storage_read_failed",
+                "Unable to load material summaries from PostgreSQL",
+                exception
+            );
+        }
     }
 
     public List<StoredMaterialRecord> findActivePageAfter(Instant createdAt, String id, int limit) {
@@ -294,6 +289,37 @@ class PostgresMaterialJdbcSupport {
             UUID.fromString(id)
         ));
         return records.stream().findFirst();
+    }
+
+    public List<StoredMaterialRecord> findByIds(Collection<String> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return List.of();
+        }
+        List<String> orderedIds = ids.stream()
+            .filter(id -> id != null && !id.isBlank())
+            .distinct()
+            .toList();
+        if (orderedIds.isEmpty()) {
+            return List.of();
+        }
+
+        String placeholders = String.join(", ", Collections.nCopies(orderedIds.size(), "?"));
+        List<StoredMaterialRecord> records = enrichMetadata(jdbcTemplate.query(
+            "SELECT " + MATERIAL_COLUMNS + " FROM materials WHERE id IN (" + placeholders + ")",
+            MATERIAL_ROW_MAPPER,
+            orderedIds.stream().map(UUID::fromString).toArray()
+        ));
+        Map<String, StoredMaterialRecord> recordsById = records.stream()
+            .collect(java.util.stream.Collectors.toMap(
+                StoredMaterialRecord::id,
+                record -> record,
+                (left, right) -> left,
+                LinkedHashMap::new
+            ));
+        return orderedIds.stream()
+            .map(recordsById::get)
+            .filter(java.util.Objects::nonNull)
+            .toList();
     }
 
     public Optional<String> findSourceKeyById(String id) {
@@ -917,7 +943,7 @@ class PostgresMaterialJdbcSupport {
                     WHERE m.indexing_status IN ('READY', 'PARTIAL_READY')
                       AND m.version_state = 'ACTIVE'
                       AND c.embedding IS NOT NULL
-                      AND (? IS NULL OR m.id = ANY (?))
+                      AND (CAST(? AS uuid[]) IS NULL OR m.id = ANY (?))
                     """
                     + filterSql.sql()
                     + """
@@ -990,7 +1016,7 @@ class PostgresMaterialJdbcSupport {
                     JOIN query_term qt ON TRUE
                     WHERE m.indexing_status IN ('READY', 'PARTIAL_READY')
                       AND m.version_state = 'ACTIVE'
-                      AND (? IS NULL OR m.id = ANY (?))
+                      AND (CAST(? AS uuid[]) IS NULL OR m.id = ANY (?))
                       AND c.search_vector @@ qt.q
                     """
                     + filterSql.sql()
@@ -1677,6 +1703,8 @@ class PostgresMaterialJdbcSupport {
                     business_status,
                     period_start,
                     period_end,
+                    knowledge_document_class,
+                    workspace_key,
                     metadata_jsonb,
                     lineage_version,
                     chunk_profile,
@@ -1691,7 +1719,49 @@ class PostgresMaterialJdbcSupport {
                     supersede_reason,
                     created_at,
                     updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?)
+                ) VALUES (
+                    ?,
+                    ?,
+                    ?,
+                    ?,
+                    ?,
+                    ?,
+                    ?,
+                    ?,
+                    ?,
+                    ?,
+                    ?,
+                    ?,
+                    ?,
+                    ?,
+                    ?,
+                    ?,
+                    ?,
+                    ?,
+                    ?,
+                    ?,
+                    ?,
+                    ?,
+                    ?,
+                    ?,
+                    ?,
+                    ?,
+                    ?,
+                    ?::jsonb,
+                    ?,
+                    ?,
+                    ?,
+                    ?,
+                    ?,
+                    ?,
+                    ?,
+                    ?,
+                    NULL,
+                    ?,
+                    ?,
+                    ?,
+                    ?
+                )
                 """,
             UUID.fromString(persistedRecord.id()),
             persistedRecord.title(),
@@ -1718,7 +1788,9 @@ class PostgresMaterialJdbcSupport {
             persistedRecord.metadata().businessStatus(),
             persistedRecord.metadata().periodStart(),
             persistedRecord.metadata().periodEnd(),
-            serializeMetadata(persistedRecord.metadata()),
+            persistedRecord.metadata().knowledgeDocumentClass().name(),
+            persistedRecord.metadata().workspaceKey(),
+            MaterialMetadataJdbcMapper.serialize(persistedRecord.metadata()),
             persistedRecord.lineageVersion(),
             chunkProfile,
             persistedRecord.status().name(),
@@ -2049,79 +2121,6 @@ class PostgresMaterialJdbcSupport {
         );
     }
 
-    private static MaterialMetadataSnapshot materialMetadataOf(java.sql.ResultSet resultSet) throws SQLException {
-        MaterialMetadataPersistencePayload payload = deserializeMetadataPayload(resultSet.getString("metadata_jsonb"));
-        return new MaterialMetadataSnapshot(
-            DocumentType.valueOf(resultSet.getString("document_type")),
-            payload.knowledgeDocumentClass(),
-            toLocalDateOrNull(resultSet.getDate("document_date")),
-            resultSet.getString("document_number"),
-            resultSet.getString("author_name"),
-            resultSet.getString("department"),
-            resultSet.getString("version_label"),
-            resultSet.getString("language_code"),
-            List.of(),
-            SourceTrustLevel.valueOf(resultSet.getString("source_trust")),
-            resultSet.getString("project_name"),
-            payload.workspaceKey(),
-            resultSet.getString("counterparty"),
-            resultSet.getString("business_status"),
-            toLocalDateOrNull(resultSet.getDate("period_start")),
-            toLocalDateOrNull(resultSet.getDate("period_end")),
-            payload.provenance()
-        );
-    }
-
-    private static MaterialMetadataPersistencePayload deserializeMetadataPayload(String rawJson) {
-        if (rawJson == null || rawJson.isBlank()) {
-            return MaterialMetadataPersistencePayload.empty();
-        }
-
-        try {
-            JsonNode root = JSON_MAPPER.readTree(rawJson);
-            if (root == null || root.isNull() || root.isEmpty()) {
-                return MaterialMetadataPersistencePayload.empty();
-            }
-            if (root.has("provenance") || root.has("knowledgeDocumentClass") || root.has("workspaceKey")) {
-                return JSON_MAPPER.treeToValue(root, MaterialMetadataPersistencePayload.class);
-            }
-            return new MaterialMetadataPersistencePayload(
-                JSON_MAPPER.treeToValue(root, MaterialMetadataProvenance.class),
-                null,
-                null
-            );
-        } catch (JsonProcessingException exception) {
-            throw new IllegalStateException("Unable to deserialize material metadata provenance", exception);
-        }
-    }
-
-    private static String serializeMetadata(MaterialMetadataSnapshot metadata) {
-        try {
-            MaterialMetadataSnapshot safeMetadata = metadata == null ? MaterialMetadataSnapshot.empty() : metadata;
-            return JSON_MAPPER.writeValueAsString(new MaterialMetadataPersistencePayload(
-                safeMetadata.provenance(),
-                safeMetadata.knowledgeDocumentClass(),
-                safeMetadata.workspaceKey()
-            ));
-        } catch (JsonProcessingException exception) {
-            throw new IllegalStateException("Unable to serialize material metadata provenance", exception);
-        }
-    }
-
-    private static DocumentBlockType chunkTypeOf(String rawValue) {
-        if (rawValue == null || rawValue.isBlank()) {
-            return DocumentBlockType.NARRATIVE;
-        }
-        return DocumentBlockType.valueOf(rawValue);
-    }
-
-    private static DocumentBlockConfidence parserConfidenceOf(String rawValue, boolean ocrUsed) {
-        if (rawValue == null || rawValue.isBlank()) {
-            return ocrUsed ? DocumentBlockConfidence.LOW : DocumentBlockConfidence.HIGH;
-        }
-        return DocumentBlockConfidence.valueOf(rawValue);
-    }
-
     private SearchFilterSql buildSearchFilterSql(RetrievalFilters filters) {
         RetrievalFilters safeFilters = filters == null ? RetrievalFilters.empty() : filters;
         if (safeFilters.isEmpty()) {
@@ -2130,21 +2129,21 @@ class PostgresMaterialJdbcSupport {
 
         StringBuilder sql = new StringBuilder();
         sql.append("""
-              AND (? IS NULL OR LOWER(m.document_number) = ?)
-              AND (? IS NULL OR m.document_date >= ?)
-              AND (? IS NULL OR m.document_date <= ?)
-              AND (? IS NULL OR LOWER(m.department) = ?)
-              AND (? IS NULL OR LOWER(m.project_name) = ?)
-              AND (? IS NULL OR LOWER(m.counterparty) = ?)
-              AND (? IS NULL OR LOWER(m.business_status) = ?)
-              AND (? IS NULL OR LOWER(m.language_code) = ?)
+              AND (CAST(? AS text) IS NULL OR LOWER(m.document_number) = ?)
+              AND (CAST(? AS date) IS NULL OR m.document_date >= ?)
+              AND (CAST(? AS date) IS NULL OR m.document_date <= ?)
+              AND (CAST(? AS text) IS NULL OR LOWER(m.department) = ?)
+              AND (CAST(? AS text) IS NULL OR LOWER(m.project_name) = ?)
+              AND (CAST(? AS text) IS NULL OR LOWER(m.counterparty) = ?)
+              AND (CAST(? AS text) IS NULL OR LOWER(m.business_status) = ?)
+              AND (CAST(? AS text) IS NULL OR LOWER(m.language_code) = ?)
               AND (? = FALSE OR EXISTS (
                     SELECT 1
                     FROM material_tags mt
                     WHERE mt.material_id = m.id
                       AND LOWER(mt.tag_value) = ANY (?)
               ))
-              AND (? IS NULL OR (
+              AND (CAST(? AS text) IS NULL OR (
                     CASE m.source_trust
                         WHEN 'HIGH' THEN 3
                         WHEN 'MEDIUM' THEN 2
@@ -2197,9 +2196,9 @@ class PostgresMaterialJdbcSupport {
                         WHERE mt.material_id = m.id
                           AND LOWER(mt.tag_value) = ANY (?)
                   ))
-                  AND (? IS NULL OR LOWER(COALESCE(m.metadata_jsonb ->> 'workspaceKey', '')) = ?)
-                  AND (? IS NULL OR m.created_at >= ?)
-                  AND (? IS NULL OR m.created_at < ?)
+                  AND (CAST(? AS text) IS NULL OR LOWER(COALESCE(m.workspace_key, '')) = ?)
+                  AND (CAST(? AS timestamptz) IS NULL OR m.created_at >= ?)
+                  AND (CAST(? AS timestamptz) IS NULL OR m.created_at < ?)
                 """,
             documentClasses,
             tags,
@@ -2243,6 +2242,9 @@ class PostgresMaterialJdbcSupport {
     }
 
     private int bindRetrievalScope(PreparedStatement preparedStatement, int startIndex, RetrievalScopeSql scopeSql) throws SQLException {
+        if (scopeSql == null || scopeSql.sql().isBlank()) {
+            return startIndex;
+        }
         int parameterIndex = startIndex;
         preparedStatement.setBoolean(parameterIndex++, !scopeSql.documentClasses().isEmpty());
         bindTextArray(preparedStatement, parameterIndex++, scopeSql.documentClasses());
@@ -2273,26 +2275,6 @@ class PostgresMaterialJdbcSupport {
         return value == null ? null : value.toLowerCase(java.util.Locale.ROOT);
     }
 
-    private static List<String> textArrayOf(Array sqlArray) throws SQLException {
-        if (sqlArray == null) {
-            return List.of();
-        }
-        Object array = sqlArray.getArray();
-        if (array == null) {
-            return List.of();
-        }
-        if (array instanceof String[] strings) {
-            return List.of(strings);
-        }
-        if (array instanceof Object[] objects) {
-            return java.util.Arrays.stream(objects)
-                .filter(java.util.Objects::nonNull)
-                .map(String::valueOf)
-                .toList();
-        }
-        return List.of();
-    }
-
     private void bindTextArray(PreparedStatement preparedStatement, int parameterIndex, List<String> values) throws SQLException {
         if (values == null || values.isEmpty()) {
             preparedStatement.setNull(parameterIndex, Types.ARRAY);
@@ -2307,7 +2289,7 @@ class PostgresMaterialJdbcSupport {
 
     private void bindUuidArray(PreparedStatement preparedStatement, int parameterIndex, UUID[] values) throws SQLException {
         if (values == null) {
-            preparedStatement.setArray(parameterIndex, null);
+            preparedStatement.setNull(parameterIndex, Types.ARRAY);
             return;
         }
 
@@ -2357,16 +2339,6 @@ class PostgresMaterialJdbcSupport {
     ) {
         private static RetrievalScopeSql empty() {
             return new RetrievalScopeSql("", List.of(), List.of(), null, null, null);
-        }
-    }
-
-    private record MaterialMetadataPersistencePayload(
-        MaterialMetadataProvenance provenance,
-        KnowledgeDocumentClass knowledgeDocumentClass,
-        String workspaceKey
-    ) {
-        private static MaterialMetadataPersistencePayload empty() {
-            return new MaterialMetadataPersistencePayload(MaterialMetadataProvenance.empty(), null, null);
         }
     }
 

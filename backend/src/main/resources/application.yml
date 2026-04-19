@@ -15,8 +15,8 @@ spring:
     password: "${SPRING_ELASTICSEARCH_PASSWORD:}"
   servlet:
     multipart:
-      max-file-size: "${app.materials.max-upload-bytes:2000000}B"
-      max-request-size: "${app.materials.max-upload-bytes:2000000}B"
+      max-file-size: "${app.materials.max-upload-bytes:8388608}B"
+      max-request-size: "${app.materials.max-upload-request-bytes:9437184}B"
 
 app:
   cors:
@@ -28,7 +28,8 @@ app:
     timeout-seconds: 600
     system-prompt: Ты локальная LLM модель. Отвечай по делу и понятно на русском языке.
   materials:
-    max-upload-bytes: 2000000
+    max-upload-bytes: 8388608
+    max-upload-request-bytes: 9437184
     max-text-chars: 200000
     chunk-size: 900
     chunk-overlap: 180
@@ -40,6 +41,7 @@ app:
     indexing-max-attempts: 3
     indexing-retry-base-seconds: 5
     indexing-retry-max-seconds: 60
+    indexing-drain-max-jobs: 64
   instructions:
     legacy-import-enabled: false
   ocr:
@@ -55,10 +57,12 @@ app:
   embeddings:
     model: nomic-embed-text
     timeout-seconds: 60
+    expected-dimension: 768
   rag:
     semantic-candidate-limit: 12
     lexical-candidate-limit: 12
     final-context-limit: 4
+    max-search-limit: 20
     rerank-candidate-limit: 12
     max-semantic-distance: 0.72
     lexical-provider: postgres
@@ -74,19 +78,27 @@ app:
     query-hints-v1: false
   health:
     readiness-cache-seconds: 30
+    readiness-probe-interval-millis: 30000
+    readiness-initial-delay-millis: 1000
+  audit:
+    fail-closed: false
+    health-failure-threshold: 1
   search-sync:
     enabled: false
     index-prefix: rag-chunks
-    index-version: v2
+    index-version: v3
     claim-batch-size: 32
     claim-lease-seconds: 120
     max-attempts: 3
     retry-base-seconds: 5
     retry-max-seconds: 60
+    max-drain-batches: 16
+    max-bulk-actions: 500
     max-outstanding-seconds: 120
     max-failed-events-before-fallback: 0
     health-snapshot-ttl-seconds: 15
     operator:
+      enabled: false
       wait-timeout-seconds: 300
       poll-interval-millis: 250
   storage-dir: ./storage

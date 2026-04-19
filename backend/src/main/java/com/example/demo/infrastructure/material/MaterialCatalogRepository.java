@@ -2,14 +2,20 @@ package com.example.demo.infrastructure.material;
 
 import com.example.demo.model.KnowledgeScope;
 import com.example.demo.model.MaterialVersionState;
+import com.example.demo.model.MaterialSummary;
 import com.example.demo.model.RetrievalFilters;
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
 public interface MaterialCatalogRepository {
 
     List<StoredMaterialRecord> findAll();
+
+    List<MaterialSummary> findSummaries(int offset, int limit);
+
+    List<StoredMaterialRecord> findByIds(Collection<String> ids);
 
     List<StoredMaterialRecord> findActivePageAfter(Instant createdAt, String id, int limit);
 

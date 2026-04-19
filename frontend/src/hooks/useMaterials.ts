@@ -2,7 +2,9 @@ import { useEffect, useState } from "react";
 import { apiClient, isApiClientError } from "../api/client";
 import { translateCommonApiError } from "../api/errorMessages";
 import type {
+  MaterialListResponse,
   MaterialLineageResponse,
+  MaterialUploadItemInput,
   MaterialMetadataInput,
   MaterialSummary,
   MaterialUploadPolicy,
@@ -16,6 +18,7 @@ import {
 } from "../utils/materialUploadPolicy";
 
 const POLL_INTERVAL_MS = 5_000;
+const MATERIAL_PAGE_LIMIT = 100;
 const POLICY_WARNING_MESSAGE = "Не удалось подтвердить capability backend; возможны ограничения при загрузке PDF.";
 const DEFAULT_OCR_LANGUAGES = ["kaz", "rus", "eng"];
 const isPageVisible = () => typeof document === "undefined" || document.visibilityState !== "hidden";
@@ -44,6 +47,14 @@ const extensionOf = (fileName: string) => {
 
   return trimmed.substring(trimmed.lastIndexOf(".") + 1).toLowerCase();
 };
+
+type UploadMaterialInput = {
+  items: MaterialUploadItemInput[];
+};
+
+const fileLabel = (file: File) => file.name || "Файл";
+
+const withFileLabel = (file: File, message: string) => `${fileLabel(file)}: ${message}`;
 
 const translateMaterialError = (
   error: unknown,
@@ -111,21 +122,39 @@ const translateMaterialError = (
   return translateCommonApiError(error, fallback);
 };
 
-const validateUploadInput = (
-  input: { title: string; file: File },
+const validateUploadFile = (
+  file: File,
   policy: MaterialUploadPolicy,
 ) => {
-  if (!input.file || input.file.size === 0) {
+  if (!file || file.size === 0) {
     return "Файл пустой. Выбери непустой файл для загрузки.";
   }
 
-  if (input.file.size > policy.maxUploadBytes) {
+  if (file.size > policy.maxUploadBytes) {
     return `Файл превышает лимит ${formatBytes(policy.maxUploadBytes)}.`;
   }
 
-  const extension = extensionOf(input.file.name);
+  const extension = extensionOf(file.name);
   if (!extension || !policy.acceptedExtensions.includes(extension)) {
     return `Формат файла не поддерживается. Разрешены: ${formatExtensionList(policy)}.`;
+  }
+
+  return null;
+};
+
+const validateUploadInput = (
+  input: UploadMaterialInput,
+  policy: MaterialUploadPolicy,
+) => {
+  if (input.items.length === 0) {
+    return "Выбери хотя бы один файл для загрузки.";
+  }
+
+  for (const item of input.items) {
+    const fileError = validateUploadFile(item.file, policy);
+    if (fileError) {
+      return withFileLabel(item.file, fileError);
+    }
   }
 
   return null;
@@ -144,12 +173,65 @@ const buildIngestionMessage = (material: MaterialSummary, sourceLabel: string) =
   }
 };
 
+const formatUploadedFileCount = (count: number) => {
+  const mod10 = count % 10;
+  const mod100 = count % 100;
+
+  if (mod10 === 1 && mod100 !== 11) {
+    return `${count} файл`;
+  }
+
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) {
+    return `${count} файла`;
+  }
+
+  return `${count} файлов`;
+};
+
+const buildUploadIngestionMessage = (createdMaterials: MaterialSummary[]) => {
+  if (createdMaterials.length === 1) {
+    return buildIngestionMessage(createdMaterials[0], "Файл");
+  }
+
+  return `${formatUploadedFileCount(createdMaterials.length)} приняты и поставлены в очередь индексации.`;
+};
+
+const normalizeMaterialListResponse = (payload: MaterialListResponse | MaterialSummary[]): MaterialListResponse => {
+  if (Array.isArray(payload)) {
+    return {
+      items: payload,
+      total: payload.length,
+      offset: 0,
+      limit: payload.length,
+      hasMore: false,
+    };
+  }
+
+  return {
+    items: payload.items ?? [],
+    total: payload.total ?? payload.items?.length ?? 0,
+    offset: payload.offset ?? 0,
+    limit: payload.limit ?? MATERIAL_PAGE_LIMIT,
+    hasMore: payload.hasMore ?? false,
+  };
+};
+
+const mergeMaterialPages = (current: MaterialSummary[], next: MaterialSummary[]) => {
+  const byId = new Map(current.map((material) => [material.id, material]));
+  next.forEach((material) => byId.set(material.id, material));
+  return Array.from(byId.values());
+};
+
 export const useMaterials = () => {
   const [materials, setMaterials] = useState<MaterialSummary[]>([]);
+  const [materialTotal, setMaterialTotal] = useState(0);
+  const [materialPageLimit, setMaterialPageLimit] = useState(MATERIAL_PAGE_LIMIT);
+  const [hasMoreMaterials, setHasMoreMaterials] = useState(false);
   const [uploadPolicy, setUploadPolicy] = useState<MaterialUploadPolicy | null>(null);
   const [policyWarning, setPolicyWarning] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [deletingMaterialId, setDeletingMaterialId] = useState<string | null>(null);
@@ -173,10 +255,24 @@ export const useMaterials = () => {
     return normalized.policy;
   };
 
-  const loadMaterials = async (signal?: AbortSignal) => {
+  const loadMaterials = async (
+    signal?: AbortSignal,
+    options: { offset?: number; append?: boolean } = {},
+  ) => {
+    const offset = options.offset ?? 0;
+    const append = options.append ?? false;
+    if (append) {
+      setIsLoadingMore(true);
+    }
+
     try {
-      const payload = await apiClient.fetchMaterials(signal);
-      setMaterials(payload);
+      const payload = normalizeMaterialListResponse(
+        await apiClient.fetchMaterials({ offset, limit: MATERIAL_PAGE_LIMIT }, signal),
+      );
+      setMaterials((current) => (append ? mergeMaterialPages(current, payload.items) : payload.items));
+      setMaterialTotal(payload.total);
+      setMaterialPageLimit(payload.limit);
+      setHasMoreMaterials(payload.hasMore);
       setError(null);
       return payload;
     } catch (loadError) {
@@ -189,6 +285,7 @@ export const useMaterials = () => {
       return null;
     } finally {
       setIsLoading(false);
+      setIsLoadingMore(false);
     }
   };
 
@@ -276,10 +373,11 @@ export const useMaterials = () => {
     }
   };
 
-  const uploadMaterial = async (input: { title: string; file: File; metadata?: MaterialMetadataInput }) => {
+  const uploadMaterial = async (input: UploadMaterialInput) => {
     setActionError(null);
     setMessage(null);
     let activePolicy = uploadPolicy;
+    let handledError = false;
 
     try {
       const policy = await ensureUploadPolicy();
@@ -288,14 +386,40 @@ export const useMaterials = () => {
       const validationError = validateUploadInput(input, policy);
       if (validationError) {
         setActionError(validationError);
+        handledError = true;
         throw new Error(validationError);
       }
 
-      const created = await apiClient.uploadMaterial(input);
+      const createdMaterials: MaterialSummary[] = [];
+
+      for (const item of input.items) {
+        try {
+          const created = await apiClient.uploadMaterial({
+            title: item.title ?? "",
+            file: item.file,
+            ...(item.metadata ? { metadata: item.metadata } : {}),
+          });
+          createdMaterials.push(created);
+        } catch (fileError) {
+          if (createdMaterials.length > 0) {
+            await loadMaterials();
+          }
+
+          setActionError(withFileLabel(
+            item.file,
+            translateMaterialError(fileError, "Не удалось загрузить файл", activePolicy),
+          ));
+          handledError = true;
+          throw fileError;
+        }
+      }
+
       await loadMaterials();
-      setMessage(buildIngestionMessage(created, "Файл"));
+      setMessage(buildUploadIngestionMessage(createdMaterials));
     } catch (submissionError) {
-      setActionError(translateMaterialError(submissionError, "Не удалось загрузить файл", activePolicy));
+      if (!handledError) {
+        setActionError(translateMaterialError(submissionError, "Не удалось загрузить файл", activePolicy));
+      }
       throw submissionError;
     }
   };
@@ -373,12 +497,24 @@ export const useMaterials = () => {
     setLoadingLineageMaterialId(null);
   };
 
+  const loadMoreMaterials = async () => {
+    if (isLoadingMore || !hasMoreMaterials) {
+      return null;
+    }
+
+    return loadMaterials(undefined, { offset: materials.length, append: true });
+  };
+
   return {
     materials,
+    materialTotal,
+    materialPageLimit,
+    hasMoreMaterials,
     uploadPolicy,
     policyWarning,
     error,
     isLoading,
+    isLoadingMore,
     message,
     actionError,
     deletingMaterialId,
@@ -391,6 +527,7 @@ export const useMaterials = () => {
     deleteMaterial,
     reindexMaterial,
     loadLineage,
+    loadMoreMaterials,
     clearLineage,
   };
 };

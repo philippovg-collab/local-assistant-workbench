@@ -63,7 +63,7 @@ export type HealthResponse = {
   activeMaterialCount?: number;
   historicalMaterialCount?: number;
   readyMaterialCount?: number;
-  searchStatus?: "UP" | "DEGRADED" | "DOWN" | "DISABLED";
+  searchStatus?: "UP" | "DEGRADED" | "DOWN" | "DISABLED" | "FALLBACK_ACTIVE";
   searchMode?: "postgres" | "elasticsearch" | "auto";
   searchProvider?: string;
   searchReasonCode?: string | null;
@@ -136,6 +136,12 @@ export type HealthResponse = {
       };
     };
   } | null;
+  readiness?: Record<string, {
+    status: "UP" | "DEGRADED" | "DOWN" | "DISABLED" | "FALLBACK_ACTIVE" | "UNKNOWN" | string;
+    reasonCode?: string | null;
+    reasonMessage?: string | null;
+    observedAt?: string | null;
+  }>;
 };
 
 export type ModelInfo = {
@@ -149,6 +155,7 @@ export type MaterialMetadataProvenance = {
 
 export type MaterialMetadata = {
   documentType: DocumentType;
+  knowledgeDocumentClass: KnowledgeDocumentClass;
   documentDate?: string | null;
   documentNumber?: string | null;
   author?: string | null;
@@ -162,11 +169,13 @@ export type MaterialMetadata = {
   businessStatus?: string | null;
   periodStart?: string | null;
   periodEnd?: string | null;
+  workspaceKey?: string | null;
   provenance: MaterialMetadataProvenance;
 };
 
 export type MaterialMetadataInput = {
   documentType?: DocumentType;
+  knowledgeDocumentClass?: KnowledgeDocumentClass;
   documentDate?: string | null;
   documentNumber?: string | null;
   author?: string | null;
@@ -180,6 +189,7 @@ export type MaterialMetadataInput = {
   businessStatus?: string | null;
   periodStart?: string | null;
   periodEnd?: string | null;
+  workspaceKey?: string | null;
 };
 
 export type RetrievalFilters = {
@@ -239,6 +249,14 @@ export type MaterialSummary = {
   metadata?: MaterialMetadata;
 };
 
+export type MaterialListResponse = {
+  items: MaterialSummary[];
+  total: number;
+  offset: number;
+  limit: number;
+  hasMore: boolean;
+};
+
 export type MaterialLineageVersion = MaterialSummary & {
   supersededByMaterialId?: string | null;
   supersedeReason?: string | null;
@@ -266,6 +284,12 @@ export type MaterialUploadPolicy = {
   acceptedMimeHints: string[];
   richDocumentSupport: boolean;
   pdf: MaterialPdfUploadPolicy;
+};
+
+export type MaterialUploadItemInput = {
+  file: File;
+  title?: string;
+  metadata?: MaterialMetadataInput;
 };
 
 export type MaterialChunkDetail = {
@@ -490,6 +514,11 @@ export type ChatAuditRunSummary = {
   promptPreview: string;
   answerPreview: string;
   createdAt: string;
+  status?: ChatRunStatus | string | null;
+  failureStage?: string | null;
+  failureCode?: string | null;
+  failedAt?: string | null;
+  latencyMsTotal?: number | null;
 };
 
 export type ChatAuditRunDetail = {
@@ -505,6 +534,127 @@ export type ChatAuditRunDetail = {
   knowledgeScopeResolved: KnowledgeScopeResolved;
   retrievalTrace: RetrievalTrace;
   sources: ChatSource[];
+  status?: ChatRunStatus | string | null;
+  failureStage?: string | null;
+  failureCode?: string | null;
+  failureMessage?: string | null;
+  completedAt?: string | null;
+  failedAt?: string | null;
+  latencyMsTotal?: number | null;
+};
+
+export type ChatRunStatus =
+  | "RECEIVED"
+  | "PROMPT_RESOLVED"
+  | "RETRIEVAL_DONE"
+  | "LLM_DONE"
+  | "POSTPROCESSED"
+  | "COMPLETED"
+  | "FAILED"
+  | "CANCELLED";
+
+export type ChatRunMessage = {
+  role: string;
+  content: string;
+};
+
+export type ChatRunRequestSnapshot = {
+  requestPayload?: unknown;
+  normalizedRequestPayload?: unknown;
+  prompt: string;
+  knowledgeScope?: unknown;
+  retrievalFilters?: unknown;
+};
+
+export type PromptPolicySnapshot = {
+  baseSystemPrompt?: string | null;
+  systemInstructionsText?: string | null;
+  safetyInstructionsText?: string | null;
+  contextInstructionsText?: string | null;
+  userInstructionsText?: string | null;
+  temporaryInstructionText?: string | null;
+  answerModeBlockText?: string | null;
+  groundingBlockText?: string | null;
+  resolvedSystemPrompt?: string | null;
+  messages: ChatRunMessage[];
+  promptHash?: string | null;
+  instructionTrace: InstructionTraceEntry[];
+  knowledgeScopeResolved: KnowledgeScopeResolved;
+  groundingRulesApplied: boolean;
+};
+
+export type RetrievalSummaryTrace = {
+  retrievalStatus: "DONE" | "NOT_APPLICABLE" | "FAILED" | string;
+  trace?: RetrievalTrace | null;
+  debug?: RetrievalDebug | null;
+  lexicalProvider?: string | null;
+  relevanceProfile?: string | null;
+  embeddingModel?: string | null;
+  chunkProfile?: string | null;
+  queryHints?: unknown;
+  manualFilters?: unknown;
+  effectiveFilters?: unknown;
+  rolloutFlags?: unknown;
+  appliedCapabilities?: unknown;
+};
+
+export type LlmCallTrace = {
+  id: string;
+  provider: string;
+  model?: string | null;
+  requestMessages: ChatRunMessage[];
+  rawResponseText?: string | null;
+  parsedAnswerText?: string | null;
+  promptTokens?: number | null;
+  completionTokens?: number | null;
+  totalTokens?: number | null;
+  latencyMs?: number | null;
+  retryCount: number;
+  timeoutSeconds?: number | null;
+  finishReason?: string | null;
+  errorCode?: string | null;
+  errorMessage?: string | null;
+  createdAt: string;
+};
+
+export type ChatRunOutputTrace = {
+  rawModelAnswer?: string | null;
+  finalUserAnswer?: string | null;
+  sources: ChatSource[];
+  postprocess?: unknown;
+  abstained?: boolean | null;
+  strictSourcesBlockedAnswer?: boolean | null;
+};
+
+export type ChatRunEventTrace = {
+  id: string;
+  eventType: string;
+  eventPayload?: unknown;
+  createdAt: string;
+};
+
+export type ChatRunTraceDetail = {
+  id: string;
+  mode: ChatMode;
+  status: ChatRunStatus | string;
+  requestedModel?: string | null;
+  resolvedModel?: string | null;
+  requestedAnswerMode?: AnswerMode | null;
+  appliedAnswerMode?: AnswerMode | null;
+  contextStatus?: "ready" | "no-context" | string | null;
+  createdAt: string;
+  completedAt?: string | null;
+  failedAt?: string | null;
+  latencyMsTotal?: number | null;
+  failureStage?: string | null;
+  failureCode?: string | null;
+  failureMessage?: string | null;
+  requestSnapshot?: ChatRunRequestSnapshot | null;
+  promptSnapshot?: PromptPolicySnapshot | null;
+  retrievalSummary?: RetrievalSummaryTrace | null;
+  llmCalls: LlmCallTrace[];
+  output?: ChatRunOutputTrace | null;
+  events: ChatRunEventTrace[];
 };
 
 export type ChatExecutionRequest = {
@@ -515,6 +665,7 @@ export type ChatExecutionRequest = {
   instructionIds: string[];
   answerMode?: AnswerMode;
   knowledgeScope?: KnowledgeScope;
+  instructionWorkspaceKey?: string | null;
   retrievalFilters?: RetrievalFilters;
   scenarioInstructionIds?: string[];
   temporaryInstruction?: string;

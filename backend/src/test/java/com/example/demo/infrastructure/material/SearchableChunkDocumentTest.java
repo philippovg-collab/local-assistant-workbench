@@ -2,7 +2,9 @@ package com.example.demo.infrastructure.material;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.example.demo.model.DocumentType;
 import com.example.demo.model.MaterialMetadataInput;
 import com.example.demo.model.MaterialMetadataSnapshot;
@@ -11,6 +13,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.springframework.core.io.ClassPathResource;
 
 class SearchableChunkDocumentTest {
 
@@ -103,5 +106,51 @@ class SearchableChunkDocumentTest {
         assertEquals("material-123:1", documents.get(1).chunkId());
         assertEquals("APPENDIX", documents.get(1).chunkType());
         assertEquals("LOW", documents.get(1).parserConfidence());
+    }
+
+    @Test
+    void elasticsearchStrictMappingCoversEverySerializedDocumentField() throws Exception {
+        ObjectMapper objectMapper = new ObjectMapper();
+        SearchableChunkDocument document = new SearchableChunkDocument(
+            "material-123:0",
+            "material-123:0",
+            "material-123",
+            "pricing-faq",
+            "Pricing FAQ",
+            "Первый чанк",
+            1,
+            "pdfbox",
+            false,
+            "TABLE",
+            List.of("grid-operations", "tariff-matrix"),
+            List.of("Grid operations", "Tariff matrix"),
+            "table-1",
+            "slide-1",
+            "HIGH",
+            "KZ-2026-0415-ENERGY",
+            null,
+            "Grid operations",
+            "North Upgrade",
+            "GridBuild LLP",
+            "APPROVED",
+            "ru",
+            List.of("dispatch", "grid"),
+            "HIGH",
+            "file",
+            null
+        );
+
+        var serializedDocument = objectMapper.valueToTree(document);
+        var mappingResource = new ClassPathResource("elasticsearch/searchable-chunks-index.json");
+        try (var inputStream = mappingResource.getInputStream()) {
+            var mappedProperties = objectMapper.readTree(inputStream)
+                .path("mappings")
+                .path("properties");
+
+            assertFalse(serializedDocument.has("documentId"));
+            serializedDocument.fieldNames().forEachRemaining(fieldName ->
+                assertTrue(mappedProperties.has(fieldName), "Missing Elasticsearch mapping for " + fieldName)
+            );
+        }
     }
 }
