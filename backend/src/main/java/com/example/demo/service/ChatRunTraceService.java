@@ -238,6 +238,28 @@ public class ChatRunTraceService {
         });
     }
 
+    public boolean cancelRun(RunTraceContext context) {
+        if (context == null) {
+            return false;
+        }
+        return cancelRun(context.id(), context.createdAt());
+    }
+
+    public boolean cancelRun(String runId, Instant createdAt) {
+        return write(() -> {
+            Instant cancelledAt = Instant.now();
+            boolean cancelled = repository.cancelRun(
+                runId,
+                cancelledAt,
+                createdAt == null ? 0 : Duration.between(createdAt, cancelledAt).toMillis()
+            );
+            if (cancelled) {
+                repository.insertEvent(runId, "CANCELLED", Map.of(), cancelledAt);
+            }
+            return cancelled;
+        });
+    }
+
     public TraceHealth currentHealth() {
         return traceHealth.get();
     }

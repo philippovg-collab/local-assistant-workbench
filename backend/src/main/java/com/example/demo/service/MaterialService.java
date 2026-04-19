@@ -114,6 +114,15 @@ public class MaterialService {
         return retrievalService.retrieveContext(prompt, knowledgeScope, retrievalFilters);
     }
 
+    public MaterialRetrievalResult retrieveContext(
+        String prompt,
+        KnowledgeScope knowledgeScope,
+        RetrievalFilters retrievalFilters,
+        List<String> dismissedRetrievalHintKeys
+    ) {
+        return retrievalService.retrieveContext(prompt, knowledgeScope, retrievalFilters, dismissedRetrievalHintKeys);
+    }
+
     public MaterialSearchResponse search(MaterialSearchRequest request) {
         return retrievalService.search(request);
     }

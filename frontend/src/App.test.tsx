@@ -2,7 +2,7 @@ import { act, cleanup, render, screen, waitFor, within } from "@testing-library/
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
-import type { HealthResponse, MaterialListResponse, MaterialSummary } from "./types";
+import type { ChatExecutionResponse, HealthResponse, MaterialListResponse, MaterialSummary } from "./types";
 import { buildChatExecutionResponse, buildMaterialListResponse, buildMaterialSummary } from "./testBuilders";
 import {
   EMPTY_KNOWLEDGE_SCOPE_RESOLVED,
@@ -182,21 +182,88 @@ const openSection = async (user: ReturnType<typeof userEvent.setup>, sectionName
   await user.click(screen.getByRole("button", { name: sectionName }));
 };
 
+type CapturedChatRequest = {
+  mode: "direct" | "rag";
+  model: string;
+  prompt: string;
+  instructionIds: string[];
+  scenarioInstructionIds?: string[];
+  answerMode?: string;
+  temporaryInstruction?: string;
+};
+
+const parseChatRequest = (init?: RequestInit): CapturedChatRequest => {
+  if (!init?.body) {
+    return {
+      mode: "direct",
+      model: "qwen2.5:7b",
+      prompt: "",
+      instructionIds: [],
+    };
+  }
+
+  return JSON.parse(String(init.body)) as CapturedChatRequest;
+};
+
+const buildChatResponseForRequest = (request: CapturedChatRequest): ChatExecutionResponse =>
+  buildChatExecutionResponse({
+    mode: request.mode,
+    model: request.model,
+    prompt: request.prompt,
+    answer: "ok",
+    answerModeApplied: (request.answerMode as "brief" | "strict_sources_only") ?? "brief",
+    appliedInstructions: request.instructionIds
+      .map((instructionId) =>
+        instructionsResponse.find((instruction) => instruction.id === instructionId),
+      )
+      .filter((instruction) => instruction !== undefined)
+      .map((instruction) => ({
+        id: instruction.id,
+        title: instruction.title,
+        category: instruction.category as "system" | "safety",
+        scopeLevel: instruction.scopeLevel,
+        revision: instruction.revision,
+      })),
+    instructionTrace: request.instructionIds
+      .map((instructionId) =>
+        instructionsResponse.find((instruction) => instruction.id === instructionId),
+      )
+      .filter((instruction) => instruction !== undefined)
+      .map((instruction) => ({
+        instructionId: instruction.id,
+        title: instruction.title,
+        category: instruction.category as "system" | "safety",
+        scopeLevel: instruction.scopeLevel,
+        scopeTargetId: null,
+        revision: instruction.revision,
+        active: true,
+        temporary: false,
+        contentPreview: instruction.preview,
+      })),
+    knowledgeScopeResolved: EMPTY_KNOWLEDGE_SCOPE_RESOLVED,
+    retrievalTrace: {
+      ...EMPTY_RETRIEVAL_TRACE,
+      supportVerdict: request.mode === "rag" ? "sufficient" : "none",
+    },
+    sources: [],
+    auditRunId: "chat-run-1",
+  });
+
 describe("App", () => {
   let currentHealthResponse: HealthResponse;
   let currentMaterialUploadPolicyResponse:
     | typeof materialUploadPolicyResponse
     | typeof legacyMaterialUploadPolicyResponse;
   let currentMaterialsResponse: MaterialListResponse;
-  let chatRequests: Array<{
-    mode: "direct" | "rag";
-    model: string;
-    prompt: string;
-    instructionIds: string[];
-    scenarioInstructionIds?: string[];
-    answerMode?: string;
-    temporaryInstruction?: string;
-  }>;
+  let chatRequests: CapturedChatRequest[];
+  let chatRunSequence: number;
+  let chatRunResponses: Record<
+    string,
+    {
+      request: CapturedChatRequest;
+      response: ChatExecutionResponse;
+    }
+  >;
 
   beforeEach(() => {
     vi.useRealTimers();
@@ -204,9 +271,12 @@ describe("App", () => {
     currentMaterialUploadPolicyResponse = materialUploadPolicyResponse;
     currentMaterialsResponse = buildMaterialListResponse(materialsResponse);
     chatRequests = [];
+    chatRunSequence = 0;
+    chatRunResponses = {};
 
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
       const url = getUrl(input);
+      const pathname = new URL(url).pathname;
 
       if (url.endsWith("/api/health")) {
         return jsonResponse(currentHealthResponse);
@@ -220,7 +290,7 @@ describe("App", () => {
         return jsonResponse(currentMaterialUploadPolicyResponse);
       }
 
-      if (new URL(url).pathname === "/api/materials") {
+      if (pathname === "/api/materials") {
         return jsonResponse(currentMaterialsResponse);
       }
 
@@ -244,71 +314,147 @@ describe("App", () => {
         return jsonResponse(knowledgePresetsResponse);
       }
 
-      if (url.endsWith("/api/chat-runs")) {
-        return jsonResponse([]);
+      if (pathname === "/api/chat-runs" && init?.method === "POST") {
+        const request = parseChatRequest(init);
+        const runId = `chat-run-${++chatRunSequence}`;
+        const response = {
+          ...buildChatResponseForRequest(request),
+          auditRunId: runId,
+        };
+
+        chatRequests.push(request);
+        chatRunResponses[runId] = { request, response };
+
+        return new Response(
+          JSON.stringify({
+            id: runId,
+            status: "COMPLETED",
+            createdAt: response.createdAt,
+            traceUrl: `/api/chat-runs/${runId}/trace`,
+            resultUrl: `/api/chat-runs/${runId}/result`,
+          }),
+          {
+            status: 202,
+            headers: {
+              "Content-Type": "application/json",
+            },
+          },
+        );
+      }
+
+      if (pathname === "/api/chat-runs") {
+        return jsonResponse(
+          Object.entries(chatRunResponses).map(([id, { request, response }]) => ({
+            id,
+            mode: request.mode,
+            model: request.model,
+            answerMode: response.answerModeApplied,
+            promptPreview: request.prompt,
+            answerPreview: response.answer,
+            createdAt: response.createdAt,
+            status: "COMPLETED",
+            failureStage: null,
+            failureCode: null,
+            failedAt: null,
+            latencyMsTotal: null,
+          })),
+        );
+      }
+
+      const chatRunTraceMatch = pathname.match(/^\/api\/chat-runs\/([^/]+)\/trace$/);
+      if (chatRunTraceMatch) {
+        const runId = chatRunTraceMatch[1] ?? "";
+        const storedRun = chatRunResponses[runId];
+        if (!storedRun) {
+          throw new Error(`Unexpected chat run trace request: ${url}`);
+        }
+
+        return jsonResponse({
+          id: runId,
+          mode: storedRun.request.mode,
+          status: "COMPLETED",
+          requestedModel: storedRun.request.model,
+          resolvedModel: storedRun.response.model,
+          requestedAnswerMode: storedRun.request.answerMode ?? null,
+          appliedAnswerMode: storedRun.response.answerModeApplied ?? null,
+          contextStatus: storedRun.request.mode === "rag" ? "ready" : "no-context",
+          createdAt: storedRun.response.createdAt,
+          completedAt: storedRun.response.createdAt,
+          failedAt: null,
+          latencyMsTotal: null,
+          failureStage: null,
+          failureCode: null,
+          failureMessage: null,
+          requestSnapshot: {
+            prompt: storedRun.request.prompt,
+          },
+          promptSnapshot: {
+            messages: [],
+            instructionTrace: storedRun.response.instructionTrace,
+            knowledgeScopeResolved: storedRun.response.knowledgeScopeResolved,
+            groundingRulesApplied: storedRun.request.mode === "rag",
+          },
+          retrievalSummary: {
+            retrievalStatus: storedRun.request.mode === "rag" ? "DONE" : "NOT_APPLICABLE",
+            trace: storedRun.response.retrievalTrace,
+            debug: storedRun.response.retrievalDebug,
+          },
+          llmCalls: [],
+          output: {
+            finalUserAnswer: storedRun.response.answer,
+            sources: storedRun.response.sources,
+          },
+          events: [],
+        });
+      }
+
+      const chatRunResultMatch = pathname.match(/^\/api\/chat-runs\/([^/]+)\/result$/);
+      if (chatRunResultMatch) {
+        const runId = chatRunResultMatch[1] ?? "";
+        const storedRun = chatRunResponses[runId];
+        if (!storedRun) {
+          throw new Error(`Unexpected chat run result request: ${url}`);
+        }
+
+        return jsonResponse(storedRun.response);
+      }
+
+      const chatRunDetailMatch = pathname.match(/^\/api\/chat-runs\/([^/]+)$/);
+      if (chatRunDetailMatch) {
+        const runId = chatRunDetailMatch[1] ?? "";
+        const storedRun = chatRunResponses[runId];
+        if (!storedRun) {
+          throw new Error(`Unexpected chat run detail request: ${url}`);
+        }
+
+        return jsonResponse({
+          id: runId,
+          mode: storedRun.request.mode,
+          model: storedRun.response.model,
+          prompt: storedRun.request.prompt,
+          answer: storedRun.response.answer,
+          contextStatus: storedRun.request.mode === "rag" ? "ready" : "no-context",
+          answerMode: storedRun.response.answerModeApplied ?? null,
+          createdAt: storedRun.response.createdAt,
+          instructionTrace: storedRun.response.instructionTrace,
+          knowledgeScopeResolved: storedRun.response.knowledgeScopeResolved,
+          retrievalTrace: storedRun.response.retrievalTrace,
+          sources: storedRun.response.sources,
+          status: "COMPLETED",
+          failureStage: null,
+          failureCode: null,
+          failureMessage: null,
+          completedAt: storedRun.response.createdAt,
+          failedAt: null,
+          latencyMsTotal: null,
+        });
       }
 
       if (url.endsWith("/api/chat")) {
-        const request = init?.body
-          ? (JSON.parse(String(init.body)) as {
-              mode: "direct" | "rag";
-              model: string;
-              prompt: string;
-              instructionIds: string[];
-              scenarioInstructionIds?: string[];
-              answerMode?: string;
-              temporaryInstruction?: string;
-            })
-          : {
-              mode: "direct" as const,
-              model: "qwen2.5:7b",
-              prompt: "",
-              instructionIds: [],
-            };
-
+        const request = parseChatRequest(init);
         chatRequests.push(request);
 
-        return jsonResponse(buildChatExecutionResponse({
-          mode: request.mode,
-          model: request.model,
-          prompt: request.prompt,
-          answer: "ok",
-          answerModeApplied: (request.answerMode as "brief" | "strict_sources_only") ?? "brief",
-          appliedInstructions: request.instructionIds
-            .map((instructionId) =>
-              instructionsResponse.find((instruction) => instruction.id === instructionId),
-            )
-            .filter((instruction) => instruction !== undefined)
-            .map((instruction) => ({
-              id: instruction.id,
-              title: instruction.title,
-              category: instruction.category as "system" | "safety",
-              scopeLevel: instruction.scopeLevel,
-              revision: instruction.revision,
-            })),
-          instructionTrace: request.instructionIds
-            .map((instructionId) =>
-              instructionsResponse.find((instruction) => instruction.id === instructionId),
-            )
-            .filter((instruction) => instruction !== undefined)
-            .map((instruction) => ({
-              instructionId: instruction.id,
-              title: instruction.title,
-              category: instruction.category as "system" | "safety",
-              scopeLevel: instruction.scopeLevel,
-              scopeTargetId: null,
-              revision: instruction.revision,
-              active: true,
-              temporary: false,
-              contentPreview: instruction.preview,
-            })),
-          knowledgeScopeResolved: EMPTY_KNOWLEDGE_SCOPE_RESOLVED,
-          retrievalTrace: {
-            ...EMPTY_RETRIEVAL_TRACE,
-            supportVerdict: request.mode === "rag" ? "sufficient" : "none",
-          },
-          sources: [],
-        }));
+        return jsonResponse(buildChatResponseForRequest(request));
       }
 
       throw new Error(`Unexpected request: ${url}`);
@@ -564,7 +710,7 @@ describe("App", () => {
     expect(within(appliedInstructionsCard).getAllByRole("listitem")[1]?.textContent).toContain(
       "Базовая роль ассистента",
     );
-    expect(within(ragPanel).getByText("достаточная опора")).toBeTruthy();
+    expect(within(ragPanel).getAllByText("достаточная опора").length).toBeGreaterThan(0);
   });
 
   it("loads and shows revision diff for an inspected instruction", async () => {

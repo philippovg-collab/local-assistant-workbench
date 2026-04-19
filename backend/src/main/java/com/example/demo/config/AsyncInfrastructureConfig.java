@@ -22,6 +22,15 @@ public class AsyncInfrastructureConfig {
         return boundedExecutor("search-sync", 2, 64);
     }
 
+    @Bean(name = "chatExecutionExecutor", destroyMethod = "shutdown")
+    ExecutorService chatExecutionExecutor(ChatExecutionProperties properties) {
+        return boundedExecutor(
+            "chat-execution",
+            Math.max(1, properties.getThreads()),
+            Math.max(1, properties.getQueueCapacity())
+        );
+    }
+
     private ExecutorService boundedExecutor(String threadPrefix, int threads, int queueCapacity) {
         AtomicInteger threadCounter = new AtomicInteger(0);
         return new ThreadPoolExecutor(

@@ -398,6 +398,15 @@ final class PostgresMaterialSearchSyncQueueRepository implements MaterialSearchS
     }
 
     @Override
+    public void enqueueMaterialsForSync(
+        Collection<String> materialIds,
+        SearchSyncOperationType operationType,
+        Instant requestedAt
+    ) {
+        support.enqueueMaterialsForSync(materialIds, operationType, requestedAt);
+    }
+
+    @Override
     public List<MaterialSearchSyncQueueEntry> findAllSearchSyncEntries() {
         return support.findAllSearchSyncEntries();
     }

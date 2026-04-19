@@ -580,6 +580,63 @@ class MaterialRetrievalServiceTest {
     }
 
     @Test
+    void ignoresDismissedRetrievalHintKeysBeforeMergingEffectiveFilters() {
+        InMemoryMaterialRepository repository = new InMemoryMaterialRepository();
+        DeterministicEmbeddingClient embeddingClient = new DeterministicEmbeddingClient();
+        MaterialRetrievalService service = createService(repository, embeddingClient);
+        saveStructuredMaterial(
+            repository,
+            embeddingClient,
+            "Dispatch matrix",
+            "dispatch-lineage",
+            MaterialMetadataSnapshot.fromInput(new MaterialMetadataInput(
+                DocumentType.CONTRACT,
+                LocalDate.parse("2026-04-15"),
+                "KZ-2026-0415-ENERGY",
+                "Dana Sarsen",
+                "Grid operations",
+                "v2",
+                "ru",
+                List.of("dispatch"),
+                SourceTrustLevel.HIGH,
+                "North Upgrade",
+                "GridBuild LLP",
+                "APPROVED",
+                LocalDate.parse("2026-04-01"),
+                LocalDate.parse("2026-06-30")
+            )),
+            List.of(new StoredMaterialChunk(
+                0,
+                "Dispatch matrix for contract KZ-2026-0415-ENERGY in project North Upgrade approved for April 2026.",
+                List.of("dispatch", "matrix", "contract", "north", "upgrade", "approved"),
+                1,
+                "structured-v1",
+                false,
+                DocumentBlockType.TABLE,
+                List.of("dispatch", "matrix"),
+                List.of("Dispatch", "Dispatch matrix"),
+                "table-1",
+                null,
+                DocumentBlockConfidence.HIGH
+            )),
+            Instant.parse("2026-04-17T10:01:00Z")
+        );
+
+        MaterialRetrievalResult result = service.retrieveContext(
+            "Что указано в договоре KZ-2026-0415-ENERGY по проекту North Upgrade?",
+            KnowledgeScope.empty(),
+            RetrievalFilters.empty(),
+            List.of("documentNumber", "project")
+        );
+
+        assertFalse(result.sources().isEmpty());
+        assertEquals(null, result.retrievalDebug().queryHints().documentNumber());
+        assertEquals(null, result.retrievalDebug().queryHints().project());
+        assertEquals(null, result.retrievalDebug().effectiveFilters().documentNumber());
+        assertEquals(null, result.retrievalDebug().effectiveFilters().project());
+    }
+
+    @Test
     void combinesManualFiltersAndKnowledgeScopeWithRetrievalDebug() {
         InMemoryMaterialRepository repository = new InMemoryMaterialRepository();
         DeterministicEmbeddingClient embeddingClient = new DeterministicEmbeddingClient();

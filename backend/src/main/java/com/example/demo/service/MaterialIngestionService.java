@@ -406,7 +406,7 @@ public class MaterialIngestionService {
         com.example.demo.infrastructure.material.MaterialMetadataHints parserHints
     ) {
         if (!rolloutProperties.isMetadataV1()) {
-            return MaterialMetadataSnapshot.fromInput(metadataInput);
+            return MaterialMetadataSnapshot.empty();
         }
         return metadataResolver.resolve(
             metadataInput,

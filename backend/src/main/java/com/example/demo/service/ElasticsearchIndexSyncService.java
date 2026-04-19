@@ -11,6 +11,7 @@ import com.example.demo.infrastructure.material.MaterialSearchSyncQueueRepositor
 import com.example.demo.infrastructure.material.SearchableMaterialSnapshot;
 import com.example.demo.infrastructure.material.MaterialSearchableSnapshotRepository;
 import com.example.demo.infrastructure.material.SearchableChunkDocument;
+import com.example.demo.infrastructure.material.SearchSyncOperationType;
 import java.io.IOException;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -118,7 +119,7 @@ public class ElasticsearchIndexSyncService {
 
         for (MaterialSearchSyncQueueEntry entry : claimedEntries) {
             try {
-                reconcileMaterial(entry.materialId());
+                reconcileMaterial(entry);
                 Instant completedAt = Instant.now();
                 queueRepository.completeSearchSyncEntry(entry.materialId(), entry.claimedAt(), completedAt);
                 completedCount += 1;
@@ -192,17 +193,21 @@ public class ElasticsearchIndexSyncService {
         return FailureDisposition.RETRY;
     }
 
-    private void reconcileMaterial(String materialId) {
-        SearchableMaterialSnapshot snapshot = searchableSnapshotRepository.resolveSearchableSnapshot(materialId);
-        if (!snapshot.searchable()) {
+    private void reconcileMaterial(MaterialSearchSyncQueueEntry entry) {
+        String materialId = entry.materialId();
+        if (entry.operationType() == SearchSyncOperationType.DELETE) {
             deleteExistingDocuments(materialId);
             return;
         }
 
+        SearchableMaterialSnapshot snapshot = searchableSnapshotRepository.resolveSearchableSnapshot(materialId);
+        if (!snapshot.searchable()) {
+            throw new IllegalStateException("Material is not searchable yet; preserving existing Elasticsearch documents");
+        }
+
         List<SearchableChunkDocument> documents = SearchableChunkDocument.fromSnapshot(snapshot);
         if (documents.isEmpty()) {
-            deleteExistingDocuments(materialId);
-            return;
+            throw new IllegalStateException("Material has no searchable chunk documents; preserving existing Elasticsearch documents");
         }
 
         indexDocuments(documents);

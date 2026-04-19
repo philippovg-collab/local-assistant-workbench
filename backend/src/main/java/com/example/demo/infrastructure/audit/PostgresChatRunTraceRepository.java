@@ -345,6 +345,9 @@ public class PostgresChatRunTraceRepository {
                     completed_at = ?,
                     latency_ms_total = ?
                 WHERE id = ?
+                  AND status <> 'FAILED'
+                  AND status <> 'COMPLETED'
+                  AND status <> 'CANCELLED'
                 """,
             resolvedModel,
             appliedAnswerMode == null ? null : appliedAnswerMode.value(),
@@ -373,6 +376,9 @@ public class PostgresChatRunTraceRepository {
                     failure_code = ?,
                     failure_message = ?
                 WHERE id = ?
+                  AND status <> 'COMPLETED'
+                  AND status <> 'FAILED'
+                  AND status <> 'CANCELLED'
                 """,
             Timestamp.from(failedAt),
             latencyMsTotal,
@@ -381,6 +387,29 @@ public class PostgresChatRunTraceRepository {
             failureMessage,
             UUID.fromString(runId)
         ));
+    }
+
+    public boolean cancelRun(String runId, Instant cancelledAt, long latencyMsTotal) {
+        int[] updatedCount = {0};
+        write(() -> updatedCount[0] = jdbcTemplate.update(
+            """
+                UPDATE chat_run_headers
+                SET status = 'CANCELLED',
+                    failed_at = ?,
+                    latency_ms_total = ?,
+                    failure_stage = 'CANCEL',
+                    failure_code = 'chat_run.cancelled',
+                    failure_message = 'Chat run was cancelled.'
+                WHERE id = ?
+                  AND status <> 'COMPLETED'
+                  AND status <> 'FAILED'
+                  AND status <> 'CANCELLED'
+                """,
+            Timestamp.from(cancelledAt),
+            latencyMsTotal,
+            UUID.fromString(runId)
+        ));
+        return updatedCount[0] > 0;
     }
 
     public void insertEvent(String runId, String eventType, Object payload, Instant createdAt) {
@@ -693,6 +722,7 @@ public class PostgresChatRunTraceRepository {
                 WHERE id = ?
                   AND status <> 'FAILED'
                   AND status <> 'COMPLETED'
+                  AND status <> 'CANCELLED'
                 """,
             status,
             UUID.fromString(runId)

@@ -37,6 +37,7 @@ type DirectChatPanelProps = {
   selectedInstructionIds: string[];
   onToggleInstruction: (instructionId: string) => void;
   isSubmitting: boolean;
+  currentRunStatus?: string | null;
   error: string | null;
   response: ChatExecutionResponse | null;
   requestPreview: ChatExecutionRequest;
@@ -67,6 +68,7 @@ export function DirectChatPanel({
   selectedInstructionIds,
   onToggleInstruction,
   isSubmitting,
+  currentRunStatus,
   error,
   response,
   requestPreview,
@@ -83,7 +85,7 @@ export function DirectChatPanel({
         <ChatForm
           answerMode={answerMode}
           error={error}
-          helperText={helperText}
+          helperText={isSubmitting && currentRunStatus ? `${helperText} Статус запуска: ${currentRunStatus}.` : helperText}
           instructionEmptyStateMessage="Сначала создай chat/scenario инструкцию во вкладке библиотеки."
           instructions={instructions}
           isSubmitDisabled={isSubmitting || !prompt.trim() || isBlocked}

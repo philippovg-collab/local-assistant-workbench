@@ -2,6 +2,7 @@ import type {
   ChatAuditRunDetail,
   ChatAuditRunSummary,
   ChatRunTraceDetail,
+  ChatRunSubmissionResponse,
   ChatExecutionRequest,
   ChatExecutionResponse,
   CreateKnowledgePresetRequest,
@@ -292,6 +293,25 @@ export const apiClient = {
   },
   fetchChatRunTrace(runId: string, signal?: AbortSignal) {
     return requestJson<ChatRunTraceDetail>(`/api/chat-runs/${runId}/trace`, { signal });
+  },
+  submitChatRun(input: ChatExecutionRequest, signal?: AbortSignal) {
+    return requestJson<ChatRunSubmissionResponse>("/api/chat-runs", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(input),
+      signal,
+    });
+  },
+  fetchChatRunResult(runId: string, signal?: AbortSignal) {
+    return requestJson<ChatExecutionResponse>(`/api/chat-runs/${runId}/result`, { signal });
+  },
+  cancelChatRun(runId: string, signal?: AbortSignal) {
+    return requestJson<ChatRunTraceDetail>(`/api/chat-runs/${runId}/cancel`, {
+      method: "POST",
+      signal,
+    });
   },
   executeChat(input: ChatExecutionRequest, signal?: AbortSignal) {
     return requestJson<ChatExecutionResponse>("/api/chat", {

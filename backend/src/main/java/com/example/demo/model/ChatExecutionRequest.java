@@ -12,6 +12,7 @@ public record ChatExecutionRequest(
     KnowledgeScope knowledgeScope,
     String instructionWorkspaceKey,
     RetrievalFilters retrievalFilters,
+    List<String> dismissedRetrievalHintKeys,
     List<String> scenarioInstructionIds,
     String temporaryInstruction
 ) {
@@ -22,7 +23,7 @@ public record ChatExecutionRequest(
         String systemPrompt,
         List<String> instructionIds
     ) {
-        this(mode, model, prompt, systemPrompt, instructionIds, null, null, null, null, null, null);
+        this(mode, model, prompt, systemPrompt, instructionIds, null, null, null, null, null, null, null);
     }
 
     public ChatExecutionRequest(
@@ -45,6 +46,36 @@ public record ChatExecutionRequest(
             answerMode,
             knowledgeScope,
             null,
+            null,
+            null,
+            scenarioInstructionIds,
+            temporaryInstruction
+        );
+    }
+
+    public ChatExecutionRequest(
+        ChatMode mode,
+        String model,
+        String prompt,
+        String systemPrompt,
+        List<String> instructionIds,
+        AnswerMode answerMode,
+        KnowledgeScope knowledgeScope,
+        String instructionWorkspaceKey,
+        RetrievalFilters retrievalFilters,
+        List<String> scenarioInstructionIds,
+        String temporaryInstruction
+    ) {
+        this(
+            mode,
+            model,
+            prompt,
+            systemPrompt,
+            instructionIds,
+            answerMode,
+            knowledgeScope,
+            instructionWorkspaceKey,
+            retrievalFilters,
             null,
             scenarioInstructionIds,
             temporaryInstruction

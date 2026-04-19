@@ -4,6 +4,7 @@ import java.time.Instant;
 
 public record MaterialSearchSyncQueueEntry(
     String materialId,
+    SearchSyncOperationType operationType,
     SearchSyncDeliveryState deliveryState,
     int attemptCount,
     Instant nextAttemptAt,

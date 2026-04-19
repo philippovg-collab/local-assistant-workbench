@@ -359,6 +359,9 @@ export function ChatAuditPanel({
   };
 
   useEffect(() => {
+    if (currentAuditRunId && !baseRunId) {
+      setBaseRunId(currentAuditRunId);
+    }
     if (!baseRunId && runs.length > 0) {
       setBaseRunId(currentAuditRunId ?? selectedRun?.id ?? runs[0]?.id ?? null);
     }
@@ -367,6 +370,13 @@ export function ChatAuditPanel({
       setCompareRunId(fallbackCompareId);
     }
   }, [baseRunId, compareRunId, currentAuditRunId, runs, selectedRun]);
+
+  useEffect(() => {
+    if (!currentAuditRunId || cachedRuns[currentAuditRunId]) {
+      return;
+    }
+    void loadRunDetail(currentAuditRunId);
+  }, [currentAuditRunId, cachedRuns]);
 
   useEffect(() => {
     const ids = [baseRunId, compareRunId].filter((id): id is string => Boolean(id));
@@ -441,7 +451,7 @@ export function ChatAuditPanel({
         </p>
       </div>
 
-      {runs.length === 0 ? (
+      {runs.length === 0 && !currentAuditRunId ? (
         <EmptyState
           description="После первых запросов здесь появится история запусков и сравнение деградаций."
           icon={History}

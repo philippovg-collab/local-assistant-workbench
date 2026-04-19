@@ -17,6 +17,7 @@ import com.example.demo.infrastructure.material.MaterialSearchSyncQueueEntry;
 import com.example.demo.infrastructure.material.MaterialSearchSyncQueueRepository;
 import com.example.demo.infrastructure.material.MaterialSearchableSnapshotRepository;
 import com.example.demo.infrastructure.material.SearchSyncDeliveryState;
+import com.example.demo.infrastructure.material.SearchSyncOperationType;
 import com.example.demo.infrastructure.material.SearchableMaterialChunkSnapshot;
 import com.example.demo.infrastructure.material.SearchableMaterialSnapshot;
 import java.io.IOException;
@@ -49,7 +50,7 @@ class ElasticsearchIndexSyncServiceTest {
         ElasticsearchHealthService healthService = org.mockito.Mockito.mock(ElasticsearchHealthService.class);
         ElasticsearchClient elasticsearchClient = org.mockito.Mockito.mock(ElasticsearchClient.class);
         MaterialSearchSyncQueueEntry poison = entry("material-a", 1, Instant.parse("2026-04-17T10:00:01Z"));
-        MaterialSearchSyncQueueEntry healthy = entry("material-b", 1, Instant.parse("2026-04-17T10:00:02Z"));
+        MaterialSearchSyncQueueEntry healthy = deleteEntry("material-b", 1, Instant.parse("2026-04-17T10:00:02Z"));
 
         when(queueRepository.claimNextSearchSyncBatch(any(), anyInt()))
             .thenReturn(List.of(poison, healthy))
@@ -57,8 +58,6 @@ class ElasticsearchIndexSyncServiceTest {
         when(queueRepository.hasPendingSearchSyncEvents(any())).thenReturn(false);
         when(snapshotRepository.resolveSearchableSnapshot("material-a"))
             .thenThrow(new IllegalStateException("cluster unavailable"));
-        when(snapshotRepository.resolveSearchableSnapshot("material-b"))
-            .thenReturn(SearchableMaterialSnapshot.notSearchable("material-b"));
 
         ElasticsearchIndexSyncService service = createService(
             properties(3, 5, 60),
@@ -90,7 +89,7 @@ class ElasticsearchIndexSyncServiceTest {
         ElasticsearchHealthService healthService = org.mockito.Mockito.mock(ElasticsearchHealthService.class);
         ElasticsearchClient elasticsearchClient = org.mockito.Mockito.mock(ElasticsearchClient.class);
         MaterialSearchSyncQueueEntry exhausted = entry("material-a", 3, Instant.parse("2026-04-17T10:00:03Z"));
-        MaterialSearchSyncQueueEntry healthy = entry("material-b", 1, Instant.parse("2026-04-17T10:00:04Z"));
+        MaterialSearchSyncQueueEntry healthy = deleteEntry("material-b", 1, Instant.parse("2026-04-17T10:00:04Z"));
 
         when(queueRepository.claimNextSearchSyncBatch(any(), anyInt()))
             .thenReturn(List.of(exhausted, healthy))
@@ -98,8 +97,6 @@ class ElasticsearchIndexSyncServiceTest {
         when(queueRepository.hasPendingSearchSyncEvents(any())).thenReturn(false);
         when(snapshotRepository.resolveSearchableSnapshot("material-a"))
             .thenThrow(new IllegalStateException("mapping rejected"));
-        when(snapshotRepository.resolveSearchableSnapshot("material-b"))
-            .thenReturn(SearchableMaterialSnapshot.notSearchable("material-b"));
 
         ElasticsearchIndexSyncService service = createService(
             properties(3, 5, 60),
@@ -171,6 +168,52 @@ class ElasticsearchIndexSyncServiceTest {
         );
     }
 
+    @Test
+    void retriesUpsertWithoutDeletingExistingDocumentsWhenSnapshotIsNotSearchable() throws Exception {
+        MaterialSearchSyncQueueRepository queueRepository = org.mockito.Mockito.mock(MaterialSearchSyncQueueRepository.class);
+        MaterialSearchableSnapshotRepository snapshotRepository = org.mockito.Mockito.mock(MaterialSearchableSnapshotRepository.class);
+        ElasticsearchHealthService healthService = org.mockito.Mockito.mock(ElasticsearchHealthService.class);
+        ElasticsearchClient elasticsearchClient = org.mockito.Mockito.mock(ElasticsearchClient.class);
+        MaterialSearchSyncQueueEntry entry = entry("material-a", 1, Instant.parse("2026-04-17T10:00:06Z"));
+
+        when(queueRepository.claimNextSearchSyncBatch(any(), anyInt()))
+            .thenReturn(List.of(entry))
+            .thenReturn(List.of());
+        when(queueRepository.hasPendingSearchSyncEvents(any())).thenReturn(false);
+        when(snapshotRepository.resolveSearchableSnapshot("material-a")).thenReturn(new SearchableMaterialSnapshot(
+            "material-a",
+            false,
+            "source-a",
+            "Material A",
+            "file",
+            "material-a.txt",
+            "text/plain",
+            Instant.parse("2026-04-17T10:00:00Z"),
+            List.of()
+        ));
+
+        ElasticsearchIndexSyncService service = createService(
+            properties(3, 5, 60),
+            queueRepository,
+            snapshotRepository,
+            healthService,
+            elasticsearchClient
+        );
+
+        service.requestProcessing();
+
+        verify(elasticsearchClient, never()).deleteByQuery(org.mockito.ArgumentMatchers.any(DeleteByQueryRequest.class));
+        verify(elasticsearchClient, never()).bulk(org.mockito.ArgumentMatchers.any(BulkRequest.class));
+        verify(queueRepository).markSearchSyncEntryForRetry(
+            eq(entry.materialId()),
+            eq(entry.claimedAt()),
+            eq("search.sync_failed"),
+            argThat((String message) -> message.contains("not searchable")),
+            any(),
+            any()
+        );
+    }
+
     private ElasticsearchIndexSyncService createService(
         SearchSyncProperties properties,
         MaterialSearchSyncQueueRepository queueRepository,
@@ -202,9 +245,23 @@ class ElasticsearchIndexSyncServiceTest {
     }
 
     private static MaterialSearchSyncQueueEntry entry(String materialId, int attemptCount, Instant claimedAt) {
+        return entry(materialId, SearchSyncOperationType.UPSERT, attemptCount, claimedAt);
+    }
+
+    private static MaterialSearchSyncQueueEntry deleteEntry(String materialId, int attemptCount, Instant claimedAt) {
+        return entry(materialId, SearchSyncOperationType.DELETE, attemptCount, claimedAt);
+    }
+
+    private static MaterialSearchSyncQueueEntry entry(
+        String materialId,
+        SearchSyncOperationType operationType,
+        int attemptCount,
+        Instant claimedAt
+    ) {
         Instant createdAt = claimedAt.minusSeconds(10);
         return new MaterialSearchSyncQueueEntry(
             materialId,
+            operationType,
             SearchSyncDeliveryState.IN_PROGRESS,
             attemptCount,
             null,

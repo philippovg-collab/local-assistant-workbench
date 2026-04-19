@@ -6,6 +6,7 @@ import type {
   ChatExecutionRequest,
   ChatExecutionResponse,
   ChatMode,
+  ChatRunTraceDetail,
   KnowledgeScope,
   QualityLayerFlags,
   RetrievalFilters,
@@ -20,6 +21,8 @@ import {
   normalizeRetrievalFilters,
   type RetrievalFilterKey,
 } from "../utils/retrievalHints";
+
+const CHAT_RUN_POLL_INTERVAL_MS = 1000;
 
 type UseChatExecutionOptions = {
   mode: ChatMode;
@@ -51,12 +54,20 @@ export const useChatExecution = ({
   const [dismissedHintKeys, setDismissedHintKeys] = useState<RetrievalFilterKey[]>([]);
   const [response, setResponse] = useState<ChatExecutionResponse | null>(null);
   const [lastSubmittedRequest, setLastSubmittedRequest] = useState<ChatExecutionRequest | null>(null);
+  const [currentRunId, setCurrentRunId] = useState<string | null>(null);
+  const [currentRunStatus, setCurrentRunStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const controllerRef = useRef<AbortController | null>(null);
+  const currentRunIdRef = useRef<string | null>(null);
   const submitSequenceRef = useRef(0);
 
-  useEffect(() => () => controllerRef.current?.abort(), []);
+  useEffect(() => () => {
+    controllerRef.current?.abort();
+    if (currentRunIdRef.current) {
+      void apiClient.cancelChatRun(currentRunIdRef.current);
+    }
+  }, []);
 
   const metadataFiltersEnabled = rolloutFlags?.metadataFiltersV1 === true;
   const queryHintsEnabled = metadataFiltersEnabled && rolloutFlags?.queryHintsV1 === true;
@@ -126,6 +137,10 @@ export const useChatExecution = ({
   };
 
   const submit = async () => {
+    if (currentRunIdRef.current) {
+      void apiClient.cancelChatRun(currentRunIdRef.current);
+      currentRunIdRef.current = null;
+    }
     controllerRef.current?.abort();
     const controller = new AbortController();
     controllerRef.current = controller;
@@ -152,13 +167,24 @@ export const useChatExecution = ({
       ...(mode === "rag" && metadataFiltersEnabled && (hintOwnedFields.length > 0 || manualOwnedFields.length > 0)
         ? { retrievalFilters: effectiveRetrievalFilters }
         : {}),
+      ...(mode === "rag" && queryHintsEnabled && dismissedHintKeys.length > 0
+        ? { dismissedRetrievalHintKeys: dismissedHintKeys }
+        : {}),
       ...(temporaryInstruction.trim() ? { temporaryInstruction: temporaryInstruction.trim() } : {}),
     };
 
     try {
       setResponse(null);
       setLastSubmittedRequest(request);
-      const payload = await apiClient.executeChat(request, controller.signal);
+      setCurrentRunId(null);
+      setCurrentRunStatus("RECEIVED");
+      const submittedRun = await apiClient.submitChatRun(request, controller.signal);
+      currentRunIdRef.current = submittedRun.id;
+      setCurrentRunId(submittedRun.id);
+      setCurrentRunStatus(submittedRun.status);
+      const payload = await waitForRunResult(submittedRun.id, controller.signal, (trace) => {
+        setCurrentRunStatus(trace.status);
+      });
       if (
         controller.signal.aborted ||
         controllerRef.current !== controller ||
@@ -168,6 +194,7 @@ export const useChatExecution = ({
       }
 
       setResponse(payload);
+      setCurrentRunStatus("COMPLETED");
       return payload;
     } catch (submissionError) {
       if (
@@ -183,6 +210,7 @@ export const useChatExecution = ({
     } finally {
       if (controllerRef.current === controller && submitSequenceRef.current === submitSequence) {
         controllerRef.current = null;
+        currentRunIdRef.current = null;
         setIsSubmitting(false);
       }
     }
@@ -211,6 +239,8 @@ export const useChatExecution = ({
     hintOwnedFields,
     manualOwnedFields,
     dismissedHintKeys,
+    currentRunId,
+    currentRunStatus,
     updateRetrievalFilter,
     clearRetrievalFilter,
     dismissHint,
@@ -222,3 +252,38 @@ export const useChatExecution = ({
     submit,
   };
 };
+
+const waitForRunResult = async (
+  runId: string,
+  signal: AbortSignal,
+  onTrace: (trace: ChatRunTraceDetail) => void,
+): Promise<ChatExecutionResponse> => {
+  while (!signal.aborted) {
+    const trace = await apiClient.fetchChatRunTrace(runId, signal);
+    onTrace(trace);
+    if (trace.status === "COMPLETED") {
+      return apiClient.fetchChatRunResult(runId, signal);
+    }
+    if (trace.status === "FAILED") {
+      throw new Error(trace.failureMessage ?? "Chat run failed");
+    }
+    if (trace.status === "CANCELLED") {
+      throw new Error("Chat run was cancelled");
+    }
+    await sleep(CHAT_RUN_POLL_INTERVAL_MS, signal);
+  }
+  throw new DOMException("Chat run polling aborted", "AbortError");
+};
+
+const sleep = (milliseconds: number, signal: AbortSignal) =>
+  new Promise<void>((resolve, reject) => {
+    const timeoutId = window.setTimeout(resolve, milliseconds);
+    signal.addEventListener(
+      "abort",
+      () => {
+        window.clearTimeout(timeoutId);
+        reject(new DOMException("Chat run polling aborted", "AbortError"));
+      },
+      { once: true },
+    );
+  });

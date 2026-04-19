@@ -9,6 +9,7 @@ import com.example.demo.infrastructure.material.StoredEmbeddedMaterialChunk;
 import com.example.demo.infrastructure.material.StoredMaterialChunk;
 import com.example.demo.infrastructure.material.StoredMaterialRecord;
 import com.example.demo.infrastructure.material.StoredMaterialSegment;
+import com.example.demo.infrastructure.material.SearchSyncOperationType;
 import com.example.demo.model.MaterialIndexingStatus;
 import com.example.demo.model.MaterialVersionState;
 import java.time.Instant;
@@ -76,21 +77,20 @@ public class MaterialSearchSyncLifecycleService {
         Instant updatedAt
     ) {
         lineageRepository.lockLineage(record.sourceKey());
-        List<String> materialIds = new ArrayList<>();
+        List<String> supersededMaterialIds = new ArrayList<>();
         catalogRepository.supersedeActiveVersions(
             record.sourceKey(),
             record.id(),
             record.id(),
             supersedeReason,
             updatedAt
-        ).forEach(material -> appendMaterialId(materialIds, material));
+        ).forEach(material -> appendMaterialId(supersededMaterialIds, material));
         StoredMaterialRecord savedRecord = catalogRepository.save(record, chunkProfile, rawChunks, segments);
         if (!savedRecord.id().equals(record.id())) {
             return savedRecord;
         }
 
-        appendMaterialId(materialIds, savedRecord);
-        persistSearchSyncMaterials(materialIds, updatedAt);
+        persistSearchSyncMaterials(supersededMaterialIds, SearchSyncOperationType.DELETE, updatedAt);
         return savedRecord;
     }
 
@@ -112,14 +112,14 @@ public class MaterialSearchSyncLifecycleService {
         String supersedeReason
     ) {
         lineageRepository.lockLineage(normalizedRecord.sourceKey());
-        List<String> materialIds = new ArrayList<>();
+        List<String> supersededMaterialIds = new ArrayList<>();
         catalogRepository.supersedeActiveVersions(
             normalizedRecord.sourceKey(),
             normalizedRecord.id(),
             normalizedRecord.id(),
             supersedeReason,
             normalizedRecord.updatedAt()
-        ).forEach(material -> appendMaterialId(materialIds, material));
+        ).forEach(material -> appendMaterialId(supersededMaterialIds, material));
         StoredMaterialRecord savedRecord = catalogRepository.save(
             normalizedRecord,
             chunkProfile,
@@ -130,8 +130,7 @@ public class MaterialSearchSyncLifecycleService {
             return false;
         }
 
-        appendMaterialId(materialIds, savedRecord);
-        persistSearchSyncMaterials(materialIds, normalizedRecord.updatedAt());
+        persistSearchSyncMaterials(supersededMaterialIds, SearchSyncOperationType.DELETE, normalizedRecord.updatedAt());
         return true;
     }
 
@@ -142,14 +141,14 @@ public class MaterialSearchSyncLifecycleService {
         Instant updatedAt
     ) {
         lineageRepository.lockLineage(existingRecord.sourceKey());
-        List<String> materialIds = new ArrayList<>();
+        List<String> supersededMaterialIds = new ArrayList<>();
         catalogRepository.supersedeActiveVersions(
             existingRecord.sourceKey(),
             existingRecord.id(),
             existingRecord.id(),
             supersedeReason,
             updatedAt
-        ).forEach(material -> appendMaterialId(materialIds, material));
+        ).forEach(material -> appendMaterialId(supersededMaterialIds, material));
 
         StoredMaterialRecord updatedRecord = catalogRepository.updateVersionState(
             existingRecord.id(),
@@ -158,8 +157,10 @@ public class MaterialSearchSyncLifecycleService {
             null,
             updatedAt
         );
-        appendMaterialId(materialIds, updatedRecord);
-        persistSearchSyncMaterials(materialIds, updatedAt);
+        List<String> upsertMaterialIds = new ArrayList<>();
+        appendMaterialId(upsertMaterialIds, updatedRecord);
+        persistSearchSyncMaterials(supersededMaterialIds, SearchSyncOperationType.DELETE, updatedAt);
+        persistSearchSyncMaterials(upsertMaterialIds, SearchSyncOperationType.UPSERT, updatedAt);
         return updatedRecord;
     }
 
@@ -173,7 +174,7 @@ public class MaterialSearchSyncLifecycleService {
         String reasonMessage,
         Instant updatedAt
     ) {
-        StoredMaterialRecord previousRecord = catalogRepository.findById(materialId).orElseThrow();
+        catalogRepository.findById(materialId).orElseThrow();
         chunkingRepository.replaceChunking(materialId, chunkProfile, rawChunks, segments, updatedAt);
         StoredMaterialRecord updatedRecord = indexingQueueRepository.markIndexingPending(
             materialId,
@@ -181,9 +182,6 @@ public class MaterialSearchSyncLifecycleService {
             reasonMessage,
             updatedAt
         );
-        List<String> materialIds = new ArrayList<>();
-        appendMaterialId(materialIds, previousRecord == null ? materialId : previousRecord.id());
-        persistSearchSyncMaterials(materialIds, updatedAt);
         return updatedRecord;
     }
 
@@ -200,9 +198,6 @@ public class MaterialSearchSyncLifecycleService {
             reasonMessage,
             updatedAt
         );
-        List<String> materialIds = new ArrayList<>();
-        appendMaterialId(materialIds, materialId);
-        persistSearchSyncMaterials(materialIds, updatedAt);
         return updatedRecord;
     }
 
@@ -226,7 +221,7 @@ public class MaterialSearchSyncLifecycleService {
 
         List<String> materialIds = new ArrayList<>();
         appendMaterialId(materialIds, materialId);
-        persistSearchSyncMaterials(materialIds, updatedAt);
+        persistSearchSyncMaterials(materialIds, SearchSyncOperationType.UPSERT, updatedAt);
     }
 
     @Transactional
@@ -234,6 +229,7 @@ public class MaterialSearchSyncLifecycleService {
         String sourceKey = catalogRepository.findSourceKeyById(materialId).orElse(null);
         if (sourceKey == null) {
             catalogRepository.delete(materialId);
+            persistSearchSyncMaterials(List.of(materialId), SearchSyncOperationType.DELETE, updatedAt);
             return;
         }
         lineageRepository.lockLineage(sourceKey);
@@ -242,9 +238,9 @@ public class MaterialSearchSyncLifecycleService {
             return;
         }
 
-        List<String> materialIds = new ArrayList<>();
+        List<String> deleteMaterialIds = new ArrayList<>();
         if (record.versionState() == MaterialVersionState.ACTIVE) {
-            appendMaterialId(materialIds, record);
+            appendMaterialId(deleteMaterialIds, record);
         }
 
         catalogRepository.delete(materialId);
@@ -259,9 +255,11 @@ public class MaterialSearchSyncLifecycleService {
                     updatedAt
                 ))
                 .orElse(null);
-            appendMaterialId(materialIds, promotedRecord);
+            List<String> upsertMaterialIds = new ArrayList<>();
+            appendMaterialId(upsertMaterialIds, promotedRecord);
+            persistSearchSyncMaterials(upsertMaterialIds, SearchSyncOperationType.UPSERT, updatedAt);
         }
-        persistSearchSyncMaterials(materialIds, updatedAt);
+        persistSearchSyncMaterials(deleteMaterialIds, SearchSyncOperationType.DELETE, updatedAt);
     }
 
     private void appendMaterialId(List<String> materialIds, StoredMaterialRecord record) {
@@ -280,7 +278,15 @@ public class MaterialSearchSyncLifecycleService {
     }
 
     private void persistSearchSyncMaterials(List<String> materialIds, Instant requestedAt) {
-        queueRepository.enqueueMaterialsForSync(materialIds, requestedAt);
+        persistSearchSyncMaterials(materialIds, SearchSyncOperationType.UPSERT, requestedAt);
+    }
+
+    private void persistSearchSyncMaterials(
+        List<String> materialIds,
+        SearchSyncOperationType operationType,
+        Instant requestedAt
+    ) {
+        queueRepository.enqueueMaterialsForSync(materialIds, operationType, requestedAt);
         if (materialIds == null || materialIds.isEmpty()) {
             return;
         }

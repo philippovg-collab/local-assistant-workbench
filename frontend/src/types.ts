@@ -205,6 +205,8 @@ export type RetrievalFilters = {
   sourceTrustMin?: SourceTrustLevel | null;
 };
 
+export type RetrievalFilterKey = keyof RetrievalFilters;
+
 export type RetrievalQueryHints = {
   documentNumber?: string | null;
   documentDateFrom?: string | null;
@@ -553,6 +555,14 @@ export type ChatRunStatus =
   | "FAILED"
   | "CANCELLED";
 
+export type ChatRunSubmissionResponse = {
+  id: string;
+  status: ChatRunStatus | string;
+  createdAt: string;
+  traceUrl: string;
+  resultUrl: string;
+};
+
 export type ChatRunMessage = {
   role: string;
   content: string;
@@ -667,6 +677,7 @@ export type ChatExecutionRequest = {
   knowledgeScope?: KnowledgeScope;
   instructionWorkspaceKey?: string | null;
   retrievalFilters?: RetrievalFilters;
+  dismissedRetrievalHintKeys?: RetrievalFilterKey[];
   scenarioInstructionIds?: string[];
   temporaryInstruction?: string;
 };

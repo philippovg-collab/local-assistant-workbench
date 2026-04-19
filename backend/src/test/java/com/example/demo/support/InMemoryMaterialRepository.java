@@ -17,6 +17,7 @@ import com.example.demo.infrastructure.material.MaterialSearchableSnapshotReposi
 import com.example.demo.infrastructure.material.QualityLayerCoverageSnapshot;
 import com.example.demo.infrastructure.material.QualityLayerMetricsRepository;
 import com.example.demo.infrastructure.material.SemanticSearchRepository;
+import com.example.demo.infrastructure.material.SearchSyncOperationType;
 import com.example.demo.infrastructure.material.SearchSyncDeliveryState;
 import com.example.demo.infrastructure.material.SearchableMaterialChunkSnapshot;
 import com.example.demo.infrastructure.material.SearchableMaterialSnapshot;
@@ -659,11 +660,23 @@ public class InMemoryMaterialRepository implements
 
     @Override
     public synchronized void enqueueMaterialsForSync(java.util.Collection<String> materialIds, Instant requestedAt) {
+        enqueueMaterialsForSync(materialIds, SearchSyncOperationType.UPSERT, requestedAt);
+    }
+
+    @Override
+    public synchronized void enqueueMaterialsForSync(
+        java.util.Collection<String> materialIds,
+        SearchSyncOperationType operationType,
+        Instant requestedAt
+    ) {
         if (materialIds == null || materialIds.isEmpty()) {
             return;
         }
 
         Instant effectiveRequestedAt = requestedAt == null ? Instant.now() : requestedAt;
+        SearchSyncOperationType effectiveOperationType = operationType == null
+            ? SearchSyncOperationType.UPSERT
+            : operationType;
         for (String materialId : materialIds) {
             if (materialId == null || materialId.isBlank()) {
                 continue;
@@ -672,6 +685,7 @@ public class InMemoryMaterialRepository implements
             if (current == null) {
                 searchSyncQueueByMaterialId.put(materialId, new MaterialSearchSyncQueueEntry(
                     materialId,
+                    effectiveOperationType,
                     SearchSyncDeliveryState.PENDING,
                     0,
                     null,
@@ -691,6 +705,7 @@ public class InMemoryMaterialRepository implements
             if (current.deliveryState() == SearchSyncDeliveryState.IN_PROGRESS) {
                 searchSyncQueueByMaterialId.put(materialId, new MaterialSearchSyncQueueEntry(
                     current.materialId(),
+                    current.operationType(),
                     current.deliveryState(),
                     current.attemptCount(),
                     current.nextAttemptAt(),
@@ -706,6 +721,7 @@ public class InMemoryMaterialRepository implements
 
             searchSyncQueueByMaterialId.put(materialId, new MaterialSearchSyncQueueEntry(
                 current.materialId(),
+                effectiveOperationType,
                 SearchSyncDeliveryState.PENDING,
                 0,
                 null,
@@ -741,6 +757,7 @@ public class InMemoryMaterialRepository implements
             }
             searchSyncQueueByMaterialId.put(entry.materialId(), new MaterialSearchSyncQueueEntry(
                 entry.materialId(),
+                entry.operationType(),
                 SearchSyncDeliveryState.PENDING,
                 0,
                 null,
@@ -767,6 +784,7 @@ public class InMemoryMaterialRepository implements
             }
             searchSyncQueueByMaterialId.put(entry.materialId(), new MaterialSearchSyncQueueEntry(
                 entry.materialId(),
+                entry.operationType(),
                 SearchSyncDeliveryState.PENDING,
                 entry.attemptCount(),
                 null,
@@ -800,6 +818,7 @@ public class InMemoryMaterialRepository implements
         for (MaterialSearchSyncQueueEntry entry : claimed) {
             searchSyncQueueByMaterialId.put(entry.materialId(), new MaterialSearchSyncQueueEntry(
                 entry.materialId(),
+                entry.operationType(),
                 SearchSyncDeliveryState.IN_PROGRESS,
                 entry.attemptCount() + 1,
                 entry.nextAttemptAt(),
@@ -837,6 +856,7 @@ public class InMemoryMaterialRepository implements
         if (current.requestedAt().isAfter(claimedAt)) {
             searchSyncQueueByMaterialId.put(materialId, new MaterialSearchSyncQueueEntry(
                 current.materialId(),
+                current.operationType(),
                 SearchSyncDeliveryState.PENDING,
                 0,
                 null,
@@ -1146,6 +1166,7 @@ public class InMemoryMaterialRepository implements
 
         searchSyncQueueByMaterialId.put(materialId, new MaterialSearchSyncQueueEntry(
             current.materialId(),
+            current.operationType(),
             deliveryState,
             current.attemptCount(),
             nextAttemptAt,

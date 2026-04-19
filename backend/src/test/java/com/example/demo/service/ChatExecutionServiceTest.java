@@ -274,7 +274,7 @@ class ChatExecutionServiceTest {
             0.1d,
             1.2d
         );
-        Mockito.when(materialService.retrieveContext(Mockito.anyString(), Mockito.any(), Mockito.any()))
+        Mockito.when(materialService.retrieveContext(Mockito.anyString(), Mockito.any(), Mockito.any(), Mockito.any()))
             .thenReturn(new MaterialRetrievalResult(
                 1,
                 1,
@@ -355,7 +355,7 @@ class ChatExecutionServiceTest {
             0.21d,
             null
         );
-        Mockito.when(materialService.retrieveContext(Mockito.anyString(), Mockito.any(), Mockito.any()))
+        Mockito.when(materialService.retrieveContext(Mockito.anyString(), Mockito.any(), Mockito.any(), Mockito.any()))
             .thenReturn(new MaterialRetrievalResult(
                 1,
                 1,

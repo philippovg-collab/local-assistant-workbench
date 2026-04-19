@@ -8,12 +8,48 @@ import { useChatExecution } from "./useChatExecution";
 
 vi.mock("../api/client", async () => {
   const actual = await vi.importActual<typeof import("../api/client")>("../api/client");
+  const executeChat = vi.fn();
+  const runResults = new Map<string, ChatExecutionResponse>();
+  let runCounter = 0;
 
   return {
     ...actual,
     apiClient: {
       ...actual.apiClient,
-      executeChat: vi.fn(),
+      executeChat,
+      submitChatRun: vi.fn(async (request, signal) => {
+        const id = `run-${++runCounter}`;
+        const result = await executeChat(request, signal);
+        runResults.set(id, result as ChatExecutionResponse);
+        return {
+          id,
+          status: "COMPLETED",
+          createdAt: "2026-04-16T10:00:00Z",
+          traceUrl: `/api/chat-runs/${id}/trace`,
+          resultUrl: `/api/chat-runs/${id}/result`,
+        };
+      }),
+      fetchChatRunTrace: vi.fn(async (runId) => ({
+        id: runId,
+        mode: "rag",
+        status: "COMPLETED",
+        createdAt: "2026-04-16T10:00:00Z",
+        llmCalls: [],
+        events: [],
+      })),
+      fetchChatRunResult: vi.fn(async (runId) => runResults.get(runId) ?? {
+        mode: "rag",
+        model: "qwen2.5:7b",
+        prompt: "",
+        answer: "",
+        createdAt: "2026-04-16T10:00:00Z",
+        promptTokens: null,
+        completionTokens: null,
+        totalTokens: null,
+        appliedInstructions: [],
+        sources: [],
+      }),
+      cancelChatRun: vi.fn(),
     },
   };
 });

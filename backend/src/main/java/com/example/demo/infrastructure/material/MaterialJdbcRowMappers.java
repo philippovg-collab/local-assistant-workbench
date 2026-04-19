@@ -113,6 +113,7 @@ final class MaterialJdbcRowMappers {
     static final RowMapper<MaterialSearchSyncQueueEntry> SEARCH_SYNC_QUEUE_ROW_MAPPER = (resultSet, rowNum) ->
         new MaterialSearchSyncQueueEntry(
             resultSet.getObject("material_id").toString(),
+            SearchSyncOperationType.valueOf(resultSet.getString("operation_type")),
             SearchSyncDeliveryState.valueOf(resultSet.getString("delivery_state")),
             resultSet.getInt("attempt_count"),
             toInstantOrNull(resultSet.getTimestamp("next_attempt_at")),

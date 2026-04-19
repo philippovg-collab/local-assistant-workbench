@@ -121,6 +121,15 @@ function App() {
   });
 
   useEffect(() => {
+    const auditRunId = ragChat.response?.auditRunId ?? directChat.response?.auditRunId ?? null;
+    if (!auditRunId) {
+      return;
+    }
+    void chatRuns.loadRuns();
+    void chatRuns.loadRun(auditRunId);
+  }, [ragChat.response?.auditRunId, directChat.response?.auditRunId]);
+
+  useEffect(() => {
     const knownInstructionIds = new Set(scenarioInstructions.map((instruction) => instruction.id));
 
     setRagInstructionIds((current) => {
@@ -516,6 +525,7 @@ function App() {
               queryHintsEnabled={ragChat.queryHintsEnabled}
               isBlocked={ragPresentation.isRagSubmitBlocked}
               isSubmitting={ragChat.isSubmitting}
+              currentRunStatus={ragChat.currentRunStatus}
               instructions={scenarioInstructions}
               knowledgePresets={knowledgePresets.presets}
               knowledgeScope={ragChat.knowledgeScope}
@@ -562,6 +572,7 @@ function App() {
               helperText={directPresentation.helperText}
               isBlocked={directPresentation.isDirectSubmitBlocked}
               isSubmitting={directChat.isSubmitting}
+              currentRunStatus={directChat.currentRunStatus}
               instructions={scenarioInstructions}
               models={models}
               modelsError={modelsError}

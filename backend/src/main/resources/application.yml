@@ -83,6 +83,10 @@ app:
   audit:
     fail-closed: false
     health-failure-threshold: 1
+  chat-execution:
+    threads: 2
+    queue-capacity: 32
+    poll-interval-millis: 1000
   search-sync:
     enabled: false
     index-prefix: rag-chunks

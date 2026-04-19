@@ -8,6 +8,12 @@ public interface MaterialSearchSyncQueueRepository {
 
     void enqueueMaterialsForSync(Collection<String> materialIds, Instant requestedAt);
 
+    void enqueueMaterialsForSync(
+        Collection<String> materialIds,
+        SearchSyncOperationType operationType,
+        Instant requestedAt
+    );
+
     List<MaterialSearchSyncQueueEntry> findAllSearchSyncEntries();
 
     int requeueFailedSearchSyncEntries(Instant now);

@@ -103,16 +103,30 @@ public class ChatExecutionService {
     }
 
     private ChatExecutionResponse executeWithTrace(ChatExecutionRequest request) {
-        if (request == null || !StringUtils.hasText(request.prompt())) {
-            throw new ApiException(
-                HttpStatus.BAD_REQUEST,
-                "chat.invalid_request",
-                "Field 'prompt' is required"
-            );
-        }
-
+        validateRequest(request);
         ChatMode mode = request.mode() == null ? ChatMode.DIRECT : request.mode();
         ChatRunTraceService.RunTraceContext traceContext = startTraceOrNull(request, mode);
+        return executeWithTraceContext(request, traceContext);
+    }
+
+    public ChatExecutionResponse executeWithTraceContext(
+        ChatExecutionRequest request,
+        ChatRunTraceService.RunTraceContext traceContext
+    ) {
+        validateRequest(request);
+        ChatMode mode = request.mode() == null ? ChatMode.DIRECT : request.mode();
+        return executeWithTraceContext(request, mode, traceContext);
+    }
+
+    private ChatExecutionResponse executeWithTraceContext(
+        ChatExecutionRequest request,
+        ChatMode mode,
+        ChatRunTraceService.RunTraceContext traceContext
+    ) {
+        if (traceContext == null) {
+            return executeLegacy(request);
+        }
+        
         KnowledgePresetService.ResolvedKnowledgeScopeContext scopeContext;
         ChatExecutionRequest requestWithResolvedScope;
         InstructionService.ResolvedInstructionContext instructionContext;
@@ -151,7 +165,7 @@ public class ChatExecutionService {
         return executeDirect(requestWithResolvedScope, promptPolicy, instructionContext.trace(), scopeContext.resolvedScope(), traceContext);
     }
 
-    private ChatExecutionResponse executeLegacy(ChatExecutionRequest request) {
+    private void validateRequest(ChatExecutionRequest request) {
         if (request == null || !StringUtils.hasText(request.prompt())) {
             throw new ApiException(
                 HttpStatus.BAD_REQUEST,
@@ -159,6 +173,10 @@ public class ChatExecutionService {
                 "Field 'prompt' is required"
             );
         }
+    }
+
+    private ChatExecutionResponse executeLegacy(ChatExecutionRequest request) {
+        validateRequest(request);
 
         ChatMode mode = request.mode() == null ? ChatMode.DIRECT : request.mode();
         KnowledgePresetService.ResolvedKnowledgeScopeContext scopeContext = knowledgePresetService.resolveScope(request.knowledgeScope());
@@ -241,7 +259,8 @@ public class ChatExecutionService {
             retrievalResult = materialService.retrieveContext(
                 request.prompt(),
                 scopeContext.effectiveScope(),
-                request.retrievalFilters()
+                request.retrievalFilters(),
+                request.dismissedRetrievalHintKeys()
             );
             traceStage(traceContext, () -> chatRunTraceService.saveRetrievalSummary(
                 traceContext,
@@ -665,6 +684,7 @@ public class ChatExecutionService {
             request.knowledgeScope(),
             request.instructionWorkspaceKey(),
             request.retrievalFilters(),
+            request.dismissedRetrievalHintKeys(),
             request.scenarioInstructionIds(),
             request.temporaryInstruction()
         );
@@ -681,6 +701,7 @@ public class ChatExecutionService {
             knowledgeScope,
             request.instructionWorkspaceKey(),
             request.retrievalFilters(),
+            request.dismissedRetrievalHintKeys(),
             request.scenarioInstructionIds(),
             request.temporaryInstruction()
         );

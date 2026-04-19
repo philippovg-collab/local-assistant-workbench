@@ -1,6 +1,10 @@
 package com.example.demo.model;
 
 import java.time.LocalDate;
+import java.util.Collection;
+import java.util.HashSet;
+import java.util.Locale;
+import java.util.Set;
 
 public record RetrievalQueryHints(
     String documentNumber,
@@ -56,6 +60,30 @@ public record RetrievalQueryHints(
             language,
             java.util.List.of(),
             null
+        );
+    }
+
+    public RetrievalQueryHints withoutDismissedFilterKeys(Collection<String> dismissedFilterKeys) {
+        if (dismissedFilterKeys == null || dismissedFilterKeys.isEmpty()) {
+            return this;
+        }
+        Set<String> keys = new HashSet<>();
+        for (String key : dismissedFilterKeys) {
+            if (key != null) {
+                keys.add(key.trim().toLowerCase(Locale.ROOT));
+            }
+        }
+        boolean dismissDocumentDate = keys.contains("documentdatefrom") || keys.contains("documentdateto");
+        return new RetrievalQueryHints(
+            keys.contains("documentnumber") ? null : documentNumber,
+            dismissDocumentDate ? null : documentDateFrom,
+            dismissDocumentDate ? null : documentDateTo,
+            versionLabel,
+            keys.contains("language") ? null : language,
+            keys.contains("project") ? null : project,
+            keys.contains("counterparty") ? null : counterparty,
+            keys.contains("businessstatus") ? null : businessStatus,
+            keys.contains("department") ? null : department
         );
     }
 

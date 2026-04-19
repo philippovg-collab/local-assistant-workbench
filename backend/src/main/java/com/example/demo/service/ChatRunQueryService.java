@@ -5,8 +5,20 @@ import com.example.demo.infrastructure.audit.PostgresChatAuditRepository;
 import com.example.demo.infrastructure.audit.PostgresChatRunTraceRepository;
 import com.example.demo.model.ChatAuditRunDetail;
 import com.example.demo.model.ChatAuditRunSummary;
+import com.example.demo.model.ChatExecutionResponse;
 import com.example.demo.model.ChatRunTraceDetail;
+import com.example.demo.model.AppliedInstruction;
+import com.example.demo.model.ChatRunOutputTrace;
+import com.example.demo.model.InstructionTraceEntry;
+import com.example.demo.model.KnowledgeScopeResolved;
+import com.example.demo.model.LlmCallTrace;
+import com.example.demo.model.RetrievalSummaryTrace;
+import com.example.demo.model.RetrievalTrace;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -29,10 +41,7 @@ public class ChatRunQueryService {
 
     public List<ChatAuditRunSummary> listRuns() {
         List<ChatAuditRunSummary> modernRuns = traceRepository.findRunSummaries(DEFAULT_LIST_LIMIT);
-        if (!modernRuns.isEmpty()) {
-            return modernRuns;
-        }
-        return legacyRepository.findAll(DEFAULT_LIST_LIMIT).stream()
+        List<ChatAuditRunSummary> legacyRuns = legacyRepository.findAll(DEFAULT_LIST_LIMIT).stream()
             .map(record -> new ChatAuditRunSummary(
                 record.id(),
                 record.mode(),
@@ -42,6 +51,18 @@ public class ChatRunQueryService {
                 clip(record.answer(), 160),
                 record.createdAt()
             ))
+            .toList();
+        List<ChatAuditRunSummary> mergedRuns = new ArrayList<>(modernRuns.size() + legacyRuns.size());
+        mergedRuns.addAll(modernRuns);
+        mergedRuns.addAll(legacyRuns);
+        mergedRuns.sort(Comparator.comparing(ChatAuditRunSummary::createdAt, Comparator.nullsLast(Comparator.reverseOrder())));
+
+        Map<String, ChatAuditRunSummary> deduplicated = new LinkedHashMap<>();
+        for (ChatAuditRunSummary run : mergedRuns) {
+            deduplicated.putIfAbsent(run.id(), run);
+        }
+        return deduplicated.values().stream()
+            .limit(DEFAULT_LIST_LIMIT)
             .toList();
     }
 
@@ -66,6 +87,74 @@ public class ChatRunQueryService {
             ));
     }
 
+    public ChatExecutionResponse getResult(String id) {
+        ChatRunTraceDetail trace = getTrace(id);
+        String status = trace.status();
+        if (!"COMPLETED".equals(status)) {
+            if ("FAILED".equals(status)) {
+                throw new ApiException(
+                    HttpStatus.CONFLICT,
+                    "chat_run.failed",
+                    trace.failureMessage() == null ? "Chat run failed" : trace.failureMessage()
+                );
+            }
+            if ("CANCELLED".equals(status)) {
+                throw new ApiException(
+                    HttpStatus.CONFLICT,
+                    "chat_run.cancelled",
+                    "Chat run was cancelled"
+                );
+            }
+            throw new ApiException(
+                HttpStatus.CONFLICT,
+                "chat_run.not_completed",
+                "Chat run is still in progress"
+            );
+        }
+
+        ChatRunOutputTrace output = trace.output();
+        RetrievalSummaryTrace retrieval = trace.retrievalSummary();
+        LlmCallTrace latestLlmCall = trace.llmCalls().isEmpty()
+            ? null
+            : trace.llmCalls().get(trace.llmCalls().size() - 1);
+        List<InstructionTraceEntry> instructionTrace = trace.promptSnapshot() == null
+            ? List.of()
+            : trace.promptSnapshot().instructionTrace();
+        KnowledgeScopeResolved knowledgeScopeResolved = trace.promptSnapshot() == null
+            ? KnowledgeScopeResolved.empty()
+            : trace.promptSnapshot().knowledgeScopeResolved();
+
+        return new ChatExecutionResponse(
+            trace.mode(),
+            firstNonBlank(trace.resolvedModel(), trace.requestedModel(), latestLlmCall == null ? "" : latestLlmCall.model()),
+            trace.requestSnapshot() == null ? "" : trace.requestSnapshot().prompt(),
+            output == null ? "" : nullToEmpty(output.finalUserAnswer()),
+            trace.contextStatus(),
+            (trace.completedAt() == null ? trace.createdAt() : trace.completedAt()).toString(),
+            latestLlmCall == null ? null : latestLlmCall.promptTokens(),
+            latestLlmCall == null ? null : latestLlmCall.completionTokens(),
+            latestLlmCall == null ? null : latestLlmCall.totalTokens(),
+            trace.appliedAnswerMode() == null ? trace.requestedAnswerMode() : trace.appliedAnswerMode(),
+            instructionTrace.stream()
+                .filter(entry -> !entry.temporary())
+                .map(entry -> new AppliedInstruction(
+                    entry.instructionId(),
+                    entry.title(),
+                    entry.category(),
+                    entry.scopeLevel(),
+                    entry.scopeTargetId(),
+                    entry.revision()
+                ))
+                .toList(),
+            instructionTrace,
+            knowledgeScopeResolved,
+            retrieval == null || retrieval.trace() == null ? new RetrievalTrace(0, 0, 0, 0, 0, 0, 0, 0, 0) : retrieval.trace(),
+            retrieval == null ? null : retrieval.debug(),
+            output == null ? List.of() : output.sources(),
+            trace.id()
+        );
+    }
+
     private String requireValidId(String id) {
         try {
             return UUID.fromString(id).toString();
@@ -88,5 +177,21 @@ public class ChatRunQueryService {
             return normalized;
         }
         return normalized.substring(0, limit) + "...";
+    }
+
+    private String firstNonBlank(String... values) {
+        if (values == null) {
+            return "";
+        }
+        for (String value : values) {
+            if (value != null && !value.isBlank()) {
+                return value;
+            }
+        }
+        return "";
+    }
+
+    private String nullToEmpty(String value) {
+        return value == null ? "" : value;
     }
 }

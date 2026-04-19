@@ -1225,11 +1225,22 @@ class PostgresMaterialJdbcSupport {
     }
 
     public void enqueueMaterialsForSync(Collection<String> materialIds, Instant requestedAt) {
+        enqueueMaterialsForSync(materialIds, SearchSyncOperationType.UPSERT, requestedAt);
+    }
+
+    public void enqueueMaterialsForSync(
+        Collection<String> materialIds,
+        SearchSyncOperationType operationType,
+        Instant requestedAt
+    ) {
         if (materialIds == null || materialIds.isEmpty()) {
             return;
         }
 
         Instant effectiveRequestedAt = requestedAt == null ? Instant.now() : requestedAt;
+        SearchSyncOperationType effectiveOperationType = operationType == null
+            ? SearchSyncOperationType.UPSERT
+            : operationType;
         List<UUID> queueMaterialIds = materialIds.stream()
             .filter(materialId -> materialId != null && !materialId.isBlank())
             .distinct()
@@ -1244,6 +1255,7 @@ class PostgresMaterialJdbcSupport {
                 """
                     INSERT INTO material_search_sync_queue (
                         material_id,
+                        operation_type,
                         delivery_state,
                         attempt_count,
                         next_attempt_at,
@@ -1253,9 +1265,14 @@ class PostgresMaterialJdbcSupport {
                         requested_at,
                         created_at,
                         updated_at
-                    ) VALUES (?, 'PENDING', 0, NULL, NULL, NULL, NULL, ?, ?, ?)
+                    ) VALUES (?, ?, 'PENDING', 0, NULL, NULL, NULL, NULL, ?, ?, ?)
                     ON CONFLICT (material_id) DO UPDATE
-                    SET delivery_state = CASE
+                    SET operation_type = CASE
+                            WHEN material_search_sync_queue.delivery_state = 'IN_PROGRESS'
+                                THEN material_search_sync_queue.operation_type
+                            ELSE EXCLUDED.operation_type
+                        END,
+                        delivery_state = CASE
                             WHEN material_search_sync_queue.delivery_state = 'IN_PROGRESS'
                                 THEN material_search_sync_queue.delivery_state
                             ELSE 'PENDING'
@@ -1293,9 +1310,10 @@ class PostgresMaterialJdbcSupport {
                     public void setValues(PreparedStatement preparedStatement, int index) throws SQLException {
                         Timestamp timestamp = Timestamp.from(effectiveRequestedAt);
                         preparedStatement.setObject(1, queueMaterialIds.get(index));
-                        preparedStatement.setTimestamp(2, timestamp);
+                        preparedStatement.setString(2, effectiveOperationType.name());
                         preparedStatement.setTimestamp(3, timestamp);
                         preparedStatement.setTimestamp(4, timestamp);
+                        preparedStatement.setTimestamp(5, timestamp);
                     }
 
                     @Override
@@ -1320,6 +1338,7 @@ class PostgresMaterialJdbcSupport {
                 """
                     SELECT
                         material_id,
+                        operation_type,
                         delivery_state,
                         attempt_count,
                         next_attempt_at,
@@ -1826,6 +1845,7 @@ class PostgresMaterialJdbcSupport {
             """
                 SELECT
                     material_id,
+                    operation_type,
                     delivery_state,
                     attempt_count,
                     next_attempt_at,

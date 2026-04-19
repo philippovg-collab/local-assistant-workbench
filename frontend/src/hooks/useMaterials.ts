@@ -222,23 +222,9 @@ const mergeMaterialPages = (current: MaterialSummary[], next: MaterialSummary[])
   return Array.from(byId.values());
 };
 
-export const useMaterials = () => {
-  const [materials, setMaterials] = useState<MaterialSummary[]>([]);
-  const [materialTotal, setMaterialTotal] = useState(0);
-  const [materialPageLimit, setMaterialPageLimit] = useState(MATERIAL_PAGE_LIMIT);
-  const [hasMoreMaterials, setHasMoreMaterials] = useState(false);
+export const useMaterialUploadPolicy = () => {
   const [uploadPolicy, setUploadPolicy] = useState<MaterialUploadPolicy | null>(null);
   const [policyWarning, setPolicyWarning] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isLoadingMore, setIsLoadingMore] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
-  const [deletingMaterialId, setDeletingMaterialId] = useState<string | null>(null);
-  const [reindexingMaterialId, setReindexingMaterialId] = useState<string | null>(null);
-  const [selectedLineage, setSelectedLineage] = useState<MaterialLineageResponse | null>(null);
-  const [lineageError, setLineageError] = useState<string | null>(null);
-  const [loadingLineageMaterialId, setLoadingLineageMaterialId] = useState<string | null>(null);
 
   const applyUploadPolicy = (payload: unknown) => {
     const normalized = normalizeMaterialUploadPolicy(payload);
@@ -253,40 +239,6 @@ export const useMaterials = () => {
     setUploadPolicy(normalized.policy);
     setPolicyWarning(normalized.warning);
     return normalized.policy;
-  };
-
-  const loadMaterials = async (
-    signal?: AbortSignal,
-    options: { offset?: number; append?: boolean } = {},
-  ) => {
-    const offset = options.offset ?? 0;
-    const append = options.append ?? false;
-    if (append) {
-      setIsLoadingMore(true);
-    }
-
-    try {
-      const payload = normalizeMaterialListResponse(
-        await apiClient.fetchMaterials({ offset, limit: MATERIAL_PAGE_LIMIT }, signal),
-      );
-      setMaterials((current) => (append ? mergeMaterialPages(current, payload.items) : payload.items));
-      setMaterialTotal(payload.total);
-      setMaterialPageLimit(payload.limit);
-      setHasMoreMaterials(payload.hasMore);
-      setError(null);
-      return payload;
-    } catch (loadError) {
-      if (signal?.aborted) {
-        return null;
-      }
-
-      const nextError = translateMaterialError(loadError, "Не удалось загрузить материалы", uploadPolicy);
-      setError(nextError);
-      return null;
-    } finally {
-      setIsLoading(false);
-      setIsLoadingMore(false);
-    }
   };
 
   const loadUploadPolicy = async (signal?: AbortSignal) => {
@@ -324,6 +276,62 @@ export const useMaterials = () => {
   useEffect(() => {
     const controller = new AbortController();
     void loadUploadPolicy(controller.signal);
+    return () => controller.abort();
+  }, []);
+
+  return {
+    uploadPolicy,
+    policyWarning,
+    loadUploadPolicy,
+    ensureUploadPolicy,
+  };
+};
+
+export const useMaterialCatalog = (uploadPolicy: MaterialUploadPolicy | null) => {
+  const [materials, setMaterials] = useState<MaterialSummary[]>([]);
+  const [materialTotal, setMaterialTotal] = useState(0);
+  const [materialPageLimit, setMaterialPageLimit] = useState(MATERIAL_PAGE_LIMIT);
+  const [hasMoreMaterials, setHasMoreMaterials] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+
+  const loadMaterials = async (
+    signal?: AbortSignal,
+    options: { offset?: number; append?: boolean } = {},
+  ) => {
+    const offset = options.offset ?? 0;
+    const append = options.append ?? false;
+    if (append) {
+      setIsLoadingMore(true);
+    }
+
+    try {
+      const payload = normalizeMaterialListResponse(
+        await apiClient.fetchMaterials({ offset, limit: MATERIAL_PAGE_LIMIT }, signal),
+      );
+      setMaterials((current) => (append ? mergeMaterialPages(current, payload.items) : payload.items));
+      setMaterialTotal(payload.total);
+      setMaterialPageLimit(payload.limit);
+      setHasMoreMaterials(payload.hasMore);
+      setError(null);
+      return payload;
+    } catch (loadError) {
+      if (signal?.aborted) {
+        return null;
+      }
+
+      const nextError = translateMaterialError(loadError, "Не удалось загрузить материалы", uploadPolicy);
+      setError(nextError);
+      return null;
+    } finally {
+      setIsLoading(false);
+      setIsLoadingMore(false);
+    }
+  };
+
+  useEffect(() => {
+    const controller = new AbortController();
     void loadMaterials(controller.signal);
     return () => controller.abort();
   }, []);
@@ -358,6 +366,47 @@ export const useMaterials = () => {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, [materials, uploadPolicy]);
+
+  const loadMoreMaterials = async () => {
+    if (isLoadingMore || !hasMoreMaterials) {
+      return null;
+    }
+
+    return loadMaterials(undefined, { offset: materials.length, append: true });
+  };
+
+  return {
+    materials,
+    materialTotal,
+    materialPageLimit,
+    hasMoreMaterials,
+    error,
+    isLoading,
+    isLoadingMore,
+    loadMaterials,
+    loadMoreMaterials,
+  };
+};
+
+type UseMaterialMutationsInput = {
+  uploadPolicy: MaterialUploadPolicy | null;
+  ensureUploadPolicy: () => Promise<MaterialUploadPolicy>;
+  loadMaterials: () => Promise<MaterialListResponse | null>;
+  clearLineageIfContains: (materialId: string) => void;
+  refreshLineageIfContains: (materialId: string) => Promise<MaterialLineageResponse | null>;
+};
+
+export const useMaterialMutations = ({
+  uploadPolicy,
+  ensureUploadPolicy,
+  loadMaterials,
+  clearLineageIfContains,
+  refreshLineageIfContains,
+}: UseMaterialMutationsInput) => {
+  const [message, setMessage] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [deletingMaterialId, setDeletingMaterialId] = useState<string | null>(null);
+  const [reindexingMaterialId, setReindexingMaterialId] = useState<string | null>(null);
 
   const createTextMaterial = async (input: { title: string; content: string; metadata?: MaterialMetadataInput }) => {
     setActionError(null);
@@ -432,9 +481,7 @@ export const useMaterials = () => {
     try {
       await apiClient.deleteMaterial(materialId);
       await loadMaterials();
-      setSelectedLineage((current) =>
-        current?.versions.some((version) => version.id === materialId) ? null : current,
-      );
+      clearLineageIfContains(materialId);
       setMessage("Материал удалён.");
     } catch (deleteError) {
       setActionError(translateMaterialError(deleteError, "Не удалось удалить материал", uploadPolicy));
@@ -452,10 +499,7 @@ export const useMaterials = () => {
     try {
       const updated = await apiClient.reindexMaterial(materialId);
       await loadMaterials();
-      if (selectedLineage?.versions.some((version) => version.id === materialId)) {
-        const lineage = await apiClient.fetchMaterialLineage(materialId);
-        setSelectedLineage(lineage);
-      }
+      await refreshLineageIfContains(materialId);
       setMessage(
         updated.status === "PENDING"
           ? "Материал повторно поставлен в очередь индексации."
@@ -469,6 +513,23 @@ export const useMaterials = () => {
       setReindexingMaterialId(null);
     }
   };
+
+  return {
+    message,
+    actionError,
+    deletingMaterialId,
+    reindexingMaterialId,
+    createTextMaterial,
+    uploadMaterial,
+    deleteMaterial,
+    reindexMaterial,
+  };
+};
+
+export const useMaterialLineage = (uploadPolicy: MaterialUploadPolicy | null) => {
+  const [selectedLineage, setSelectedLineage] = useState<MaterialLineageResponse | null>(null);
+  const [lineageError, setLineageError] = useState<string | null>(null);
+  const [loadingLineageMaterialId, setLoadingLineageMaterialId] = useState<string | null>(null);
 
   const loadLineage = async (materialId: string, signal?: AbortSignal) => {
     setLoadingLineageMaterialId(materialId);
@@ -497,37 +558,68 @@ export const useMaterials = () => {
     setLoadingLineageMaterialId(null);
   };
 
-  const loadMoreMaterials = async () => {
-    if (isLoadingMore || !hasMoreMaterials) {
+  const clearLineageIfContains = (materialId: string) => {
+    if (!selectedLineage?.versions.some((version) => version.id === materialId)) {
+      return;
+    }
+
+    clearLineage();
+  };
+
+  const refreshLineageIfContains = async (materialId: string) => {
+    if (!selectedLineage?.versions.some((version) => version.id === materialId)) {
       return null;
     }
 
-    return loadMaterials(undefined, { offset: materials.length, append: true });
+    return loadLineage(materialId);
   };
 
   return {
-    materials,
-    materialTotal,
-    materialPageLimit,
-    hasMoreMaterials,
-    uploadPolicy,
-    policyWarning,
-    error,
-    isLoading,
-    isLoadingMore,
-    message,
-    actionError,
-    deletingMaterialId,
-    reindexingMaterialId,
     selectedLineage,
     lineageError,
     loadingLineageMaterialId,
-    createTextMaterial,
-    uploadMaterial,
-    deleteMaterial,
-    reindexMaterial,
     loadLineage,
-    loadMoreMaterials,
     clearLineage,
+    clearLineageIfContains,
+    refreshLineageIfContains,
+  };
+};
+
+export const useMaterials = () => {
+  const uploadPolicyState = useMaterialUploadPolicy();
+  const catalog = useMaterialCatalog(uploadPolicyState.uploadPolicy);
+  const lineage = useMaterialLineage(uploadPolicyState.uploadPolicy);
+  const mutations = useMaterialMutations({
+    uploadPolicy: uploadPolicyState.uploadPolicy,
+    ensureUploadPolicy: uploadPolicyState.ensureUploadPolicy,
+    loadMaterials: () => catalog.loadMaterials(),
+    clearLineageIfContains: lineage.clearLineageIfContains,
+    refreshLineageIfContains: lineage.refreshLineageIfContains,
+  });
+
+  return {
+    materials: catalog.materials,
+    materialTotal: catalog.materialTotal,
+    materialPageLimit: catalog.materialPageLimit,
+    hasMoreMaterials: catalog.hasMoreMaterials,
+    uploadPolicy: uploadPolicyState.uploadPolicy,
+    policyWarning: uploadPolicyState.policyWarning,
+    error: catalog.error,
+    isLoading: catalog.isLoading,
+    isLoadingMore: catalog.isLoadingMore,
+    message: mutations.message,
+    actionError: mutations.actionError,
+    deletingMaterialId: mutations.deletingMaterialId,
+    reindexingMaterialId: mutations.reindexingMaterialId,
+    selectedLineage: lineage.selectedLineage,
+    lineageError: lineage.lineageError,
+    loadingLineageMaterialId: lineage.loadingLineageMaterialId,
+    createTextMaterial: mutations.createTextMaterial,
+    uploadMaterial: mutations.uploadMaterial,
+    deleteMaterial: mutations.deleteMaterial,
+    reindexMaterial: mutations.reindexMaterial,
+    loadLineage: lineage.loadLineage,
+    loadMoreMaterials: catalog.loadMoreMaterials,
+    clearLineage: lineage.clearLineage,
   };
 };

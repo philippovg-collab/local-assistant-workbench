@@ -87,6 +87,7 @@ type RagChatPanelProps = {
   helperText: string;
   isBlocked: boolean;
   isSubmitting: boolean;
+  currentRunStatus?: string | null;
   error: string | null;
   response: ChatExecutionResponse | null;
   chatRuns: ChatAuditRunSummary[];
@@ -190,6 +191,7 @@ export function RagChatPanel({
   helperText,
   isBlocked,
   isSubmitting,
+  currentRunStatus,
   error,
   response,
   chatRuns,
@@ -407,7 +409,7 @@ export function RagChatPanel({
             <ChatForm
               answerMode={answerMode}
               error={error}
-              helperText={helperText}
+              helperText={isSubmitting && currentRunStatus ? `${helperText} Статус запуска: ${currentRunStatus}.` : helperText}
               instructionEmptyStateMessage="Сначала создай chat/scenario инструкцию во вкладке библиотеки."
               instructions={instructions}
               isSubmitDisabled={isSubmitting || !prompt.trim() || isBlocked}

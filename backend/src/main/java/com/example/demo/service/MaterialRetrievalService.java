@@ -218,11 +218,11 @@ public class MaterialRetrievalService {
     }
 
     public MaterialRetrievalResult retrieveContext(String prompt) {
-        return retrieveContext(prompt, KnowledgeScope.empty(), RetrievalFilters.empty());
+        return retrieveContext(prompt, KnowledgeScope.empty(), RetrievalFilters.empty(), List.of());
     }
 
     public MaterialRetrievalResult retrieveContext(String prompt, KnowledgeScope knowledgeScope) {
-        return retrieveContext(prompt, knowledgeScope, RetrievalFilters.empty());
+        return retrieveContext(prompt, knowledgeScope, RetrievalFilters.empty(), List.of());
     }
 
     public MaterialRetrievalResult retrieveContext(
@@ -230,10 +230,20 @@ public class MaterialRetrievalService {
         KnowledgeScope knowledgeScope,
         RetrievalFilters retrievalFilters
     ) {
+        return retrieveContext(prompt, knowledgeScope, retrievalFilters, List.of());
+    }
+
+    public MaterialRetrievalResult retrieveContext(
+        String prompt,
+        KnowledgeScope knowledgeScope,
+        RetrievalFilters retrievalFilters,
+        List<String> dismissedRetrievalHintKeys
+    ) {
         return executeSearch(
             prompt,
             knowledgeScope,
             retrievalFilters,
+            dismissedRetrievalHintKeys,
             ragProperties.getFinalContextLimit(),
             true
         ).toMaterialRetrievalResult();
@@ -260,6 +270,7 @@ public class MaterialRetrievalService {
             request.query(),
             KnowledgeScope.empty(),
             request.filters(),
+            List.of(),
             limit,
             false
         );
@@ -304,6 +315,7 @@ public class MaterialRetrievalService {
         String prompt,
         KnowledgeScope knowledgeScope,
         RetrievalFilters retrievalFilters,
+        List<String> dismissedRetrievalHintKeys,
         int finalLimit,
         boolean recordWindow
     ) {
@@ -333,7 +345,8 @@ public class MaterialRetrievalService {
         }
         boolean queryHintsEnabled = metadataFiltersEnabled && rolloutProperties.isQueryHintsV1();
         if (queryHintsEnabled) {
-            queryHints = retrievalQueryHintExtractor.extract(prompt);
+            queryHints = retrievalQueryHintExtractor.extract(prompt)
+                .withoutDismissedFilterKeys(dismissedRetrievalHintKeys);
             if (!queryHints.equals(RetrievalQueryHints.empty())) {
                 appliedCapabilities.add("query-hints-v1");
             }
