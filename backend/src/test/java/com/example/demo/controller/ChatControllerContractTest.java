@@ -1,6 +1,8 @@
 package com.example.demo.controller;
 
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verify;
+import static org.mockito.ArgumentMatchers.any;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -8,9 +10,16 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.example.demo.api.ApiExceptionHandler;
 import com.example.demo.config.MaterialProperties;
 import com.example.demo.llm.LlmClient;
+import com.example.demo.model.ChatExecutionResponse;
+import com.example.demo.model.ChatMode;
+import com.example.demo.model.KnowledgeScopeResolved;
+import com.example.demo.model.RetrievalTrace;
+import com.example.demo.model.RetrievalDebug;
+import com.example.demo.model.RetrievalFilters;
+import com.example.demo.model.RetrievalQueryHints;
 import com.example.demo.service.ChatExecutionService;
-import com.example.demo.service.InstructionService;
 import com.example.demo.service.ModelCatalogService;
+import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
@@ -24,18 +33,15 @@ class ChatControllerContractTest {
 
     private MockMvc mockMvc;
     private ChatExecutionService chatExecutionService;
-    private InstructionService instructionService;
     private LlmClient llmClient;
 
     @BeforeEach
     void setUp() {
         chatExecutionService = mock(ChatExecutionService.class);
-        instructionService = mock(InstructionService.class);
         llmClient = mock(LlmClient.class);
         mockMvc = MockMvcBuilders
             .standaloneSetup(new ChatController(
                 chatExecutionService,
-                instructionService,
                 new ModelCatalogService(llmClient)
             ))
             .setControllerAdvice(new ApiExceptionHandler(new MaterialProperties()))
@@ -64,6 +70,112 @@ class ChatControllerContractTest {
                       "model": "qwen2.5:7b",
                       "prompt": "Сколько стоит тариф Премиум?",
                       "instructionIds": []
+                    }
+                    """))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.code").value("request.invalid_payload"));
+
+        verifyNoInteractions(chatExecutionService);
+    }
+
+    @Test
+    void acceptsRetrievalFiltersInChatPayload() throws Exception {
+        org.mockito.Mockito.when(chatExecutionService.execute(any())).thenReturn(new ChatExecutionResponse(
+            ChatMode.RAG,
+            "qwen2.5:7b",
+            "Какая цена?",
+            "12000",
+            "ready",
+            "2026-04-19T00:00:00Z",
+            1,
+            1,
+            2,
+            null,
+            List.of(),
+            List.of(),
+            KnowledgeScopeResolved.empty(),
+            new RetrievalTrace(1, 1, 1, 1, 1, 1, 2, 2, 1, "sufficient"),
+            new RetrievalDebug(
+                new RetrievalQueryHints("KZ-2026-0415-ENERGY", null, null, null, "ru", "North Upgrade", null, null, null),
+                new RetrievalFilters(
+                    "KZ-2026-0415-ENERGY",
+                    null,
+                    null,
+                    "Grid operations",
+                    "North Upgrade",
+                    null,
+                    null,
+                    "ru",
+                    List.of(),
+                    null
+                ),
+                new RetrievalFilters(
+                    "KZ-2026-0415-ENERGY",
+                    null,
+                    null,
+                    "Grid operations",
+                    "North Upgrade",
+                    null,
+                    null,
+                    "ru",
+                    List.of(),
+                    null
+                ),
+                2,
+                2,
+                2,
+                1,
+                "sufficient",
+                "hybrid-rerank-v1"
+            ),
+            List.of(),
+            null
+        ));
+
+        mockMvc.perform(post("/api/chat")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "mode": "rag",
+                      "model": "qwen2.5:7b",
+                      "prompt": "Какая цена?",
+                      "instructionIds": [],
+                      "retrievalFilters": {
+                        "documentNumber": "KZ-2026-0415-ENERGY",
+                        "documentDateFrom": "2026-04-01",
+                        "documentDateTo": "2026-04-30",
+                        "department": "Grid operations",
+                        "project": "North Upgrade",
+                        "counterparty": "GridBuild LLP",
+                        "businessStatus": "APPROVED",
+                        "language": "ru",
+                        "tags": ["dispatch"],
+                        "sourceTrustMin": "MEDIUM"
+                      }
+                    }
+                    """))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.mode").value("rag"))
+            .andExpect(jsonPath("$.answer").value("12000"))
+            .andExpect(jsonPath("$.retrievalDebug.effectiveFilters.project").value("North Upgrade"))
+            .andExpect(jsonPath("$.retrievalDebug.queryHints.documentNumber").value("KZ-2026-0415-ENERGY"));
+
+        verify(chatExecutionService).execute(any());
+    }
+
+    @Test
+    void rejectsMalformedRetrievalFiltersWithoutCallingTheService() throws Exception {
+        mockMvc.perform(post("/api/chat")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "mode": "rag",
+                      "model": "qwen2.5:7b",
+                      "prompt": "Какая цена?",
+                      "instructionIds": [],
+                      "retrievalFilters": {
+                        "sourceTrustMin": "BROKEN"
+                      }
                     }
                     """))
             .andExpect(status().isBadRequest())

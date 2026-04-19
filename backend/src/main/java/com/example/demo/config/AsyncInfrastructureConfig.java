@@ -17,4 +17,13 @@ public class AsyncInfrastructureConfig {
         });
         return executorService;
     }
+
+    @Bean(name = "searchSyncExecutor", destroyMethod = "shutdown")
+    Executor searchSyncExecutor() {
+        ExecutorService executorService = Executors.newSingleThreadExecutor(runnable -> {
+            Thread thread = new Thread(runnable, "search-sync");
+            return thread;
+        });
+        return executorService;
+    }
 }

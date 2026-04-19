@@ -1,6 +1,7 @@
 package com.example.demo.service;
 
 import com.example.demo.infrastructure.material.MaterialChunkSearchMatch;
+import com.example.demo.model.ChunkScoreBreakdown;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -34,7 +35,16 @@ public class HybridChunkRanker {
                 .thenComparingInt(candidate -> candidate.match().page() == null ? Integer.MAX_VALUE : candidate.match().page())
                 .thenComparingInt(candidate -> candidate.match().chunkIndex()))
             .limit(limit)
-            .map(candidate -> new RankedChunk(candidate.match(), normalizeScore(candidate.fusedScore())))
+            .map(candidate -> {
+                int score = normalizeScore(candidate.fusedScore());
+                return new RankedChunk(
+                    candidate.match(),
+                    score,
+                    candidate.semanticRank,
+                    candidate.lexicalRank,
+                    null
+                );
+            })
             .toList();
     }
 
@@ -67,8 +77,24 @@ public class HybridChunkRanker {
 
     public record RankedChunk(
         MaterialChunkSearchMatch match,
-        int score
+        int score,
+        Integer semanticRank,
+        Integer lexicalRank,
+        ChunkScoreBreakdown scoreBreakdown
     ) {
+        public RankedChunk(MaterialChunkSearchMatch match, int score) {
+            this(match, score, null, null, null);
+        }
+
+        public RankedChunk withScoreAndBreakdown(int updatedScore, ChunkScoreBreakdown updatedBreakdown) {
+            return new RankedChunk(
+                match,
+                updatedScore,
+                semanticRank,
+                lexicalRank,
+                updatedBreakdown
+            );
+        }
     }
 
     private static final class CandidateAccumulator {

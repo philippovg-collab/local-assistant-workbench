@@ -37,12 +37,14 @@ class PdfDocumentExtractionStrategyTest {
             FULL_OCR_CAPABILITY
         );
 
-        ExtractedDocument result = strategy.extract("pricing.pdf", "application/pdf", createTextPdf("Premium price is 12000."));
+        DocumentParseResult result = strategy.extract("pricing.pdf", "application/pdf", createTextPdf("Premium price is 12000."));
 
         assertFalse(result.ocrUsed());
         assertEquals("pdfbox", result.extractor());
+        assertEquals(DocumentParserProfile.PDF, result.parserProfile());
         assertEquals(0, ocrClient.calls);
-        assertTrue(result.segments().getFirst().text().contains("12000"));
+        assertTrue(result.blocks().getFirst().text().contains("12000"));
+        assertTrue(result.warnings().isEmpty());
     }
 
     @Test
@@ -55,13 +57,14 @@ class PdfDocumentExtractionStrategyTest {
             FULL_OCR_CAPABILITY
         );
 
-        ExtractedDocument result = strategy.extract("scan.pdf", "application/pdf", createScannedPdf());
+        DocumentParseResult result = strategy.extract("scan.pdf", "application/pdf", createScannedPdf());
 
         assertTrue(result.ocrUsed());
         assertEquals("pdfbox+tesseract", result.extractor());
         assertEquals(1, ocrClient.calls);
-        assertEquals(1, result.segments().getFirst().page());
-        assertEquals("tesseract", result.segments().getFirst().extractor());
+        assertEquals(1, result.blocks().getFirst().page());
+        assertEquals("tesseract", result.blocks().getFirst().extractor());
+        assertEquals(DocumentBlockConfidence.LOW, result.blocks().getFirst().confidence());
     }
 
     @Test
@@ -74,13 +77,31 @@ class PdfDocumentExtractionStrategyTest {
             FULL_OCR_CAPABILITY
         );
 
-        ExtractedDocument result = strategy.extract("mixed.pdf", "application/pdf", createMixedPdf());
+        DocumentParseResult result = strategy.extract("mixed.pdf", "application/pdf", createMixedPdf());
 
         assertTrue(result.ocrUsed());
-        assertEquals(2, result.segments().size());
+        assertEquals(2, result.blocks().size());
         assertEquals(1, ocrClient.calls);
-        assertEquals("pdfbox", result.segments().get(0).extractor());
-        assertEquals("tesseract", result.segments().get(1).extractor());
+        assertEquals("pdfbox", result.blocks().get(0).extractor());
+        assertEquals("tesseract", result.blocks().get(1).extractor());
+        assertTrue(result.warnings().isEmpty());
+    }
+
+    @Test
+    void keepsPartialExtractionWarningsAsStructuredWarnings() throws Exception {
+        CountingOcrClient ocrClient = new CountingOcrClient();
+        PdfDocumentExtractionStrategy strategy = new PdfDocumentExtractionStrategy(
+            new MaterialFormatRegistry(),
+            new OcrProperties(),
+            ocrClient,
+            () -> OcrCapability.embeddedTextAndOcr(List.of("kaz", "rus", "eng"), 0)
+        );
+
+        DocumentParseResult result = strategy.extract("mixed.pdf", "application/pdf", createMixedPdf());
+
+        assertFalse(result.warnings().isEmpty());
+        assertEquals("material.partial_extraction", result.warnings().getFirst().code());
+        assertEquals(List.of(2), result.warnings().getFirst().pages());
     }
 
     @Test

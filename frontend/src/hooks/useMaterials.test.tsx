@@ -4,6 +4,7 @@ import { act } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiClientError, apiClient } from "../api/client";
 import type { MaterialUploadPolicy } from "../types";
+import { buildMaterialSummary } from "../testBuilders";
 import { useMaterials } from "./useMaterials";
 
 vi.mock("../api/client", async () => {
@@ -54,6 +55,11 @@ function MaterialsHookHarness() {
           swallow(materials.createTextMaterial({
             title: "",
             content: "  ",
+            metadata: {
+              documentType: "OTHER",
+              sourceTrust: "UNKNOWN",
+              author: "Ops lead",
+            },
           }))
         }
       >
@@ -66,6 +72,11 @@ function MaterialsHookHarness() {
           swallow(materials.uploadMaterial({
             title: "",
             file: new File(["12345"], "too-big.txt", { type: "text/plain" }),
+            metadata: {
+              documentType: "OTHER",
+              sourceTrust: "UNKNOWN",
+              author: "Ops lead",
+            },
           }))
         }
       >
@@ -78,6 +89,11 @@ function MaterialsHookHarness() {
           swallow(materials.uploadMaterial({
             title: "",
             file: new File(["hello"], "unsupported.png", { type: "image/png" }),
+            metadata: {
+              documentType: "OTHER",
+              sourceTrust: "UNKNOWN",
+              author: "Ops lead",
+            },
           }))
         }
       >
@@ -90,6 +106,11 @@ function MaterialsHookHarness() {
           swallow(materials.uploadMaterial({
             title: "",
             file: new File(["hello"], "scan.pdf", { type: "application/pdf" }),
+            metadata: {
+              documentType: "OTHER",
+              sourceTrust: "UNKNOWN",
+              author: "Ops lead",
+            },
           }))
         }
       >
@@ -102,10 +123,33 @@ function MaterialsHookHarness() {
           swallow(materials.uploadMaterial({
             title: "",
             file: new File(["hello"], "pricing.txt", { type: "text/plain" }),
+            metadata: {
+              documentType: "OTHER",
+              sourceTrust: "UNKNOWN",
+              author: "Ops lead",
+            },
           }))
         }
       >
         upload-supported
+      </button>
+
+      <button
+        type="button"
+        onClick={() =>
+          swallow(materials.createTextMaterial({
+            title: "Metadata note",
+            content: "Материал с metadata.",
+            metadata: {
+              documentType: "POLICY",
+              sourceTrust: "HIGH",
+              author: "Ops lead",
+              tags: ["policy", "grid"],
+            },
+          }))
+        }
+      >
+        create-with-metadata
       </button>
 
       <output data-testid="action-error">{materials.actionError ?? ""}</output>
@@ -257,7 +301,7 @@ describe("useMaterials", () => {
 
     vi.mocked(apiClient.fetchMaterials).mockResolvedValue([]);
     vi.mocked(apiClient.fetchMaterialUploadPolicy).mockRejectedValue(new Error("boom"));
-    vi.mocked(apiClient.uploadMaterial).mockResolvedValue({
+    vi.mocked(apiClient.uploadMaterial).mockResolvedValue(buildMaterialSummary({
       id: "mat-1",
       title: "pricing.txt",
       sourceType: "file",
@@ -266,7 +310,7 @@ describe("useMaterials", () => {
       createdAt: "2026-04-16T00:00:00Z",
       contentLength: 5,
       preview: "hello",
-    });
+    }));
 
     render(<MaterialsHookHarness />);
 
@@ -320,7 +364,7 @@ describe("useMaterials", () => {
         ocrMaxPages: 12,
       },
     }));
-    vi.mocked(apiClient.uploadMaterial).mockResolvedValue({
+    vi.mocked(apiClient.uploadMaterial).mockResolvedValue(buildMaterialSummary({
       id: "mat-1",
       title: "scan.pdf",
       sourceType: "file",
@@ -329,7 +373,7 @@ describe("useMaterials", () => {
       createdAt: "2026-04-16T00:00:00Z",
       contentLength: 5,
       preview: "hello",
-    });
+    }));
 
     render(<MaterialsHookHarness />);
 
@@ -349,7 +393,7 @@ describe("useMaterials", () => {
     vi.mocked(apiClient.fetchMaterialUploadPolicy).mockResolvedValue(buildPolicy());
     vi.mocked(apiClient.fetchMaterials)
       .mockResolvedValueOnce([
-        {
+        buildMaterialSummary({
           id: "mat-1",
           title: "pricing.txt",
           sourceType: "file",
@@ -359,10 +403,10 @@ describe("useMaterials", () => {
           createdAt: "2026-04-16T00:00:00Z",
           contentLength: 5,
           preview: "hello",
-        },
+        }),
       ])
       .mockResolvedValueOnce([
-        {
+        buildMaterialSummary({
           id: "mat-1",
           title: "pricing.txt",
           sourceType: "file",
@@ -372,7 +416,7 @@ describe("useMaterials", () => {
           createdAt: "2026-04-16T00:00:00Z",
           contentLength: 5,
           preview: "hello",
-        },
+        }),
       ]);
 
     await act(async () => {
@@ -395,5 +439,43 @@ describe("useMaterials", () => {
     });
 
     expect(apiClient.fetchMaterials).toHaveBeenCalledTimes(2);
+  });
+
+  it("forwards metadata to the API client for text materials", async () => {
+    const user = userEvent.setup();
+
+    vi.mocked(apiClient.fetchMaterials).mockResolvedValue([]);
+    vi.mocked(apiClient.fetchMaterialUploadPolicy).mockResolvedValue(buildPolicy());
+    vi.mocked(apiClient.createTextMaterial).mockResolvedValue(buildMaterialSummary({
+      id: "mat-2",
+      title: "Metadata note",
+      sourceType: "text",
+      originalFileName: null,
+      status: "READY",
+      createdAt: "2026-04-16T00:00:00Z",
+      contentLength: 20,
+      preview: "Материал с metadata.",
+    }));
+
+    render(<MaterialsHookHarness />);
+
+    await waitFor(() => {
+      expect(apiClient.fetchMaterials).toHaveBeenCalled();
+    });
+
+    await user.click(screen.getByText("create-with-metadata"));
+
+    await waitFor(() => {
+      expect(apiClient.createTextMaterial).toHaveBeenCalledWith({
+        title: "Metadata note",
+        content: "Материал с metadata.",
+        metadata: {
+          documentType: "POLICY",
+          sourceTrust: "HIGH",
+          author: "Ops lead",
+          tags: ["policy", "grid"],
+        },
+      });
+    });
   });
 });

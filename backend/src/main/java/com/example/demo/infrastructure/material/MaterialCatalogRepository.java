@@ -1,6 +1,8 @@
 package com.example.demo.infrastructure.material;
 
+import com.example.demo.model.KnowledgeScope;
 import com.example.demo.model.MaterialVersionState;
+import com.example.demo.model.RetrievalFilters;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -9,13 +11,33 @@ public interface MaterialCatalogRepository {
 
     List<StoredMaterialRecord> findAll();
 
+    List<StoredMaterialRecord> findActivePageAfter(Instant createdAt, String id, int limit);
+
     Optional<StoredMaterialRecord> findById(String id);
 
-    Optional<StoredMaterialRecord> findByContentHash(String contentHash);
+    default Optional<String> findSourceKeyById(String id) {
+        return findById(id).map(StoredMaterialRecord::sourceKey);
+    }
 
-    StoredMaterialRecord save(StoredMaterialRecord record, List<StoredMaterialChunk> chunks);
+    Optional<StoredMaterialRecord> findBySourceKeyAndContentHash(String sourceKey, String contentHash);
 
-    List<StoredMaterialChunk> findChunks(String materialId);
+    MaterialRetrievalScopeSnapshot describeRetrievalScope(
+        KnowledgeScope knowledgeScope,
+        RetrievalFilters retrievalFilters,
+        Instant uploadedAfterInclusive,
+        Instant uploadedBeforeExclusive
+    );
+
+    default StoredMaterialRecord save(StoredMaterialRecord record, List<StoredMaterialChunk> chunks) {
+        return save(record, ChunkProfile.FIXED_V1.propertyValue(), chunks, List.of());
+    }
+
+    StoredMaterialRecord save(
+        StoredMaterialRecord record,
+        String chunkProfile,
+        List<StoredMaterialChunk> chunks,
+        List<StoredMaterialSegment> segments
+    );
 
     List<StoredMaterialRecord> findAllBySourceKey(String sourceKey);
 
@@ -27,10 +49,10 @@ public interface MaterialCatalogRepository {
 
     int countReadyMaterials();
 
-    void supersedeActiveVersions(
+    List<StoredMaterialRecord> supersedeActiveVersions(
         String sourceKey,
-        String activeMaterialId,
-        String excludeContentHash,
+        String supersededByMaterialId,
+        String excludeMaterialId,
         String supersedeReason,
         Instant updatedAt
     );

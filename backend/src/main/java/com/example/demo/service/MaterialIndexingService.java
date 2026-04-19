@@ -3,12 +3,13 @@ package com.example.demo.service;
 import com.example.demo.api.ApiException;
 import com.example.demo.config.MaterialProperties;
 import com.example.demo.embedding.EmbeddingClient;
-import com.example.demo.infrastructure.material.MaterialCatalogRepository;
 import com.example.demo.infrastructure.material.MaterialIndexingLease;
+import com.example.demo.infrastructure.material.MaterialChunkingRepository;
 import com.example.demo.infrastructure.material.MaterialIndexingQueueRepository;
 import com.example.demo.infrastructure.material.StoredMaterialChunk;
 import com.example.demo.infrastructure.material.StoredEmbeddedMaterialChunk;
 import com.example.demo.infrastructure.material.StoredMaterialRecord;
+import com.example.demo.infrastructure.material.StoredMaterialSegment;
 import com.example.demo.model.MaterialIndexingStatus;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -29,27 +30,30 @@ public class MaterialIndexingService {
 
     private static final Logger logger = LoggerFactory.getLogger(MaterialIndexingService.class);
 
-    private final MaterialCatalogRepository catalogRepository;
+    private final MaterialChunkingRepository chunkingRepository;
     private final MaterialIndexingQueueRepository indexingQueueRepository;
     private final MaterialContentSupport contentSupport;
     private final EmbeddingClient embeddingClient;
     private final MaterialProperties properties;
+    private final MaterialSearchSyncLifecycleService lifecycleService;
     private final Executor materialIndexingExecutor;
     private final AtomicBoolean drainScheduled = new AtomicBoolean(false);
 
     public MaterialIndexingService(
-        MaterialCatalogRepository catalogRepository,
+        MaterialChunkingRepository chunkingRepository,
         MaterialIndexingQueueRepository indexingQueueRepository,
         MaterialContentSupport contentSupport,
         EmbeddingClient embeddingClient,
         MaterialProperties properties,
+        MaterialSearchSyncLifecycleService lifecycleService,
         @Qualifier("materialIndexingExecutor") Executor materialIndexingExecutor
     ) {
-        this.catalogRepository = catalogRepository;
+        this.chunkingRepository = chunkingRepository;
         this.indexingQueueRepository = indexingQueueRepository;
         this.contentSupport = contentSupport;
         this.embeddingClient = embeddingClient;
         this.properties = properties;
+        this.lifecycleService = lifecycleService;
         this.materialIndexingExecutor = materialIndexingExecutor;
     }
 
@@ -90,14 +94,22 @@ public class MaterialIndexingService {
     private void processLease(MaterialIndexingLease lease) {
         StoredMaterialRecord record = lease.record();
         try {
-            List<StoredMaterialChunk> rawChunks = catalogRepository.findChunks(record.id());
+            List<StoredMaterialChunk> rawChunks = chunkingRepository.findChunks(record.id());
             if (rawChunks.isEmpty()) {
-                rawChunks = contentSupport.normalizeChunks(
-                    List.of(),
-                    record.content(),
-                    contentSupport.normalizeExtractor(record.extractor()),
-                    Boolean.TRUE.equals(record.ocrUsed())
-                );
+                List<StoredMaterialSegment> storedSegments = chunkingRepository.findSegments(record.id());
+                if (!storedSegments.isEmpty()) {
+                    rawChunks = contentSupport.buildChunks(
+                        storedSegments,
+                        contentSupport.resolveChunkProfile(chunkingRepository.findChunkProfile(record.id()))
+                    );
+                } else {
+                    rawChunks = contentSupport.normalizeChunks(
+                        List.of(),
+                        record.content(),
+                        contentSupport.normalizeExtractor(record.extractor()),
+                        Boolean.TRUE.equals(record.ocrUsed())
+                    );
+                }
             }
 
             List<StoredEmbeddedMaterialChunk> embeddedChunks = embedChunks(rawChunks);
@@ -107,7 +119,7 @@ public class MaterialIndexingService {
                 ? MaterialIndexingStatus.READY
                 : MaterialIndexingStatus.PARTIAL_READY;
 
-            indexingQueueRepository.markIndexingReady(
+            lifecycleService.markIndexingReady(
                 record.id(),
                 embeddedChunks,
                 successStatus,
@@ -192,7 +204,13 @@ public class MaterialIndexingService {
                 chunk.page(),
                 contentSupport.normalizeExtractor(chunk.extractor()),
                 Boolean.TRUE.equals(chunk.ocrUsed()),
-                embeddings.get(index)
+                embeddings.get(index),
+                chunk.chunkType(),
+                chunk.sectionPath(),
+                chunk.headingTrail(),
+                chunk.tableId(),
+                chunk.slideId(),
+                chunk.parserConfidence()
             ));
         }
         return embeddedChunks;

@@ -4,5 +4,5 @@ public interface DocumentTextExtractionStrategy {
 
     boolean supports(String originalFileName, String mediaType);
 
-    ExtractedDocument extract(String originalFileName, String mediaType, byte[] bytes);
+    DocumentParseResult extract(String originalFileName, String mediaType, byte[] bytes);
 }

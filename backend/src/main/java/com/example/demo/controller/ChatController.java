@@ -3,10 +3,8 @@ package com.example.demo.controller;
 import com.example.demo.api.ApiException;
 import com.example.demo.model.ChatExecutionRequest;
 import com.example.demo.model.ChatExecutionResponse;
-import com.example.demo.model.InstructionDetail;
 import com.example.demo.model.OllamaModelInfo;
 import com.example.demo.service.ChatExecutionService;
-import com.example.demo.service.InstructionService;
 import com.example.demo.service.ModelCatalogService;
 import java.util.List;
 import org.springframework.http.HttpStatus;
@@ -21,16 +19,13 @@ import org.springframework.web.bind.annotation.RestController;
 public class ChatController {
 
     private final ChatExecutionService chatExecutionService;
-    private final InstructionService instructionService;
     private final ModelCatalogService modelCatalogService;
 
     public ChatController(
         ChatExecutionService chatExecutionService,
-        InstructionService instructionService,
         ModelCatalogService modelCatalogService
     ) {
         this.chatExecutionService = chatExecutionService;
-        this.instructionService = instructionService;
         this.modelCatalogService = modelCatalogService;
     }
 
@@ -48,7 +43,6 @@ public class ChatController {
                 "Request payload is required"
             );
         }
-        List<InstructionDetail> instructions = instructionService.findInstructionsByIds(request.instructionIds());
-        return chatExecutionService.execute(request, instructions);
+        return chatExecutionService.execute(request);
     }
 }

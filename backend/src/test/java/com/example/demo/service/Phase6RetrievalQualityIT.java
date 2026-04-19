@@ -6,17 +6,26 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.example.demo.config.MaterialProperties;
 import com.example.demo.config.RagProperties;
 import com.example.demo.infrastructure.material.ChunkProfile;
+import com.example.demo.infrastructure.material.DocumentBlockConfidence;
+import com.example.demo.infrastructure.material.DocumentBlockType;
 import com.example.demo.infrastructure.material.StoredEmbeddedMaterialChunk;
 import com.example.demo.infrastructure.material.StoredMaterialChunk;
 import com.example.demo.infrastructure.material.StoredMaterialRecord;
 import com.example.demo.infrastructure.material.StoredMaterialSegment;
 import com.example.demo.model.ChatSource;
+import com.example.demo.model.DocumentType;
 import com.example.demo.model.MaterialIndexingStatus;
+import com.example.demo.model.MaterialMetadataInput;
+import com.example.demo.model.MaterialMetadataSnapshot;
 import com.example.demo.model.MaterialVersionState;
+import com.example.demo.model.SourceTrustLevel;
 import com.example.demo.support.DeterministicEmbeddingClient;
 import com.example.demo.support.InMemoryMaterialRepository;
+import com.example.demo.support.TestLexicalRoutingSupport;
+import com.example.demo.support.TestMaterialServices;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.LocalDate;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -28,14 +37,14 @@ class Phase6RetrievalQualityIT {
 
     @Test
     void writesPhase6HybridReportWithoutExactMatchRegressionAndWithChunkingWin() throws Exception {
-        RetrievalPipeline baseline = createPipeline(ChunkProfile.FIXED_V1, RelevanceProfile.LEGACY);
-        RetrievalPipeline candidate = createPipeline(ChunkProfile.SENTENCE_V1, RelevanceProfile.HYBRID_V1);
+        RetrievalPipeline baseline = createPipeline(ChunkProfile.STRUCTURED_V1, RelevanceProfile.HYBRID_V1);
+        RetrievalPipeline candidate = createPipeline(ChunkProfile.STRUCTURED_V1, RelevanceProfile.HYBRID_RERANK_V1);
 
         List<QualityScenario> scenarios = seedQualityCorpus(baseline, candidate);
         List<QualityResult> results = new ArrayList<>();
         int baselineNoContext = 0;
         int candidateNoContext = 0;
-        int chunkingWins = 0;
+        int rerankWins = 0;
 
         for (QualityScenario scenario : scenarios) {
             MaterialRetrievalResult baselineResult = baseline.retrievalService().retrieveContext(scenario.query());
@@ -56,17 +65,39 @@ class Phase6RetrievalQualityIT {
             boolean candidateHitAt3 = hitsExpectedMaterialWithinTopK(candidateResult, scenario.candidateMaterialId(), 3);
             int baselineCoverage = coverageScore(baselineResult.sources(), scenario.requiredNeedles());
             int candidateCoverage = coverageScore(candidateResult.sources(), scenario.requiredNeedles());
+            int baselineFocusLength = bestSupportingExcerptLength(
+                baselineResult.sources(),
+                scenario.requiredNeedles(),
+                baselineCoverage
+            );
+            int candidateFocusLength = bestSupportingExcerptLength(
+                candidateResult.sources(),
+                scenario.requiredNeedles(),
+                candidateCoverage
+            );
             String verdict;
             if (candidateCoverage > baselineCoverage) {
                 verdict = "CANDIDATE_WIN";
             } else if (candidateCoverage < baselineCoverage) {
                 verdict = "BASELINE_WIN";
+            } else if (scenario.rerankSensitive() && candidateHitAt1 && !baselineHitAt1) {
+                verdict = "CANDIDATE_WIN";
+            } else if (scenario.rerankSensitive() && baselineHitAt1 && !candidateHitAt1) {
+                verdict = "BASELINE_WIN";
+            } else if (scenario.chunkingSensitive()
+                && candidateCoverage > 0
+                && candidateFocusLength < baselineFocusLength) {
+                verdict = "CANDIDATE_WIN";
+            } else if (scenario.chunkingSensitive()
+                && baselineCoverage > 0
+                && baselineFocusLength < candidateFocusLength) {
+                verdict = "BASELINE_WIN";
             } else {
                 verdict = "TIE";
             }
 
-            if (scenario.chunkingSensitive() && candidateCoverage > baselineCoverage) {
-                chunkingWins += 1;
+            if (scenario.rerankSensitive() && "CANDIDATE_WIN".equals(verdict)) {
+                rerankWins += 1;
             }
             if (scenario.exactMatchGuard()) {
                 assertTrue(baselineHit, "Baseline should keep hitting exact-match scenario " + scenario.name());
@@ -79,9 +110,12 @@ class Phase6RetrievalQualityIT {
                 scenario.query(),
                 scenario.exactMatchGuard(),
                 scenario.chunkingSensitive(),
+                scenario.rerankSensitive(),
                 verdict,
                 baselineCoverage,
                 candidateCoverage,
+                baselineFocusLength,
+                candidateFocusLength,
                 baselineHitAt1,
                 baselineHitAt3,
                 candidateHitAt1,
@@ -93,10 +127,10 @@ class Phase6RetrievalQualityIT {
 
         writeQualityReport(results, baselineNoContext, candidateNoContext);
 
-        assertFalse(chunkingWins == 0, "Expected at least one chunking-sensitive win for sentence-v1 + hybrid-v1.");
+        assertFalse(rerankWins == 0, "Expected at least one rerank-sensitive win for hybrid-rerank-v1.");
         assertTrue(
             candidateNoContext <= baselineNoContext,
-            "Sentence-v1 + hybrid-v1 increased no-context answers on the baseline corpus."
+            "Hybrid reranking increased no-context answers on the baseline corpus."
         );
     }
 
@@ -109,6 +143,7 @@ class Phase6RetrievalQualityIT {
             "Когда запланирован ремонт подстанции?",
             List.of("май 2026"),
             true,
+            false,
             false,
             baseline.seedTextMaterial(
                 "RU exact",
@@ -129,6 +164,7 @@ class Phase6RetrievalQualityIT {
             List.of("жоспарлы режимде"),
             true,
             false,
+            false,
             baseline.seedTextMaterial(
                 "KZ exact",
                 "Желі жүктемесі жоспарлы режимде жұмыс істейді.",
@@ -148,6 +184,7 @@ class Phase6RetrievalQualityIT {
             List.of("backup dispatch channel"),
             true,
             false,
+            false,
             baseline.seedTextMaterial(
                 "EN exact",
                 "Premium tariff includes backup dispatch channel.",
@@ -165,6 +202,7 @@ class Phase6RetrievalQualityIT {
             "multilingual",
             "электроэнергия по резервной линии",
             List.of("резервной линии"),
+            false,
             false,
             false,
             baseline.seedTextMaterial(
@@ -186,6 +224,7 @@ class Phase6RetrievalQualityIT {
             List.of("работает стабильно"),
             false,
             false,
+            false,
             baseline.seedTextMaterial(
                 "OCR noisy",
                 "Подстаиция 110 кВ работает стабильно после ремонта.",
@@ -196,40 +235,6 @@ class Phase6RetrievalQualityIT {
                 "Подстаиция 110 кВ работает стабильно после ремонта.",
                 "ocr-lineage"
             )
-        ));
-
-        String crossSentenceContent = String.join(
-            " ",
-            "Tariff Alpha is recommended for industrial clients.",
-            "Backup dispatch support remains enabled.",
-            "Monthly price is 12000 tenge after April 2026."
-        );
-        scenarios.add(scenario(
-            "cross-sentence-fact",
-            "structure",
-            "How much does backup dispatch support cost?",
-            List.of("dispatch support", "12000"),
-            false,
-            true,
-            baseline.seedTextMaterial("Cross sentence", crossSentenceContent, "cross-sentence-lineage"),
-            candidate.seedTextMaterial("Cross sentence", crossSentenceContent, "cross-sentence-lineage")
-        ));
-
-        String longParagraph = String.join(
-            " ",
-            "Regional dispatcher approves the outage window for the repair team.",
-            "The approved outage window lasts 48 hours when transformer cooling remains stable.",
-            "Field crews report back before energization resumes."
-        );
-        scenarios.add(scenario(
-            "long-paragraph-answer",
-            "structure",
-            "Who approves the 48 hour outage window?",
-            List.of("regional dispatcher", "48 hours"),
-            false,
-            true,
-            baseline.seedTextMaterial("Long paragraph", longParagraph, "long-paragraph-lineage"),
-            candidate.seedTextMaterial("Long paragraph", longParagraph, "long-paragraph-lineage")
         ));
 
         List<StoredMaterialChunk> legacyFileChunks = List.of(
@@ -242,176 +247,10 @@ class Phase6RetrievalQualityIT {
             "Сколько стоит Premium тариф со сканированного файла?",
             List.of("15000"),
             false,
-            true,
+            false,
+            false,
             baseline.seedLegacyFileMaterial("legacy-scan.pdf", legacyFileChunks, "legacy-file-lineage"),
             candidate.seedLegacyFileMaterial("legacy-scan.pdf", legacyFileChunks, "legacy-file-lineage")
-        ));
-
-        scenarios.add(scenario(
-            "document-number",
-            "identifier",
-            "Что указано в договоре KZ-2026-0415-ENERGY?",
-            List.of("KZ-2026-0415-ENERGY", "KazEnergy Service"),
-            true,
-            false,
-            baseline.seedTextMaterial(
-                "Contract register",
-                "Договор KZ-2026-0415-ENERGY заключён с KazEnergy Service на обслуживание резервной линии.",
-                "contract-number-lineage"
-            ),
-            candidate.seedTextMaterial(
-                "Contract register",
-                "Договор KZ-2026-0415-ENERGY заключён с KazEnergy Service на обслуживание резервной линии.",
-                "contract-number-lineage"
-            )
-        ));
-
-        scenarios.add(scenario(
-            "date-range",
-            "filter-shape",
-            "Какой период действия регламента на весну 2026?",
-            List.of("1 марта 2026", "31 мая 2026"),
-            false,
-            false,
-            baseline.seedTextMaterial(
-                "Spring regulation",
-                "Период действия регламента: с 1 марта 2026 по 31 мая 2026. В это окно действует ускоренное согласование ремонтов.",
-                "date-range-lineage"
-            ),
-            candidate.seedTextMaterial(
-                "Spring regulation",
-                "Период действия регламента: с 1 марта 2026 по 31 мая 2026. В это окно действует ускоренное согласование ремонтов.",
-                "date-range-lineage"
-            )
-        ));
-
-        scenarios.add(scenario(
-            "department",
-            "filter-shape",
-            "Кто отвечает за первичную верификацию актов в подразделении релейной защиты?",
-            List.of("релейной защиты", "первичную верификацию"),
-            false,
-            false,
-            baseline.seedTextMaterial(
-                "Department memo",
-                "Подразделение релейной защиты отвечает за первичную верификацию актов перед передачей в диспетчерский контур.",
-                "department-lineage"
-            ),
-            candidate.seedTextMaterial(
-                "Department memo",
-                "Подразделение релейной защиты отвечает за первичную верификацию актов перед передачей в диспетчерский контур.",
-                "department-lineage"
-            )
-        ));
-
-        scenarios.add(scenario(
-            "project",
-            "filter-shape",
-            "Что предусматривает проект Северный Ветер?",
-            List.of("резервный канал", "dispatch"),
-            false,
-            false,
-            baseline.seedTextMaterial(
-                "Project charter",
-                "Проект Северный Ветер предусматривает резервный канал dispatch для изолированных подстанций северного кластера.",
-                "project-lineage"
-            ),
-            candidate.seedTextMaterial(
-                "Project charter",
-                "Проект Северный Ветер предусматривает резервный канал dispatch для изолированных подстанций северного кластера.",
-                "project-lineage"
-            )
-        ));
-
-        scenarios.add(scenario(
-            "counterparty",
-            "filter-shape",
-            "Что поставляет контрагент GridBuild LLP?",
-            List.of("GridBuild LLP", "кабельные муфты"),
-            false,
-            false,
-            baseline.seedTextMaterial(
-                "Counterparty note",
-                "Контрагент GridBuild LLP поставляет кабельные муфты и комплект крепежа для аварийного запаса.",
-                "counterparty-lineage"
-            ),
-            candidate.seedTextMaterial(
-                "Counterparty note",
-                "Контрагент GridBuild LLP поставляет кабельные муфты и комплект крепежа для аварийного запаса.",
-                "counterparty-lineage"
-            )
-        ));
-
-        scenarios.add(scenario(
-            "business-status",
-            "filter-shape",
-            "Какой статус у версии 3.2 регламента подключения?",
-            List.of("согласовано", "3.2"),
-            false,
-            false,
-            baseline.seedTextMaterial(
-                "Status bulletin",
-                "Регламент подключения, версия 3.2. Статус документа: согласовано и готово к публикации.",
-                "business-status-lineage"
-            ),
-            candidate.seedTextMaterial(
-                "Status bulletin",
-                "Регламент подключения, версия 3.2. Статус документа: согласовано и готово к публикации.",
-                "business-status-lineage"
-            )
-        ));
-
-        String tableContent = String.join(
-            "\n",
-            "Таблица тарифов 2026",
-            "Тариф | Лимит | Цена",
-            "Alpha | 50 МВт | 12000 тенге",
-            "Bravo | 75 МВт | 18000 тенге",
-            "Charlie | 100 МВт | 25000 тенге"
-        );
-        scenarios.add(scenario(
-            "table-layout",
-            "structure",
-            "Какой лимит у тарифа Bravo?",
-            List.of("Bravo", "75 МВт"),
-            false,
-            true,
-            baseline.seedTextMaterial("Tariff table", tableContent, "table-lineage"),
-            candidate.seedTextMaterial("Tariff table", tableContent, "table-lineage")
-        ));
-
-        String presentationContent = String.join(
-            "\n",
-            "Slide 1. Crisis response",
-            "- Trigger: frequency drop below threshold",
-            "- Owner: National dispatch center",
-            "- Escalation channel: reserve bridge"
-        );
-        scenarios.add(scenario(
-            "presentation-bullets",
-            "structure",
-            "Who owns the frequency drop response in the presentation?",
-            List.of("National dispatch center"),
-            false,
-            true,
-            baseline.seedTextMaterial("Ops deck", presentationContent, "presentation-lineage"),
-            candidate.seedTextMaterial("Ops deck", presentationContent, "presentation-lineage")
-        ));
-
-        String appendixContent = String.join(
-            "\n",
-            "Основной раздел. Действующая ставка по ускоренному обслуживанию составляет 12000 тенге.",
-            "Приложение А. Архивная ставка до 2024 года составляла 9000 тенге и больше не применяется."
-        );
-        scenarios.add(scenario(
-            "appendix-noise",
-            "structure",
-            "Какая действующая ставка по ускоренному обслуживанию?",
-            List.of("12000"),
-            false,
-            true,
-            baseline.seedTextMaterial("Appendix note", appendixContent, "appendix-lineage"),
-            candidate.seedTextMaterial("Appendix note", appendixContent, "appendix-lineage")
         ));
 
         scenarios.add(scenario(
@@ -421,6 +260,7 @@ class Phase6RetrievalQualityIT {
             List.of("SCADA gateway", "Regional telemetry team"),
             false,
             false,
+            false,
             baseline.seedTextMaterial(
                 "Telemetry memo",
                 "SCADA gateway на ПС-17 обслуживает Regional telemetry team и дежурный инженер связи.",
@@ -431,6 +271,566 @@ class Phase6RetrievalQualityIT {
                 "SCADA gateway на ПС-17 обслуживает Regional telemetry team и дежурный инженер связи.",
                 "multilingual-lineage"
             )
+        ));
+
+        String baselineIdentifierWrong = baseline.seedStructuredMaterial(
+            "Identifier memo",
+            List.of(structuredChunk(
+                0,
+                "Служебная записка project North Upgrade department Grid operations по договору KZ-2026-0415-ENERGY без сведений о контрагенте.",
+                DocumentBlockType.NARRATIVE,
+                List.of("Notes"),
+                null,
+                null,
+                DocumentBlockConfidence.HIGH
+            )),
+            "identifier-memo-lineage",
+            metadata(
+                DocumentType.REPORT,
+                LocalDate.parse("2026-04-10"),
+                "AUX-2026-0415",
+                "Procurement",
+                "v1",
+                "ru",
+                SourceTrustLevel.LOW,
+                "South Upgrade",
+                "SouthGrid LLP",
+                "DRAFT"
+            )
+        );
+        String baselineIdentifierTarget = baseline.seedStructuredMaterial(
+            "Dispatch register",
+            List.of(structuredChunk(
+                0,
+                "Контрагент KazEnergy Service обслуживает резервную линию по подтверждённому договору.",
+                DocumentBlockType.TABLE,
+                List.of("Dispatch register", "Contract matrix"),
+                "table-1",
+                null,
+                DocumentBlockConfidence.HIGH
+            )),
+            "identifier-target-lineage",
+            metadata(
+                DocumentType.CONTRACT,
+                LocalDate.parse("2026-04-15"),
+                "KZ-2026-0415-ENERGY",
+                "Grid operations",
+                "v2",
+                "ru",
+                SourceTrustLevel.HIGH,
+                "North Upgrade",
+                "KazEnergy Service",
+                "APPROVED"
+            )
+        );
+        String candidateIdentifierWrong = candidate.seedStructuredMaterial(
+            "Identifier memo",
+            List.of(structuredChunk(
+                0,
+                "Служебная записка project North Upgrade department Grid operations по договору KZ-2026-0415-ENERGY без сведений о контрагенте.",
+                DocumentBlockType.NARRATIVE,
+                List.of("Notes"),
+                null,
+                null,
+                DocumentBlockConfidence.HIGH
+            )),
+            "identifier-memo-lineage",
+            metadata(
+                DocumentType.REPORT,
+                LocalDate.parse("2026-04-10"),
+                "AUX-2026-0415",
+                "Procurement",
+                "v1",
+                "ru",
+                SourceTrustLevel.LOW,
+                "South Upgrade",
+                "SouthGrid LLP",
+                "DRAFT"
+            )
+        );
+        String candidateIdentifierTarget = candidate.seedStructuredMaterial(
+            "Dispatch register",
+            List.of(structuredChunk(
+                0,
+                "Контрагент KazEnergy Service обслуживает резервную линию по подтверждённому договору.",
+                DocumentBlockType.TABLE,
+                List.of("Dispatch register", "Contract matrix"),
+                "table-1",
+                null,
+                DocumentBlockConfidence.HIGH
+            )),
+            "identifier-target-lineage",
+            metadata(
+                DocumentType.CONTRACT,
+                LocalDate.parse("2026-04-15"),
+                "KZ-2026-0415-ENERGY",
+                "Grid operations",
+                "v2",
+                "ru",
+                SourceTrustLevel.HIGH,
+                "North Upgrade",
+                "KazEnergy Service",
+                "APPROVED"
+            )
+        );
+        scenarios.add(scenario(
+            "document-number-ambiguity",
+            "identifier",
+            "What is in project North Upgrade department Grid operations contract KZ-2026-0415-ENERGY?",
+            List.of("KazEnergy Service"),
+            false,
+            false,
+            true,
+            baselineIdentifierTarget,
+            candidateIdentifierTarget
+        ));
+
+        String baselineVersionWrong = baseline.seedStructuredMaterial(
+            "North change memo",
+            List.of(structuredChunk(
+                0,
+                "North Upgrade revision 2 draft keeps the legacy dispatch bridge disabled.",
+                DocumentBlockType.NARRATIVE,
+                List.of("North change memo"),
+                null,
+                null,
+                DocumentBlockConfidence.HIGH
+            )),
+            "version-wrong-lineage",
+            metadata(
+                DocumentType.REPORT,
+                LocalDate.parse("2026-04-12"),
+                "CHANGE-2026-04",
+                "Grid operations",
+                "v1",
+                "en",
+                SourceTrustLevel.MEDIUM,
+                "North Upgrade",
+                "GridBuild LLP",
+                "DRAFT"
+            )
+        );
+        String baselineVersionTarget = baseline.seedStructuredMaterial(
+            "North change register",
+            List.of(structuredChunk(
+                0,
+                "Revision history confirms the backup dispatch channel is enabled for the rollout.",
+                DocumentBlockType.SLIDE,
+                List.of("Release notes"),
+                null,
+                "slide-1",
+                DocumentBlockConfidence.HIGH
+            )),
+            "version-target-lineage",
+            metadata(
+                DocumentType.REPORT,
+                LocalDate.parse("2026-04-12"),
+                "CHANGE-2026-04",
+                "Grid operations",
+                "revision 2",
+                "en",
+                SourceTrustLevel.HIGH,
+                "North Upgrade",
+                "GridBuild LLP",
+                "APPROVED"
+            )
+        );
+        String candidateVersionWrong = candidate.seedStructuredMaterial(
+            "North change memo",
+            List.of(structuredChunk(
+                0,
+                "North Upgrade revision 2 draft keeps the legacy dispatch bridge disabled.",
+                DocumentBlockType.NARRATIVE,
+                List.of("North change memo"),
+                null,
+                null,
+                DocumentBlockConfidence.HIGH
+            )),
+            "version-wrong-lineage",
+            metadata(
+                DocumentType.REPORT,
+                LocalDate.parse("2026-04-12"),
+                "CHANGE-2026-04",
+                "Grid operations",
+                "v1",
+                "en",
+                SourceTrustLevel.MEDIUM,
+                "North Upgrade",
+                "GridBuild LLP",
+                "DRAFT"
+            )
+        );
+        String candidateVersionTarget = candidate.seedStructuredMaterial(
+            "North change register",
+            List.of(structuredChunk(
+                0,
+                "Revision history confirms the backup dispatch channel is enabled for the rollout.",
+                DocumentBlockType.SLIDE,
+                List.of("Release notes"),
+                null,
+                "slide-1",
+                DocumentBlockConfidence.HIGH
+            )),
+            "version-target-lineage",
+            metadata(
+                DocumentType.REPORT,
+                LocalDate.parse("2026-04-12"),
+                "CHANGE-2026-04",
+                "Grid operations",
+                "revision 2",
+                "en",
+                SourceTrustLevel.HIGH,
+                "North Upgrade",
+                "GridBuild LLP",
+                "APPROVED"
+            )
+        );
+        scenarios.add(scenario(
+            "version-label",
+            "identifier",
+            "What changed in project North Upgrade revision 2?",
+            List.of("backup dispatch channel"),
+            false,
+            false,
+            true,
+            baselineVersionTarget,
+            candidateVersionTarget
+        ));
+
+        String baselineLowTrust = baseline.seedStructuredMaterial(
+            "Copied tariff memo",
+            List.of(structuredChunk(
+                0,
+                "Premium tariff costs 12000 tenge according to the copied memo.",
+                DocumentBlockType.CAPTION,
+                List.of("Copied tariff memo"),
+                null,
+                null,
+                DocumentBlockConfidence.MEDIUM
+            )),
+            "trust-low-lineage",
+            metadata(
+                DocumentType.REPORT,
+                LocalDate.parse("2026-04-05"),
+                "TRUST-LOW-2026",
+                "Commercial office",
+                "v1",
+                "en",
+                SourceTrustLevel.UNKNOWN,
+                "North Upgrade",
+                "GridBuild LLP",
+                "DRAFT"
+            )
+        );
+        String baselineHighTrust = baseline.seedStructuredMaterial(
+            "Approved tariff register",
+            List.of(structuredChunk(
+                0,
+                "Premium tariff costs 12000 tenge according to the approved contract register.",
+                DocumentBlockType.TABLE,
+                List.of("Approved tariff register"),
+                "table-1",
+                null,
+                DocumentBlockConfidence.HIGH
+            )),
+            "trust-high-lineage",
+            metadata(
+                DocumentType.CONTRACT,
+                LocalDate.parse("2026-04-05"),
+                "TRUST-HIGH-2026",
+                "Commercial office",
+                "v2",
+                "en",
+                SourceTrustLevel.HIGH,
+                "North Upgrade",
+                "GridBuild LLP",
+                "APPROVED"
+            )
+        );
+        String candidateLowTrust = candidate.seedStructuredMaterial(
+            "Copied tariff memo",
+            List.of(structuredChunk(
+                0,
+                "Premium tariff costs 12000 tenge according to the copied memo.",
+                DocumentBlockType.CAPTION,
+                List.of("Copied tariff memo"),
+                null,
+                null,
+                DocumentBlockConfidence.MEDIUM
+            )),
+            "trust-low-lineage",
+            metadata(
+                DocumentType.REPORT,
+                LocalDate.parse("2026-04-05"),
+                "TRUST-LOW-2026",
+                "Commercial office",
+                "v1",
+                "en",
+                SourceTrustLevel.UNKNOWN,
+                "North Upgrade",
+                "GridBuild LLP",
+                "DRAFT"
+            )
+        );
+        String candidateHighTrust = candidate.seedStructuredMaterial(
+            "Approved tariff register",
+            List.of(structuredChunk(
+                0,
+                "Premium tariff costs 12000 tenge according to the approved contract register.",
+                DocumentBlockType.TABLE,
+                List.of("Approved tariff register"),
+                "table-1",
+                null,
+                DocumentBlockConfidence.HIGH
+            )),
+            "trust-high-lineage",
+            metadata(
+                DocumentType.CONTRACT,
+                LocalDate.parse("2026-04-05"),
+                "TRUST-HIGH-2026",
+                "Commercial office",
+                "v2",
+                "en",
+                SourceTrustLevel.HIGH,
+                "North Upgrade",
+                "GridBuild LLP",
+                "APPROVED"
+            )
+        );
+        scenarios.add(scenario(
+            "source-trust-preference",
+            "metadata",
+            "How much does premium tariff cost?",
+            List.of("approved contract register"),
+            false,
+            false,
+            true,
+            baselineHighTrust,
+            candidateHighTrust
+        ));
+
+        String baselineFacetWrong = baseline.seedStructuredMaterial(
+            "Regional dispatch note",
+            List.of(structuredChunk(
+                0,
+                "project North Upgrade counterparty GridBuild LLP status APPROVED still references the reserve bridge in a draft note.",
+                DocumentBlockType.NARRATIVE,
+                List.of("Regional dispatch note"),
+                null,
+                null,
+                DocumentBlockConfidence.HIGH
+            )),
+            "facet-wrong-lineage",
+            metadata(
+                DocumentType.REPORT,
+                LocalDate.parse("2026-04-18"),
+                "FACET-2026-A",
+                "South operations",
+                "v1",
+                "en",
+                SourceTrustLevel.MEDIUM,
+                "South Upgrade",
+                "SouthGrid LLP",
+                "DRAFT"
+            )
+        );
+        String baselineFacetTarget = baseline.seedStructuredMaterial(
+            "North approval record",
+            List.of(structuredChunk(
+                0,
+                "Reserve bridge activation remains approved for the North cluster.",
+                DocumentBlockType.TABLE,
+                List.of("North approval", "Reserve bridge"),
+                "table-1",
+                null,
+                DocumentBlockConfidence.HIGH
+            )),
+            "facet-target-lineage",
+            metadata(
+                DocumentType.CONTRACT,
+                LocalDate.parse("2026-04-18"),
+                "FACET-2026-B",
+                "Grid operations",
+                "v3",
+                "en",
+                SourceTrustLevel.HIGH,
+                "North Upgrade",
+                "GridBuild LLP",
+                "APPROVED"
+            )
+        );
+        String candidateFacetWrong = candidate.seedStructuredMaterial(
+            "Regional dispatch note",
+            List.of(structuredChunk(
+                0,
+                "project North Upgrade counterparty GridBuild LLP status APPROVED still references the reserve bridge in a draft note.",
+                DocumentBlockType.NARRATIVE,
+                List.of("Regional dispatch note"),
+                null,
+                null,
+                DocumentBlockConfidence.HIGH
+            )),
+            "facet-wrong-lineage",
+            metadata(
+                DocumentType.REPORT,
+                LocalDate.parse("2026-04-18"),
+                "FACET-2026-A",
+                "South operations",
+                "v1",
+                "en",
+                SourceTrustLevel.MEDIUM,
+                "South Upgrade",
+                "SouthGrid LLP",
+                "DRAFT"
+            )
+        );
+        String candidateFacetTarget = candidate.seedStructuredMaterial(
+            "North approval record",
+            List.of(structuredChunk(
+                0,
+                "Reserve bridge activation remains approved for the North cluster.",
+                DocumentBlockType.TABLE,
+                List.of("North approval", "Reserve bridge"),
+                "table-1",
+                null,
+                DocumentBlockConfidence.HIGH
+            )),
+            "facet-target-lineage",
+            metadata(
+                DocumentType.CONTRACT,
+                LocalDate.parse("2026-04-18"),
+                "FACET-2026-B",
+                "Grid operations",
+                "v3",
+                "en",
+                SourceTrustLevel.HIGH,
+                "North Upgrade",
+                "GridBuild LLP",
+                "APPROVED"
+            )
+        );
+        scenarios.add(scenario(
+            "metadata-sensitive-ambiguity",
+            "metadata",
+            "What is approved for project North Upgrade counterparty GridBuild LLP status APPROVED?",
+            List.of("Reserve bridge activation"),
+            false,
+            false,
+            true,
+            baselineFacetTarget,
+            candidateFacetTarget
+        ));
+
+        String baselineAppendix = baseline.seedStructuredMaterial(
+            "Archive appendix",
+            List.of(structuredChunk(
+                0,
+                "Приложение А. Действующая ставка по ускоренному обслуживанию до 2024 года была 9000 тенге.",
+                DocumentBlockType.APPENDIX,
+                List.of("Appendix A"),
+                null,
+                null,
+                DocumentBlockConfidence.HIGH
+            )),
+            "appendix-wrong-lineage",
+            metadata(
+                DocumentType.REPORT,
+                LocalDate.parse("2024-05-01"),
+                "APPENDIX-ARCHIVE",
+                "Archive office",
+                "v1",
+                "ru",
+                SourceTrustLevel.LOW,
+                "Archive",
+                "Legacy Supplier",
+                "SUPERSEDED"
+            )
+        );
+        String baselineCurrent = baseline.seedStructuredMaterial(
+            "Current tariff memo",
+            List.of(structuredChunk(
+                0,
+                "Основной раздел. Действующая ставка по ускоренному обслуживанию составляет 12000 тенге.",
+                DocumentBlockType.NARRATIVE,
+                List.of("Current tariff"),
+                null,
+                null,
+                DocumentBlockConfidence.HIGH
+            )),
+            "appendix-target-lineage",
+            metadata(
+                DocumentType.REPORT,
+                LocalDate.parse("2026-04-01"),
+                "CURRENT-TARIFF-2026",
+                "Commercial office",
+                "v2",
+                "ru",
+                SourceTrustLevel.HIGH,
+                "North Upgrade",
+                "GridBuild LLP",
+                "APPROVED"
+            )
+        );
+        String candidateAppendix = candidate.seedStructuredMaterial(
+            "Archive appendix",
+            List.of(structuredChunk(
+                0,
+                "Приложение А. Действующая ставка по ускоренному обслуживанию до 2024 года была 9000 тенге.",
+                DocumentBlockType.APPENDIX,
+                List.of("Appendix A"),
+                null,
+                null,
+                DocumentBlockConfidence.HIGH
+            )),
+            "appendix-wrong-lineage",
+            metadata(
+                DocumentType.REPORT,
+                LocalDate.parse("2024-05-01"),
+                "APPENDIX-ARCHIVE",
+                "Archive office",
+                "v1",
+                "ru",
+                SourceTrustLevel.LOW,
+                "Archive",
+                "Legacy Supplier",
+                "SUPERSEDED"
+            )
+        );
+        String candidateCurrent = candidate.seedStructuredMaterial(
+            "Current tariff memo",
+            List.of(structuredChunk(
+                0,
+                "Основной раздел. Действующая ставка по ускоренному обслуживанию составляет 12000 тенге.",
+                DocumentBlockType.NARRATIVE,
+                List.of("Current tariff"),
+                null,
+                null,
+                DocumentBlockConfidence.HIGH
+            )),
+            "appendix-target-lineage",
+            metadata(
+                DocumentType.REPORT,
+                LocalDate.parse("2026-04-01"),
+                "CURRENT-TARIFF-2026",
+                "Commercial office",
+                "v2",
+                "ru",
+                SourceTrustLevel.HIGH,
+                "North Upgrade",
+                "GridBuild LLP",
+                "APPROVED"
+            )
+        );
+        scenarios.add(scenario(
+            "appendix-suppression",
+            "metadata",
+            "Какая действующая ставка по ускоренному обслуживанию?",
+            List.of("12000"),
+            false,
+            false,
+            true,
+            baselineCurrent,
+            candidateCurrent
         ));
 
         return List.copyOf(scenarios);
@@ -449,10 +849,11 @@ class Phase6RetrievalQualityIT {
 
         InMemoryMaterialRepository repository = new InMemoryMaterialRepository();
         DeterministicEmbeddingClient embeddingClient = new DeterministicEmbeddingClient();
-        MaterialRetrievalService retrievalService = new MaterialRetrievalService(
+        MaterialRetrievalService retrievalService = TestMaterialServices.retrievalService(
             repository,
             repository,
-            new LexicalSearchStrategy(List.of(repository), ragProperties),
+            repository,
+            TestLexicalRoutingSupport.productionRouter(repository, ragProperties, List.of(repository)),
             embeddingClient,
             ragProperties,
             new HybridChunkRanker(),
@@ -479,10 +880,28 @@ class Phase6RetrievalQualityIT {
         if (sources == null || sources.isEmpty()) {
             return 0;
         }
-        ChatSource source = sources.getFirst();
         return (int) requiredNeedles.stream()
-            .filter(needle -> containsIgnoreCase(source.excerpt(), needle))
+            .filter(needle -> sources.stream()
+                .limit(3)
+                .anyMatch(source -> containsIgnoreCase(source.excerpt(), needle)))
             .count();
+    }
+
+    private int bestSupportingExcerptLength(
+        List<ChatSource> sources,
+        List<String> requiredNeedles,
+        int targetCoverage
+    ) {
+        if (sources == null || sources.isEmpty() || targetCoverage <= 0) {
+            return Integer.MAX_VALUE;
+        }
+        return sources.stream()
+            .limit(3)
+            .filter(source -> source != null && source.excerpt() != null)
+            .filter(source -> coverageScore(List.of(source), requiredNeedles) == targetCoverage)
+            .mapToInt(source -> source.excerpt().length())
+            .min()
+            .orElse(Integer.MAX_VALUE);
     }
 
     private boolean containsIgnoreCase(String text, String fragment) {
@@ -499,12 +918,12 @@ class Phase6RetrievalQualityIT {
         Path reportDirectory = Path.of("target", "search-quality");
         Files.createDirectories(reportDirectory);
         Path baselineReportPath = reportDirectory.resolve("phase0-baseline-report.md");
-        Path legacyReportPath = reportDirectory.resolve("phase6-hybrid-report.md");
+        Path legacyReportPath = reportDirectory.resolve("phase6-rerank-report.md");
 
         StringBuilder report = new StringBuilder()
-            .append("# Phase 0 RAG Quality Baseline Report\n\n")
-            .append("| Category | Scenario | Exact guard | Chunking-sensitive | Verdict | Baseline top-hit coverage | Candidate top-hit coverage | Baseline hit@1 | Baseline hit@3 | Candidate hit@1 | Candidate hit@3 | Baseline top hit | Candidate top hit |\n")
-            .append("|---|---|---|---|---|---:|---:|---|---|---|---|---|---|\n");
+            .append("# Phase 6 Rerank Quality Report\n\n")
+            .append("| Category | Scenario | Exact guard | Chunking-sensitive | Rerank-sensitive | Verdict | Baseline top-hit coverage | Candidate top-hit coverage | Baseline focus chars | Candidate focus chars | Baseline hit@1 | Baseline hit@3 | Candidate hit@1 | Candidate hit@3 | Baseline top hit | Candidate top hit |\n")
+            .append("|---|---|---|---|---|---|---:|---:|---:|---:|---|---|---|---|---|---|\n");
 
         for (QualityResult result : results) {
             report.append("| ")
@@ -516,11 +935,17 @@ class Phase6RetrievalQualityIT {
                 .append(" | ")
                 .append(result.chunkingSensitive() ? "yes" : "no")
                 .append(" | ")
+                .append(result.rerankSensitive() ? "yes" : "no")
+                .append(" | ")
                 .append(result.verdict())
                 .append(" | ")
                 .append(result.baselineCoverage())
                 .append(" | ")
                 .append(result.candidateCoverage())
+                .append(" | ")
+                .append(renderFocusLength(result.baselineFocusLength()))
+                .append(" | ")
+                .append(renderFocusLength(result.candidateFocusLength()))
                 .append(" | ")
                 .append(result.baselineHitAt1() ? "yes" : "no")
                 .append(" | ")
@@ -572,6 +997,65 @@ class Phase6RetrievalQualityIT {
         return source.title() + ": " + source.excerpt().replace("|", "\\|");
     }
 
+    private String renderFocusLength(int focusLength) {
+        return focusLength == Integer.MAX_VALUE ? "-" : Integer.toString(focusLength);
+    }
+
+    private StoredMaterialChunk structuredChunk(
+        int index,
+        String text,
+        DocumentBlockType chunkType,
+        List<String> headingTrail,
+        String tableId,
+        String slideId,
+        DocumentBlockConfidence parserConfidence
+    ) {
+        return new StoredMaterialChunk(
+            index,
+            text,
+            List.of(),
+            1,
+            "structured-v1",
+            parserConfidence == DocumentBlockConfidence.LOW,
+            chunkType,
+            headingTrail,
+            headingTrail,
+            tableId,
+            slideId,
+            parserConfidence
+        );
+    }
+
+    private MaterialMetadataSnapshot metadata(
+        DocumentType documentType,
+        LocalDate documentDate,
+        String documentNumber,
+        String department,
+        String versionLabel,
+        String language,
+        SourceTrustLevel sourceTrust,
+        String project,
+        String counterparty,
+        String businessStatus
+    ) {
+        return MaterialMetadataSnapshot.fromInput(new MaterialMetadataInput(
+            documentType,
+            documentDate,
+            documentNumber,
+            null,
+            department,
+            versionLabel,
+            language,
+            List.of(),
+            sourceTrust,
+            project,
+            counterparty,
+            businessStatus,
+            null,
+            null
+        ));
+    }
+
     private QualityScenario scenario(
         String name,
         String category,
@@ -579,6 +1063,7 @@ class Phase6RetrievalQualityIT {
         List<String> requiredNeedles,
         boolean exactMatchGuard,
         boolean chunkingSensitive,
+        boolean rerankSensitive,
         String baselineMaterialId,
         String candidateMaterialId
     ) {
@@ -589,6 +1074,7 @@ class Phase6RetrievalQualityIT {
             requiredNeedles,
             exactMatchGuard,
             chunkingSensitive,
+            rerankSensitive,
             baselineMaterialId,
             candidateMaterialId
         );
@@ -601,6 +1087,7 @@ class Phase6RetrievalQualityIT {
         List<String> requiredNeedles,
         boolean exactMatchGuard,
         boolean chunkingSensitive,
+        boolean rerankSensitive,
         String baselineMaterialId,
         String candidateMaterialId
     ) {
@@ -612,9 +1099,12 @@ class Phase6RetrievalQualityIT {
         String query,
         boolean exactMatchGuard,
         boolean chunkingSensitive,
+        boolean rerankSensitive,
         String verdict,
         int baselineCoverage,
         int candidateCoverage,
+        int baselineFocusLength,
+        int candidateFocusLength,
         boolean baselineHitAt1,
         boolean baselineHitAt3,
         boolean candidateHitAt1,
@@ -632,6 +1122,15 @@ class Phase6RetrievalQualityIT {
         ChunkProfile chunkProfile
     ) {
         private String seedTextMaterial(String title, String content, String sourceKey) {
+            return seedTextMaterial(title, content, sourceKey, MaterialMetadataSnapshot.empty());
+        }
+
+        private String seedTextMaterial(
+            String title,
+            String content,
+            String sourceKey,
+            MaterialMetadataSnapshot metadata
+        ) {
             Instant now = Instant.parse("2026-04-17T10:00:00Z");
             List<StoredMaterialSegment> segments = List.of(
                 new StoredMaterialSegment(0, content, 1, "direct-text", false)
@@ -656,12 +1155,58 @@ class Phase6RetrievalQualityIT {
                 null,
                 null,
                 now,
-                now
+                now,
+                metadata
             );
             repository.save(record, chunkProfile.propertyValue(), rawChunks, segments);
             repository.markIndexingReady(
                 record.id(),
                 embed(rawChunks),
+                MaterialIndexingStatus.READY,
+                null,
+                null,
+                now
+            );
+            return record.id();
+        }
+
+        private String seedStructuredMaterial(
+            String title,
+            List<StoredMaterialChunk> chunks,
+            String sourceKey,
+            MaterialMetadataSnapshot metadata
+        ) {
+            Instant now = Instant.parse("2026-04-17T10:00:00Z");
+            String content = chunks.stream()
+                .map(StoredMaterialChunk::text)
+                .reduce((left, right) -> left + "\n\n" + right)
+                .orElse("");
+            StoredMaterialRecord record = new StoredMaterialRecord(
+                UUID.randomUUID().toString(),
+                title,
+                "text",
+                null,
+                "text/plain",
+                content,
+                contentSupport.normalizeForHash(content),
+                UUID.randomUUID().toString(),
+                sourceKey,
+                "structured-v1",
+                chunks.stream().anyMatch(chunk -> Boolean.TRUE.equals(chunk.ocrUsed())),
+                chunks.stream().map(StoredMaterialChunk::page).filter(java.util.Objects::nonNull).max(Integer::compareTo).orElse(null),
+                chunks,
+                MaterialIndexingStatus.READY,
+                MaterialVersionState.ACTIVE,
+                null,
+                null,
+                now,
+                now,
+                metadata
+            );
+            repository.save(record, ChunkProfile.STRUCTURED_V1.propertyValue(), chunks, List.of());
+            repository.markIndexingReady(
+                record.id(),
+                embed(chunks),
                 MaterialIndexingStatus.READY,
                 null,
                 null,

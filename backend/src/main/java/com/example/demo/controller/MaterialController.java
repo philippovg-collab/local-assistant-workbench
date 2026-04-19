@@ -2,8 +2,13 @@ package com.example.demo.controller;
 
 import com.example.demo.api.ApiException;
 import com.example.demo.model.CreateTextMaterialRequest;
+import com.example.demo.model.MaterialMetadataInput;
 import com.example.demo.model.MaterialLineageResponse;
+import com.example.demo.model.MaterialDetail;
+import com.example.demo.model.RechunkActiveMaterialsBatchRequest;
+import com.example.demo.model.RechunkActiveMaterialsBatchResponse;
 import com.example.demo.model.MaterialUploadPolicyResponse;
+import com.example.demo.model.RechunkActiveMaterialsResponse;
 import com.example.demo.model.MaterialSummary;
 import com.example.demo.service.MaterialService;
 import java.util.UUID;
@@ -47,6 +52,11 @@ public class MaterialController {
         return materialService.getLineage(requireValidMaterialId(id));
     }
 
+    @GetMapping("/{id}")
+    public MaterialDetail getMaterial(@PathVariable String id) {
+        return materialService.getDetail(requireValidMaterialId(id));
+    }
+
     @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
     public MaterialSummary createTextMaterial(@RequestBody CreateTextMaterialRequest request) {
         if (request == null) {
@@ -56,15 +66,16 @@ public class MaterialController {
                 "Request payload is required"
             );
         }
-        return materialService.saveText(request.title(), request.content());
+        return materialService.saveText(request.title(), request.content(), request.metadata());
     }
 
     @PostMapping(path = "/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public MaterialSummary uploadMaterial(
         @RequestPart("file") MultipartFile file,
-        @RequestParam(required = false) String title
+        @RequestParam(required = false) String title,
+        @RequestPart(value = "metadata", required = false) MaterialMetadataInput metadata
     ) {
-        return materialService.saveUpload(title, file);
+        return materialService.saveUpload(title, file, metadata);
     }
 
     @DeleteMapping("/{id}")
@@ -75,6 +86,18 @@ public class MaterialController {
     @PostMapping("/{id}/reindex")
     public MaterialSummary reindexMaterial(@PathVariable String id) {
         return materialService.reindex(requireValidMaterialId(id));
+    }
+
+    @PostMapping("/rechunk-active")
+    public RechunkActiveMaterialsResponse rechunkActiveMaterials() {
+        return materialService.rechunkActiveMaterials();
+    }
+
+    @PostMapping(path = "/rechunk-active/batch", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public RechunkActiveMaterialsBatchResponse rechunkActiveMaterialsBatch(
+        @RequestBody(required = false) RechunkActiveMaterialsBatchRequest request
+    ) {
+        return materialService.rechunkActiveMaterialsBatch(request);
     }
 
     private String requireValidMaterialId(String id) {

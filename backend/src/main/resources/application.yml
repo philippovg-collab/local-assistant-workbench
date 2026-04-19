@@ -9,6 +9,10 @@ spring:
     username: "${SPRING_DATASOURCE_USERNAME:ragstudio}"
     password: "${SPRING_DATASOURCE_PASSWORD:ragstudio}"
     driver-class-name: org.postgresql.Driver
+  elasticsearch:
+    uris: "${SPRING_ELASTICSEARCH_URIS:http://127.0.0.1:9200}"
+    username: "${SPRING_ELASTICSEARCH_USERNAME:}"
+    password: "${SPRING_ELASTICSEARCH_PASSWORD:}"
   servlet:
     multipart:
       max-file-size: "${app.materials.max-upload-bytes:2000000}B"
@@ -21,7 +25,7 @@ app:
     base-url: http://127.0.0.1:11434
     model: qwen2.5:7b
     temperature: 0.2
-    timeout-seconds: 120
+    timeout-seconds: 600
     system-prompt: Ты локальная LLM модель. Отвечай по делу и понятно на русском языке.
   materials:
     max-upload-bytes: 2000000
@@ -29,6 +33,7 @@ app:
     chunk-size: 900
     chunk-overlap: 180
     max-chunks: 24
+    chunk-profile: structured-v1
     extraction-timeout-seconds: 10
     legacy-import-enabled: false
     indexing-lease-seconds: 120
@@ -54,7 +59,34 @@ app:
     semantic-candidate-limit: 12
     lexical-candidate-limit: 12
     final-context-limit: 4
+    rerank-candidate-limit: 12
     max-semantic-distance: 0.72
+    lexical-provider: postgres
+    relevance-profile: hybrid-rerank-v1
+    shadow-enabled: false
+    shadow-sample-percent: 10
+  rollout:
+    metadata-v1: false
+    structured-v1: false
+    metadata-filters-v1: false
+    search-api-v1: false
+    reranker-v1: false
+    query-hints-v1: false
   health:
     readiness-cache-seconds: 30
+  search-sync:
+    enabled: false
+    index-prefix: rag-chunks
+    index-version: v2
+    claim-batch-size: 32
+    claim-lease-seconds: 120
+    max-attempts: 3
+    retry-base-seconds: 5
+    retry-max-seconds: 60
+    max-outstanding-seconds: 120
+    max-failed-events-before-fallback: 0
+    health-snapshot-ttl-seconds: 15
+    operator:
+      wait-timeout-seconds: 300
+      poll-interval-millis: 250
   storage-dir: ./storage

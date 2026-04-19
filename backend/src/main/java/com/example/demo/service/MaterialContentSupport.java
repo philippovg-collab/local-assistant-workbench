@@ -2,11 +2,19 @@ package com.example.demo.service;
 
 import com.example.demo.api.ApiException;
 import com.example.demo.config.MaterialProperties;
+import com.example.demo.infrastructure.material.ChunkProfile;
+import com.example.demo.infrastructure.material.DocumentBlock;
+import com.example.demo.infrastructure.material.DocumentBlockBuilder;
+import com.example.demo.infrastructure.material.DocumentParseResult;
 import com.example.demo.infrastructure.material.ExtractedDocumentSegment;
+import com.example.demo.infrastructure.material.MaterialLineageIdentity;
+import com.example.demo.infrastructure.material.MaterialLineageIdentityKind;
 import com.example.demo.infrastructure.material.StoredMaterialChunk;
 import com.example.demo.infrastructure.material.StoredMaterialRecord;
+import com.example.demo.infrastructure.material.StoredMaterialSegment;
 import com.example.demo.model.MaterialIndexingStatus;
 import com.example.demo.model.MaterialLineageVersion;
+import com.example.demo.model.MaterialMetadataSnapshot;
 import com.example.demo.model.MaterialSummary;
 import com.example.demo.model.MaterialVersionState;
 import java.nio.charset.StandardCharsets;
@@ -14,10 +22,12 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.EnumMap;
 import java.util.HexFormat;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -29,13 +39,115 @@ import org.springframework.util.StringUtils;
 public class MaterialContentSupport {
 
     private static final Pattern NON_ALPHANUMERIC = Pattern.compile("[^\\p{L}\\p{N}]+");
+    private static final Pattern SECTION_OUTLINE_PREFIX = Pattern.compile(
+        "^(?:\\d+(?:\\.\\d+)+\\.?|\\d+[.)]|[A-Za-z][.)]|[IVXLCDMivxlcdm]+[.)])\\s+"
+    );
     private static final int CONTENT_ANCHOR_TOKEN_LIMIT = 12;
     private static final String DEFAULT_TEXT_TITLE = "text-material";
 
     private final MaterialProperties properties;
+    private final Map<ChunkProfile, ChunkingStrategy> chunkingStrategies;
 
     public MaterialContentSupport(MaterialProperties properties) {
         this.properties = properties;
+        this.chunkingStrategies = new EnumMap<>(ChunkProfile.class);
+        registerChunkingStrategy(new FixedChunkingStrategy());
+        registerChunkingStrategy(new SentenceChunkingStrategy());
+        registerChunkingStrategy(new StructuredChunkingStrategy());
+    }
+
+    public List<DocumentBlock> normalizeBlocks(List<DocumentBlock> blocks) {
+        if (blocks == null || blocks.isEmpty()) {
+            return List.of();
+        }
+
+        List<DocumentBlock> normalizedBlocks = new ArrayList<>();
+        int index = 0;
+        for (DocumentBlock block : blocks) {
+            if (block == null || !StringUtils.hasText(block.text())) {
+                continue;
+            }
+
+            String text = normalizeStoredContent(block.text());
+            if (!StringUtils.hasText(text)) {
+                continue;
+            }
+
+            normalizedBlocks.add(new DocumentBlock(
+                index++,
+                block.type(),
+                text,
+                block.page(),
+                normalizeExtractor(block.extractor()),
+                block.ocrUsed(),
+                block.confidence(),
+                block.level()
+            ));
+        }
+        return List.copyOf(normalizedBlocks);
+    }
+
+    public List<StoredMaterialSegment> toStoredSegments(DocumentParseResult parseResult) {
+        if (parseResult == null) {
+            return List.of();
+        }
+        return toStoredSegments(parseResult.blocks());
+    }
+
+    public List<StoredMaterialSegment> toStoredSegments(List<DocumentBlock> blocks) {
+        if (blocks == null || blocks.isEmpty()) {
+            return List.of();
+        }
+
+        List<DocumentBlock> normalizedBlocks = normalizeBlocks(blocks);
+        if (normalizedBlocks.isEmpty()) {
+            return List.of();
+        }
+
+        List<StoredMaterialSegment> segments = new ArrayList<>();
+        int index = 0;
+        for (DocumentBlock block : normalizedBlocks) {
+            segments.add(new StoredMaterialSegment(
+                index++,
+                block.text(),
+                block.page(),
+                normalizeExtractor(block.extractor()),
+                block.ocrUsed()
+            ));
+        }
+        return List.copyOf(segments);
+    }
+
+    public String joinBlocks(DocumentParseResult parseResult) {
+        return parseResult == null ? "" : joinBlocks(parseResult.blocks());
+    }
+
+    public String joinBlocks(List<DocumentBlock> blocks) {
+        return normalizeBlocks(blocks).stream()
+            .map(DocumentBlock::text)
+            .filter(StringUtils::hasText)
+            .collect(Collectors.joining("\n\n"));
+    }
+
+    public String headerTextForHints(DocumentParseResult parseResult) {
+        if (parseResult == null) {
+            return "";
+        }
+
+        StringBuilder builder = new StringBuilder();
+        for (DocumentBlock block : normalizeBlocks(parseResult.blocks())) {
+            if (!StringUtils.hasText(block.text())) {
+                continue;
+            }
+            if (!builder.isEmpty()) {
+                builder.append('\n');
+            }
+            builder.append(block.text());
+            if (builder.length() >= 1_200) {
+                break;
+            }
+        }
+        return builder.length() <= 1_200 ? builder.toString() : builder.substring(0, 1_200);
     }
 
     public List<ExtractedDocumentSegment> normalizeSegments(List<ExtractedDocumentSegment> segments) {
@@ -55,6 +167,34 @@ public class MaterialContentSupport {
             .toList();
     }
 
+    public List<StoredMaterialSegment> normalizeStoredSegments(List<ExtractedDocumentSegment> segments) {
+        if (segments == null || segments.isEmpty()) {
+            return List.of();
+        }
+
+        List<StoredMaterialSegment> normalizedSegments = new ArrayList<>();
+        int index = 0;
+        for (ExtractedDocumentSegment segment : segments) {
+            if (segment == null || !StringUtils.hasText(segment.text())) {
+                continue;
+            }
+
+            String text = normalizeStoredContent(segment.text());
+            if (!StringUtils.hasText(text)) {
+                continue;
+            }
+
+            normalizedSegments.add(new StoredMaterialSegment(
+                index++,
+                text,
+                segment.page(),
+                normalizeExtractor(segment.extractor()),
+                segment.ocrUsed()
+            ));
+        }
+        return List.copyOf(normalizedSegments);
+    }
+
     public String joinSegments(List<ExtractedDocumentSegment> segments) {
         return segments.stream()
             .map(ExtractedDocumentSegment::text)
@@ -62,48 +202,68 @@ public class MaterialContentSupport {
             .collect(Collectors.joining("\n\n"));
     }
 
+    public String joinStoredSegments(List<StoredMaterialSegment> segments) {
+        return segments.stream()
+            .map(StoredMaterialSegment::text)
+            .filter(StringUtils::hasText)
+            .collect(Collectors.joining("\n\n"));
+    }
+
+    public ChunkProfile configuredChunkProfile() {
+        return resolveChunkProfile(properties.getChunkProfile());
+    }
+
+    public ChunkProfile configuredChunkProfile(boolean structuredV1Enabled) {
+        ChunkProfile configuredProfile = configuredChunkProfile();
+        if (!structuredV1Enabled && configuredProfile == ChunkProfile.STRUCTURED_V1) {
+            return ChunkProfile.FIXED_V1;
+        }
+        return configuredProfile;
+    }
+
+    public ChunkProfile resolveChunkProfile(String rawValue) {
+        return ChunkProfile.fromProperty(StringUtils.hasText(rawValue)
+            ? rawValue
+            : ChunkProfile.STRUCTURED_V1.propertyValue());
+    }
+
+    public List<StoredMaterialChunk> buildChunks(DocumentParseResult parseResult, ChunkProfile chunkProfile) {
+        if (parseResult == null) {
+            return List.of();
+        }
+
+        ChunkProfile resolvedProfile = chunkProfile == null ? ChunkProfile.FIXED_V1 : chunkProfile;
+        ChunkingStrategy strategy = chunkingStrategies.get(resolvedProfile);
+        if (strategy == null) {
+            throw new IllegalArgumentException("No chunking strategy registered for profile '" + resolvedProfile.propertyValue() + "'.");
+        }
+        return strategy.buildChunksFromBlocks(normalizeBlocks(parseResult.blocks()), properties, this);
+    }
+
     public List<StoredMaterialChunk> buildChunks(
         List<ExtractedDocumentSegment> segments,
         String defaultExtractor,
         boolean defaultOcrUsed
     ) {
-        List<StoredMaterialChunk> chunks = new ArrayList<>();
-        int index = 0;
+        List<StoredMaterialSegment> normalizedSegments = normalizeStoredSegments(segments).stream()
+            .map(segment -> new StoredMaterialSegment(
+                segment.index(),
+                segment.text(),
+                segment.page(),
+                StringUtils.hasText(segment.extractor()) ? segment.extractor() : normalizeExtractor(defaultExtractor),
+                Boolean.TRUE.equals(segment.ocrUsed()) || defaultOcrUsed
+            ))
+            .toList();
+        return buildChunks(normalizedSegments, ChunkProfile.FIXED_V1);
+    }
 
-        for (ExtractedDocumentSegment segment : segments) {
-            String text = normalizeStoredContent(segment.text());
-            if (!StringUtils.hasText(text)) {
-                continue;
-            }
-
-            int cursor = 0;
-            while (cursor < text.length() && chunks.size() < properties.getMaxChunks()) {
-                int end = Math.min(text.length(), cursor + properties.getChunkSize());
-                String slice = text.substring(cursor, end).trim();
-                if (!slice.isEmpty()) {
-                    chunks.add(new StoredMaterialChunk(
-                        index++,
-                        slice,
-                        List.copyOf(tokenize(slice)),
-                        segment.page(),
-                        normalizeExtractor(StringUtils.hasText(segment.extractor()) ? segment.extractor() : defaultExtractor),
-                        segment.ocrUsed() || defaultOcrUsed
-                    ));
-                }
-
-                if (end == text.length()) {
-                    break;
-                }
-
-                cursor = Math.max(end - properties.getChunkOverlap(), cursor + 1);
-            }
-
-            if (chunks.size() >= properties.getMaxChunks()) {
-                break;
-            }
+    public List<StoredMaterialChunk> buildChunks(List<StoredMaterialSegment> segments, ChunkProfile chunkProfile) {
+        ChunkProfile resolvedProfile = chunkProfile == null ? ChunkProfile.FIXED_V1 : chunkProfile;
+        ChunkingStrategy strategy = chunkingStrategies.get(resolvedProfile);
+        if (strategy == null) {
+            throw new IllegalArgumentException("No chunking strategy registered for profile '" + resolvedProfile.propertyValue() + "'.");
         }
-
-        return chunks;
+        return strategy.buildChunks(segments == null ? List.of() : segments, properties, this);
     }
 
     public List<StoredMaterialChunk> normalizeChunks(
@@ -117,11 +277,7 @@ public class MaterialContentSupport {
         }
 
         if (chunks == null || chunks.isEmpty()) {
-            return buildChunks(
-                List.of(new ExtractedDocumentSegment(content, null, defaultExtractor, defaultOcrUsed)),
-                defaultExtractor,
-                defaultOcrUsed
-            );
+            return buildChunks(singleSegment(content, defaultExtractor, defaultOcrUsed), ChunkProfile.FIXED_V1);
         }
 
         List<StoredMaterialChunk> normalizedChunks = new ArrayList<>();
@@ -151,11 +307,103 @@ public class MaterialContentSupport {
                 tokens,
                 chunk.page(),
                 normalizeExtractor(StringUtils.hasText(chunk.extractor()) ? chunk.extractor() : defaultExtractor),
-                chunk.ocrUsed() != null ? chunk.ocrUsed() : defaultOcrUsed
+                chunk.ocrUsed() != null ? chunk.ocrUsed() : defaultOcrUsed,
+                chunk.chunkType(),
+                chunk.sectionPath(),
+                chunk.headingTrail(),
+                chunk.tableId(),
+                chunk.slideId(),
+                chunk.parserConfidence()
             ));
         }
 
         return normalizedChunks;
+    }
+
+    public List<StoredMaterialSegment> singleSegment(String content, String extractor, boolean ocrUsed) {
+        String normalized = normalizeStoredContent(content);
+        if (!StringUtils.hasText(normalized)) {
+            return List.of();
+        }
+
+        return List.of(new StoredMaterialSegment(
+            0,
+            normalized,
+            null,
+            normalizeExtractor(extractor),
+            ocrUsed
+        ));
+    }
+
+    public List<StoredMaterialSegment> pseudoSegmentsFromChunks(
+        List<StoredMaterialChunk> chunks,
+        String defaultExtractor,
+        boolean defaultOcrUsed
+    ) {
+        if (chunks == null || chunks.isEmpty()) {
+            return List.of();
+        }
+
+        List<StoredMaterialSegment> segments = new ArrayList<>();
+        int nextIndex = 0;
+        for (StoredMaterialChunk chunk : chunks) {
+            if (chunk == null || !StringUtils.hasText(chunk.text())) {
+                continue;
+            }
+
+            segments.add(new StoredMaterialSegment(
+                nextIndex++,
+                normalizeStoredContent(chunk.text()),
+                chunk.page(),
+                normalizeExtractor(StringUtils.hasText(chunk.extractor()) ? chunk.extractor() : defaultExtractor),
+                chunk.ocrUsed() != null ? chunk.ocrUsed() : defaultOcrUsed
+            ));
+        }
+        return List.copyOf(segments);
+    }
+
+    public List<DocumentBlock> reconstructBlocks(List<StoredMaterialSegment> segments) {
+        if (segments == null || segments.isEmpty()) {
+            return List.of();
+        }
+
+        List<DocumentBlock> blocks = new ArrayList<>();
+        int nextIndex = 0;
+        for (StoredMaterialSegment segment : segments) {
+            if (segment == null || !StringUtils.hasText(segment.text())) {
+                continue;
+            }
+            List<DocumentBlock> segmentBlocks = DocumentBlockBuilder.fromText(
+                segment.text(),
+                segment.page(),
+                normalizeExtractor(segment.extractor()),
+                Boolean.TRUE.equals(segment.ocrUsed()),
+                false,
+                com.example.demo.infrastructure.material.DocumentBlockType.NARRATIVE,
+                nextIndex
+            );
+            if (segmentBlocks.isEmpty()) {
+                continue;
+            }
+            blocks.addAll(segmentBlocks);
+            nextIndex = blocks.getLast().index() + 1;
+        }
+        return List.copyOf(blocks);
+    }
+
+    public String normalizeSectionKey(String value) {
+        if (!StringUtils.hasText(value)) {
+            return null;
+        }
+
+        String normalized = value.trim();
+        String previous;
+        do {
+            previous = normalized;
+            normalized = SECTION_OUTLINE_PREFIX.matcher(normalized).replaceFirst("").trim();
+        } while (!normalized.equals(previous));
+
+        return normalizeLineageLabel(normalized);
     }
 
     public Set<String> tokenize(String input) {
@@ -201,48 +449,87 @@ public class MaterialContentSupport {
         String normalizedSourceType = StringUtils.hasText(sourceType)
             ? sourceType.trim().toLowerCase(Locale.ROOT)
             : "text";
-        return new MaterialLineageIdentity(
+        String explicitTitleNorm = normalizeLineageLabel(lineageTitle);
+        String originalFileNameNorm = normalizeLineageLabel(originalFileName);
+        String fileStemNorm = normalizeFileStem(originalFileName);
+        String contentAnchor = buildContentAnchor(content);
+        MaterialLineageIdentityKind identityKind;
+        String identityKey;
+
+        switch (normalizedSourceType) {
+            case "text" -> {
+                identityKind = StringUtils.hasText(explicitTitleNorm)
+                    ? MaterialLineageIdentityKind.EXPLICIT_TITLE
+                    : MaterialLineageIdentityKind.CONTENT_ANCHOR;
+                identityKey = identityKind == MaterialLineageIdentityKind.EXPLICIT_TITLE
+                    ? explicitTitleNorm
+                    : contentAnchor;
+            }
+            case "file" -> {
+                if (StringUtils.hasText(explicitTitleNorm)) {
+                    identityKind = MaterialLineageIdentityKind.EXPLICIT_TITLE;
+                    identityKey = explicitTitleNorm;
+                } else if (StringUtils.hasText(fileStemNorm)) {
+                    identityKind = MaterialLineageIdentityKind.FILE_STEM_AND_CONTENT_ANCHOR;
+                    identityKey = fileStemNorm + "|" + contentAnchor;
+                } else {
+                    throw new ApiException(
+                        HttpStatus.BAD_REQUEST,
+                        "material.lineage_identity_unresolvable",
+                        "File materials require an explicit title or a filename-derived lineage identity"
+                    );
+                }
+            }
+            default -> {
+                identityKind = MaterialLineageIdentityKind.CONTENT_ANCHOR;
+                identityKey = contentAnchor;
+            }
+        }
+
+        MaterialLineageIdentity identity = new MaterialLineageIdentity(
             normalizedSourceType,
-            normalizeLineageLabel(lineageTitle),
-            normalizeLineageLabel(originalFileName),
-            normalizeFileStem(originalFileName),
-            buildContentAnchor(content)
+            identityKind,
+            identityKey,
+            explicitTitleNorm,
+            originalFileNameNorm,
+            fileStemNorm,
+            contentAnchor,
+            null
+        );
+        return new MaterialLineageIdentity(
+            identity.sourceType(),
+            identity.identityKind(),
+            identity.identityKey(),
+            identity.explicitTitleNorm(),
+            identity.originalFileNameNorm(),
+            identity.fileStemNorm(),
+            identity.contentAnchor(),
+            buildSourceKey(identity)
         );
     }
 
     public String buildSourceKey(MaterialLineageIdentity identity) {
         String serializedIdentity = String.join(
             "|",
-            "lineage-v2",
+            "lineage-v3",
             identity.sourceType(),
-            identity.explicitTitle() == null ? "" : identity.explicitTitle(),
-            identity.originalFileName() == null ? "" : identity.originalFileName(),
-            identity.fileStem() == null ? "" : identity.fileStem(),
-            identity.contentAnchor()
+            identity.identityKind().name(),
+            identity.identityKey()
         );
         return identity.sourceType() + ":" + sha256(serializedIdentity).substring(0, 24);
     }
 
-    public boolean matchesLineage(StoredMaterialRecord record, MaterialLineageIdentity candidateIdentity) {
-        if (record == null || candidateIdentity == null) {
-            return false;
+    public MaterialLineageIdentity buildLineageIdentity(StoredMaterialRecord record) {
+        if (record == null) {
+            return null;
         }
 
-        MaterialLineageIdentity existingIdentity = buildLineageIdentity(
+        return buildLineageIdentity(
             record.sourceType(),
             resolveExplicitLineageTitle(record),
             record.originalFileName(),
             record.normalizedContent()
         );
-        if (!existingIdentity.sourceType().equals(candidateIdentity.sourceType())) {
-            return false;
-        }
-
-        return switch (candidateIdentity.sourceType()) {
-            case "file" -> fileLineageMatches(existingIdentity, candidateIdentity);
-            case "text" -> textLineageMatches(existingIdentity, candidateIdentity);
-            default -> sameNonBlank(existingIdentity.contentAnchor(), candidateIdentity.contentAnchor());
-        };
     }
 
     public String sha256(String input) {
@@ -275,7 +562,8 @@ public class MaterialContentSupport {
             record.indexingAttempts(),
             record.nextRetryAt(),
             record.content().length(),
-            clip(record.content(), 180)
+            clip(record.content(), 180),
+            record.metadata()
         );
     }
 
@@ -298,7 +586,8 @@ public class MaterialContentSupport {
                 ? (StringUtils.hasText(record.supersedeReason()) ? record.supersedeReason() : fallbackSupersedeReason)
                 : record.supersedeReason(),
             record.content().length(),
-            clip(record.content(), 180)
+            clip(record.content(), 180),
+            record.metadata()
         );
     }
 
@@ -318,12 +607,12 @@ public class MaterialContentSupport {
             : sha256(normalizedContent);
         String sourceKey = StringUtils.hasText(record.sourceKey())
             ? record.sourceKey().trim()
-            : buildSourceKey(buildLineageIdentity(
+            : buildLineageIdentity(
                 resolvedSourceType,
                 resolveExplicitLineageTitle(resolvedSourceType, resolvedTitle, record.originalFileName()),
                 record.originalFileName(),
                 normalizedContent
-            ));
+            ).sourceKey();
         String extractorName = normalizeExtractor(record.extractor());
         boolean ocrUsed = Boolean.TRUE.equals(record.ocrUsed());
         List<StoredMaterialChunk> chunks = normalizeChunks(record.chunks(), storedContent, extractorName, ocrUsed);
@@ -354,8 +643,13 @@ public class MaterialContentSupport {
             0,
             updatedAt,
             null,
-            null
+            null,
+            record.metadata() == null ? MaterialMetadataSnapshot.empty() : record.metadata()
         );
+    }
+
+    private void registerChunkingStrategy(ChunkingStrategy strategy) {
+        chunkingStrategies.put(strategy.profile(), strategy);
     }
 
     public String resolveExplicitLineageTitle(String sourceType, String title, String originalFileName) {
@@ -378,36 +672,6 @@ public class MaterialContentSupport {
 
     public String resolveExplicitLineageTitle(StoredMaterialRecord record) {
         return resolveExplicitLineageTitle(record.sourceType(), record.title(), record.originalFileName());
-    }
-
-    private boolean textLineageMatches(MaterialLineageIdentity existingIdentity, MaterialLineageIdentity candidateIdentity) {
-        if (sameNonBlank(existingIdentity.explicitTitle(), candidateIdentity.explicitTitle())) {
-            return true;
-        }
-
-        return !StringUtils.hasText(existingIdentity.explicitTitle())
-            && !StringUtils.hasText(candidateIdentity.explicitTitle())
-            && sameNonBlank(existingIdentity.contentAnchor(), candidateIdentity.contentAnchor());
-    }
-
-    private boolean fileLineageMatches(MaterialLineageIdentity existingIdentity, MaterialLineageIdentity candidateIdentity) {
-        boolean hasExistingExplicitTitle = StringUtils.hasText(existingIdentity.explicitTitle());
-        boolean hasCandidateExplicitTitle = StringUtils.hasText(candidateIdentity.explicitTitle());
-        boolean sameExplicitTitle = sameNonBlank(existingIdentity.explicitTitle(), candidateIdentity.explicitTitle());
-        boolean sameOriginalFileName = sameNonBlank(existingIdentity.originalFileName(), candidateIdentity.originalFileName());
-        boolean sameFileStem = sameNonBlank(existingIdentity.fileStem(), candidateIdentity.fileStem());
-        boolean sameContentAnchor = sameNonBlank(existingIdentity.contentAnchor(), candidateIdentity.contentAnchor());
-
-        if (hasExistingExplicitTitle && hasCandidateExplicitTitle && !sameExplicitTitle) {
-            return false;
-        }
-
-        return (sameExplicitTitle && (sameOriginalFileName || sameFileStem || sameContentAnchor))
-            || ((sameOriginalFileName || sameFileStem) && sameContentAnchor);
-    }
-
-    private boolean sameNonBlank(String left, String right) {
-        return StringUtils.hasText(left) && left.equals(right);
     }
 
     private String normalizeLineageLabel(String value) {
@@ -452,12 +716,4 @@ public class MaterialContentSupport {
         return tokens;
     }
 
-    public record MaterialLineageIdentity(
-        String sourceType,
-        String explicitTitle,
-        String originalFileName,
-        String fileStem,
-        String contentAnchor
-    ) {
-    }
 }

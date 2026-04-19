@@ -23,7 +23,7 @@
 
 Приложение остается локальным assistant-workbench с двумя режимами:
 
-- `RAG`: ответ строится только по найденному контексту из загруженных материалов через гибридный `semantic + lexical` retrieval в `PostgreSQL`
+- `RAG`: ответ строится только по найденному контексту из загруженных материалов через гибридный retrieval, где `semantic` path остаётся в `PostgreSQL`, а `lexical` path по умолчанию идёт через `PostgreSQL` и может быть переведён на `Elasticsearch` через rollout mode `postgres|auto|elasticsearch`
 - `DIRECT`: прямой запрос к локальной модели без retrieval
 
 Оба режима идут через один API и один LLM client.
@@ -67,7 +67,21 @@ CREATE EXTENSION IF NOT EXISTS vector;
 ./scripts/pull-model.sh nomic-embed-text
 ```
 
-3. Запусти `ollama`, backend и frontend:
+Если хочешь включить `DeepSeek` на текущем `MacBook Pro M1 Pro / 16 GB`, подтяни обязательный локальный fast-path отдельно:
+
+```bash
+./scripts/pull-deepseek-local.sh
+```
+
+3. Для Codex, agent, PTY и других non-interactive запусков подними стек под supervisor-процессом:
+
+```bash
+./scripts/run-local-stack.sh
+```
+
+Это канонический direct entrypoint для Codex/agent runtime; отдельный `zsh ./scripts/run-local-stack.sh` workaround больше не нужен.
+
+Для обычного ручного shell-сценария detached helper по-прежнему доступен:
 
 ```bash
 ./scripts/start-studio.sh
@@ -82,6 +96,10 @@ http://127.0.0.1:5173
 5. Добавь материалы, выбери инструкции при необходимости и используй либо RAG-панель, либо direct playground.
 
 ## Отдельный запуск по частям
+
+Для Codex/agent/PTY-supported workflow используй `./scripts/run-local-stack.sh` напрямую: он не выходит после readiness и держит дочерние сервисы живыми, пока жив сам supervising process.
+
+Нижние `start-*` команды остаются low-level helper-ами для обычного ручного shell-запуска, где detached child survival контролируется самим терминалом.
 
 ```bash
 ./scripts/start-ollama.sh
@@ -111,6 +129,195 @@ export SPRING_DATASOURCE_PASSWORD=ragstudio
 
 На старте backend делает preflight-проверку доступности PostgreSQL. Flyway-миграции создают таблицы `materials`, `material_chunks`, `tsvector`-индекс и `pgvector`-индекс автоматически.
 
+## Рекомендованный DeepSeek rollout для этой машины
+
+- `qwen2.5:7b` остаётся backend default и безопасной baseline-моделью.
+- `deepseek-r1:8b` — обязательный локальный DeepSeek-кандидат для первого рабочего `DIRECT` и `RAG` smoke.
+- `deepseek-r1:14b` — optional comparison target, если после `8b` хочется сравнить качество и latency.
+- embeddings не меняются: для retrieval по-прежнему используется `nomic-embed-text`.
+- для cold-start `deepseek-r1:8b` backend `Ollama` timeout поднят до `600` секунд, потому что на `M1 Pro / 16 GB` первый ответ может занимать несколько минут.
+
+Подтянуть обязательный локальный fast-path можно так:
+
+```bash
+./scripts/pull-deepseek-local.sh
+```
+
+Если хочешь сравнить обе модели явно:
+
+```bash
+./scripts/pull-model.sh deepseek-r1:8b
+./scripts/pull-model.sh deepseek-r1:14b
+```
+
+Практическая рекомендация для текущего ноутбука:
+
+- сначала доведи локальный acceptance до `deepseek-r1:8b`
+- `deepseek-r1:14b` обычно заметно тяжелее `qwen2.5:7b` по latency, особенно на длинных `RAG`-запросах
+- `deepseek-r1:14b` имеет смысл тянуть уже после успешного `8b` как optional comparison
+- первый `DIRECT` или `RAG` запрос на `deepseek-r1:8b` после pull/restart может прогреваться несколько минут; это ожидаемо для этой машины
+- `deepseek-r1:32b`, `deepseek-r1:671b` и `DeepSeek-V3.1` не входят в локальный v1 rollout на этой машине; это отдельный server-grade follow-up.
+- текущий backend не передаёт reasoning/thinking controls и для первого этапа это нормально: `DeepSeek` подключается как обычная selectable chat-модель через существующий `Ollama`-контур.
+
+### Optional Elasticsearch sidecar and rollout runbook
+
+Фазы 3-5 добавляют opt-in контур `Elasticsearch` для shadow indexing и production lexical rollout. Источник истины по материалам, lineage, readiness и embeddings по-прежнему `PostgreSQL`; рекомендуемый production mode после валидации — `APP_RAG_LEXICAL_PROVIDER=auto`, чтобы lexical path шёл через `Elasticsearch`, а при деградации search plane backend автоматически откатывался на PostgreSQL fallback.
+
+Поднять локальный sidecar можно отдельно:
+
+```bash
+./scripts/start-elasticsearch.sh
+export APP_SEARCH_SYNC_ENABLED=true
+export SPRING_ELASTICSEARCH_URIS=http://127.0.0.1:9200
+```
+
+Если запускаешь защищённый Elasticsearch не через локальный sidecar, можно дополнительно задать:
+
+```bash
+export SPRING_ELASTICSEARCH_USERNAME=elastic
+export SPRING_ELASTICSEARCH_PASSWORD=your-password
+```
+
+После этого backend начнёт наполнять versioned index `rag-chunks-v1` через aliases `rag-chunks-read` и `rag-chunks-write`. Стандартный `./scripts/start-studio.sh` по умолчанию ничего не меняет и search sync не включает. В Codex/agent/PTY runtime поддерживаемый long-lived способ держать локальные сервисы живыми теперь только `./scripts/run-local-stack.sh`.
+
+При включённом `APP_SEARCH_SYNC_ENABLED=true` обычный backend startup теперь:
+
+- создаёт versioned index, если его ещё нет
+- переводит `rag-chunks-write` на configured `index-version`
+- создаёт `rag-chunks-read` только если alias ещё отсутствует
+- не двигает существующий `rag-chunks-read` автоматически при restart или смене `index-version`
+
+Оба operator script используют те же `SPRING_ELASTICSEARCH_URIS`, `SPRING_ELASTICSEARCH_USERNAME`, `SPRING_ELASTICSEARCH_PASSWORD` и `APP_SEARCH_SYNC_INDEX_PREFIX`, что и runtime backend.
+
+#### Короткий operator runbook
+
+1. Prepare index
+
+```bash
+./scripts/search-prepare-index.sh v2
+```
+
+Скрипт создаёт `rag-chunks-v2` при необходимости, переводит только `rag-chunks-write` на новый target и намеренно не делает read cutover.
+
+2. Backfill / rebuild write index
+
+```bash
+./scripts/search-rebuild-write-index.sh
+```
+
+Этот путь нужен для полного replay текущего `write` target. Если проблема только в terminal `FAILED` search-sync events и полный wipe не нужен, используй:
+
+```bash
+./scripts/search-requeue-failed.sh
+```
+
+3. Shadow compare before cutover
+
+Для live rollout держи lexical mode на `APP_RAG_LEXICAL_PROVIDER=postgres` и включай shadow sampling через `APP_RAG_SHADOW_ENABLED=true`. Для локального или CI proof текущий Phase 4 artifact собирается существующим integration layout:
+
+```bash
+./scripts/test-backend.sh integration -Dit.test=ElasticsearchPhase4IT
+```
+
+Отчёт сравнения пишется в `backend/target/search-quality/phase4-shadow-report.md`.
+
+4. Promote read alias
+
+```bash
+./scripts/search-promote-read-alias.sh v2
+```
+
+После этого можно переводить runtime на `APP_RAG_LEXICAL_PROVIDER=auto`: lexical retrieval пойдёт через `Elasticsearch`, а при деградации search plane останется PostgreSQL fallback.
+
+5. Rollback
+
+```bash
+./scripts/search-promote-read-alias.sh v1
+```
+
+Rollback здесь означает только возврат `rag-chunks-read` на предыдущую уже подготовленную версию. Он не очищает текущий `write` index и не двигает `rag-chunks-write`, пока оператор не сделает это отдельно.
+
+### Quality-layer rollout
+
+Phase 7 добавляет отдельный rollout layer поверх существующего search lifecycle. Он не меняет `ACTIVE/SUPERSEDED`, не делает schema rollback и не вмешивается в текущий Elasticsearch alias/fallback flow. Все переключатели только config/env driven:
+
+- `APP_ROLLOUT_METADATA_V1`
+- `APP_ROLLOUT_STRUCTURED_V1`
+- `APP_ROLLOUT_METADATA_FILTERS_V1`
+- `APP_ROLLOUT_SEARCH_API_V1`
+- `APP_ROLLOUT_RERANKER_V1`
+- `APP_ROLLOUT_QUERY_HINTS_V1`
+
+Каждый флаг по умолчанию `false`.
+
+#### Flag semantics
+
+- `metadata-v1`: включает metadata-first enrichment/coverage layer. Откат не удаляет уже сохранённые metadata.
+- `structured-v1`: включает `structured-v1` как default profile для новых ingest и открывает ACTIVE rechunk/backfill endpoints.
+- `metadata-filters-v1`: включает pre-ranking metadata filters в chat/search. При `false` входящие `retrievalFilters` принимаются, но suppress'ятся.
+- `search-api-v1`: единственный hard gate для `POST /api/search`. При `false` endpoint отвечает `409 search.api_disabled`.
+- `reranker-v1`: включает deterministic reranker. При `false` runtime принудительно использует `hybrid-v1` даже если raw config указывает `hybrid-rerank-v1`.
+- `query-hints-v1`: включает deterministic hint extraction и auto-apply. При `false` manual filters всё ещё работают, если включён `metadata-filters-v1`.
+
+#### Recommended enablement order
+
+1. Включить `APP_ROLLOUT_METADATA_V1=true`.
+2. Включить `APP_ROLLOUT_STRUCTURED_V1=true` только для новых ingest.
+3. Прогнать ACTIVE backfill через существующий batch API, начиная с dry-run.
+4. Включить `APP_ROLLOUT_METADATA_FILTERS_V1=true`.
+5. Включить `APP_ROLLOUT_SEARCH_API_V1=true`.
+6. Включить `APP_ROLLOUT_RERANKER_V1=true`.
+7. Включить `APP_ROLLOUT_QUERY_HINTS_V1=true`.
+
+#### Health fields to watch
+
+`GET /api/health` теперь возвращает nested `qualityLayer` block:
+
+- `qualityLayer.flags`
+- `qualityLayer.metadataCoverage`
+- `qualityLayer.activeBackfillCoverage`
+- `qualityLayer.retrievalWindow`
+
+`retrievalWindow` intentionally ephemeral: это in-memory окно последних retrieval sample'ов, и оно сбрасывается после restart backend.
+
+#### ACTIVE backfill runbook
+
+Существующий path не меняется: используй только текущий ACTIVE rechunk API.
+
+1. Dry-run first:
+
+```bash
+curl -sS -X POST http://127.0.0.1:8080/api/materials/rechunk-active/batch \
+  -H 'Content-Type: application/json' \
+  -d '{"limit":100,"dryRun":true}'
+```
+
+2. Проверяй:
+
+- `scheduled`
+- `alreadyCurrent`
+- `legacyBestEffort`
+- `nextCursor`
+- `qualityLayer.activeBackfillCoverage`
+
+3. Продолжай тем же batch endpoint без `dryRun`, двигаясь по `nextCursor`.
+
+4. Остановить и возобновить можно безопасно: paging stable по `createdAt/id`, `SUPERSEDED` не затрагиваются, уже переведённые ACTIVE записи остаются idempotent.
+
+#### Rollback order
+
+1. `APP_ROLLOUT_QUERY_HINTS_V1=false`
+2. `APP_ROLLOUT_RERANKER_V1=false`
+3. `APP_ROLLOUT_SEARCH_API_V1=false`
+4. `APP_ROLLOUT_METADATA_FILTERS_V1=false`
+5. `APP_ROLLOUT_STRUCTURED_V1=false`
+6. `APP_ROLLOUT_METADATA_V1=false`
+
+Rollback здесь purely behavioral:
+
+- выключение флагов не удаляет уже сохранённые metadata, structured chunks или search documents;
+- Elasticsearch alias rollback остаётся прежним operator flow через `search-promote-read-alias.sh` и не считается частью quality-layer rollback.
+
 ## Остановка
 
 ```bash
@@ -121,11 +328,21 @@ export SPRING_DATASOURCE_PASSWORD=ragstudio
 ## Полезные команды
 
 ```bash
+./scripts/run-local-stack.sh
 ./scripts/chat.sh
 ./scripts/chat.sh qwen2.5:7b
 ./scripts/test-model.sh
+./scripts/pull-deepseek-local.sh
+./scripts/start-elasticsearch.sh         # optional Elasticsearch sidecar for shadow indexing
+./scripts/search-prepare-index.sh v2     # create/index target version + move write alias safely
+./scripts/search-promote-read-alias.sh v2 # explicit read cutover after validation
+./scripts/search-requeue-failed.sh       # recover FAILED search-sync events without manual SQL
+./scripts/search-rebuild-write-index.sh  # wipe current write index and replay all searchable ACTIVE materials
 ./scripts/test-backend.sh              # fast-suite: mvn test
-./scripts/test-backend.sh integration  # full proof: mvn verify (Docker required)
+./scripts/test-backend.sh fast -Dtest=MaterialControllerMetadataFlowTest,MaterialControllerContractTest,MaterialServiceTest
+./scripts/test-backend.sh critical-materials  # minimal Docker-backed material proof
+./scripts/test-backend.sh integration  # full proof: mvn verify (working Docker/Testcontainers required)
+./scripts/test-backend.sh integration -Dit.test=MaterialControllerIT
 curl http://127.0.0.1:11434/api/tags
 curl http://127.0.0.1:8080/api/health
 curl http://127.0.0.1:8080/api/models
@@ -136,8 +353,16 @@ curl http://127.0.0.1:8080/api/instructions
 
 ## Проверка backend
 
-- `./scripts/test-backend.sh` запускает быстрый локальный `mvn test`: только `*Test`, без Docker-backed integration suite и без скрытых `skip` для live Postgres proof.
-- `./scripts/test-backend.sh integration` запускает строгий backend proof через `mvn verify`: выполняет `*IT`, требует Docker/Testcontainers и проверяет живой `PostgreSQL + pgvector` контур.
+- `./scripts/test-backend.sh` запускает быстрый локальный `mvn test`: только `*Test`, без Docker-backed integration suite.
+- Для metadata ingestion локальный fast-proof проходит через `./scripts/test-backend.sh fast -Dtest=MaterialControllerMetadataFlowTest,MaterialControllerContractTest,MaterialServiceTest`.
+- `./scripts/test-backend.sh critical-materials` запускает минимальный Docker-backed proof для material-domain: `PostgresMaterialRepositoryIT`, `MaterialLineageVersionMigrationIT`, `MaterialSearchSyncLifecycleIT`, `MaterialRuntimeTopologyIT`.
+- `./scripts/test-backend.sh integration` запускает полный backend proof через `mvn verify`: выполняет весь `*IT` набор и проверяет живой `PostgreSQL + pgvector + Elasticsearch` контур там, где integration suite это ожидает.
+- Targeted Docker-backed proof запускается только через `./scripts/test-backend.sh integration -Dit.test=MaterialControllerIT` или другой `-Dit.test=...` селектор для нужного integration class.
+- `./scripts/test-backend.sh fast -Dtest=...IT` и `./scripts/test-backend.sh test -Dtest=...IT` теперь завершаются ранним preflight failure с подсказкой перейти на `integration`, чтобы fast-suite не маскировал Testcontainers blocker под обычный локальный test run.
+- `fast` не доказывает storage semantics: FK, `ON DELETE CASCADE`, SQL ordering, locking и transactional behavior считаются доказанными только через PostgreSQL-backed integration tests.
+- `InMemoryMaterialRepository` допустим для pure service/domain behavior, но не считается авторитетным proof для constraint/cascade/order semantics.
+- Для локального `critical-materials` и `integration` proof недостаточно просто видеть команду `docker` в `PATH`: текущий shell/runtime должен реально давать `Testcontainers` доступ к Docker daemon/socket. Если Docker недоступен, скрипт завершится ранним preflight failure вместо длинного Maven-прогона.
+- В текущем Codex Desktop runtime с Colima/non-default Docker socket `critical-materials` и `integration` намеренно завершаются ранним preflight failure: это честнее, чем уходить в длинный `mvn verify`, который все равно упадет внутри `Testcontainers` на Docker API negotiation.
 
 ## Основной Chat API
 
@@ -238,7 +463,7 @@ Backend проксирует список локально доступных м
 4. Материал, чанки, `tsvector` и embeddings сохраняются в `PostgreSQL`.
 5. Для запроса пользователя строится embedding, затем backend берёт:
    - semantic top-N через `pgvector`
-   - lexical top-N через PostgreSQL full-text search
+   - lexical top-N через PostgreSQL full-text search по умолчанию или через `Elasticsearch` read alias при включённом rollout mode
 6. Оба списка объединяются через `Reciprocal Rank Fusion`, после чего top-4 чанка попадают в prompt.
 
 `sources[].score` теперь означает нормализованный hybrid relevance score в диапазоне `0..100`.
@@ -375,47 +600,70 @@ Frontend использует этот endpoint для preflight-проверо�
 
 ### Health readiness
 
-`GET /api/health` теперь отражает не только факт запуска Spring Boot, но и runtime readiness LLM/embeddings, OCR readiness, готовность `PostgreSQL + pgvector` и текущий snapshot indexing queue:
+`GET /api/health` теперь отражает не только факт запуска Spring Boot, но и отдельно:
+- runtime health backend и core-зависимостей;
+- readiness model catalog/provider;
+- readiness direct chat path;
+- пользовательскую готовность RAG;
+- состояние knowledge base;
+- OCR readiness, storage health и snapshot indexing/search-sync очередей.
 
 ```json
 {
   "application": "spring-backend",
-  "status": "DEGRADED",
-  "timestamp": "2026-04-16T09:20:00Z",
-  "directStatus": "UP",
+  "status": "UP",
+  "timestamp": "2026-04-18T19:20:00Z",
+  "directStatus": "DOWN",
+  "directReasonCode": "llm.provider_unavailable",
+  "directReasonMessage": "Unable to reach the local LLM provider",
+  "directLastSuccessfulProbeAt": "2026-04-18T19:19:52Z",
   "ragStatus": "DOWN",
+  "knowledgeStatus": "INDEXING",
+  "knowledgeReasonCode": "knowledge.indexing_in_progress",
+  "knowledgeReasonMessage": "Активная версия уже принята, но индекс ещё не догнал её до READY или PARTIAL_READY.",
+  "materialCount": 3,
+  "activeMaterialCount": 1,
+  "historicalMaterialCount": 2,
+  "readyMaterialCount": 0,
   "llmStatus": "UP",
   "embeddingStatus": "UP",
-  "runtimeCachedAt": "2026-04-16T09:19:55Z",
+  "runtimeCachedAt": "2026-04-18T19:19:55Z",
   "ocrStatus": "DOWN",
   "ocrReasonCode": "material.ocr_unavailable",
   "ocrReasonMessage": "Tesseract OCR binary is unavailable at 'tesseract'.",
   "ocrLanguages": ["kaz", "rus", "eng"],
-  "databaseStatus": "DOWN",
-  "databaseReasonMessage": "PostgreSQL is unavailable for RAG storage.",
-  "vectorStatus": "DOWN",
-  "vectorReasonMessage": "Vector search is unavailable because PostgreSQL is unavailable.",
-  "llmLastSuccessfulProbeAt": "2026-04-16T09:19:54Z",
-  "embeddingLastSuccessfulProbeAt": "2026-04-16T09:19:53Z",
-  "ragDegradedReasonCode": "rag.database_unavailable",
-  "ragDegradedReasonMessage": "PostgreSQL is unavailable for RAG storage.",
+  "databaseStatus": "UP",
+  "vectorStatus": "UP",
+  "llmLastSuccessfulProbeAt": "2026-04-18T19:19:54Z",
+  "embeddingLastSuccessfulProbeAt": "2026-04-18T19:19:53Z",
+  "ragDegradedReasonCode": "llm.provider_unavailable",
+  "ragDegradedReasonMessage": "Unable to reach the local LLM provider",
   "indexingPendingCount": 1,
   "indexingInProgressCount": 0,
   "indexingFailedCount": 2,
-  "indexingNextRetryAt": "2026-04-16T09:21:00Z"
+  "indexingNextRetryAt": "2026-04-18T19:21:00Z"
 }
 ```
 
-- `status=UP` означает, что backend готов для direct и полного RAG-контура
-- `status=DEGRADED` означает, что direct runtime или хотя бы один из RAG-зависимых слоёв сейчас недоступен
-- `directStatus` и `ragStatus` позволяют UI не смешивать общую готовность runtime с отдельной готовностью RAG
+- `status=UP` означает, что core backend/runtime healthy: direct runtime, embeddings, PostgreSQL и `pgvector` доступны
+- `status=DEGRADED` означает, что direct runtime или один из core RAG storage/runtime слоёв сейчас недоступен
+- `directStatus` показывает реальную готовность direct chat path через live `chat(...)` probe
+- `directReasonCode` и `directReasonMessage` объясняют, почему именно direct path сейчас недоступен
+- `llmStatus` и `llmReason*` описывают readiness model catalog/provider через `listModels()`
+- `ragStatus=UP` только когда direct path healthy, embeddings/storage healthy и `knowledgeStatus=READY`
+- `knowledgeStatus` описывает состояние корпуса: `EMPTY`, `HISTORICAL_ONLY`, `INDEXING`, `READY` или `DEGRADED`
+- `knowledgeReasonCode` и `knowledgeReasonMessage` позволяют UI и оператору не гадать, почему RAG сейчас заблокирован
+- `materialCount`, `activeMaterialCount`, `historicalMaterialCount` и `readyMaterialCount` отражают backend truth-model knowledge base
 - `ocrStatus` и OCR reason-поля показываются отдельно и помогают понять, сможет ли runtime обрабатывать scanned PDF, даже если direct/RAG по текстовым материалам ещё живы
-- `llmLastSuccessfulProbeAt` и `embeddingLastSuccessfulProbeAt` показывают время последней успешной проверки runtime-провайдера
+- `directLastSuccessfulProbeAt`, `llmLastSuccessfulProbeAt` и `embeddingLastSuccessfulProbeAt` показывают время последней успешной проверки direct path, model catalog и embedding runtime
 - `ragDegradedReasonCode` и `ragDegradedReasonMessage` объясняют, почему именно RAG сейчас degraded
 - `indexingPendingCount`, `indexingInProgressCount`, `indexingFailedCount` и `indexingNextRetryAt` показывают оператору текущее состояние очереди индексации
 - `databaseStatus` показывает доступность PostgreSQL
 - `vectorStatus` показывает, установлен ли `pgvector` и доступен ли vector search
+- knowledge state `EMPTY`, `HISTORICAL_ONLY` и `INDEXING` не переводят общий backend в `DEGRADED`: down показывается через `ragStatus` и `knowledge*` поля
+- frontend использует эти поля как единственную truth-model для submit gating: `RAG` блокируется при `ragStatus != UP`, `Direct` блокируется при `directStatus != UP`
 - `./scripts/start-backend.sh` сначала проверяет доступность PostgreSQL, а потом считает backend готовым только при `status=UP`
+- `./scripts/run-local-stack.sh` предназначен для Codex/agent/PTY workflow: он держит Ollama, backend и frontend под одним supervising process и корректно останавливает только свои managed child-процессы
 
 Текстовый материал:
 
@@ -563,6 +811,11 @@ curl http://127.0.0.1:11434/v1/chat/completions \
 ## Если модель тяжеловата
 
 По умолчанию разумный старт: `qwen2.5:7b`.
+
+Для `DeepSeek` на этой машине разумный порядок такой:
+
+- сначала `deepseek-r1:8b`
+- затем, при желании, `deepseek-r1:14b` как optional comparison
 
 Если нужен более легкий режим:
 

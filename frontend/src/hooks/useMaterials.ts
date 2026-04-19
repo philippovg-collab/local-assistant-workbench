@@ -1,7 +1,12 @@
 import { useEffect, useState } from "react";
 import { apiClient, isApiClientError } from "../api/client";
 import { translateCommonApiError } from "../api/errorMessages";
-import type { MaterialLineageResponse, MaterialSummary, MaterialUploadPolicy } from "../types";
+import type {
+  MaterialLineageResponse,
+  MaterialMetadataInput,
+  MaterialSummary,
+  MaterialUploadPolicy,
+} from "../types";
 import { formatBytes } from "../utils/format";
 import { hasActiveIndexing } from "../utils/readiness";
 import {
@@ -257,7 +262,7 @@ export const useMaterials = () => {
     };
   }, [materials, uploadPolicy]);
 
-  const createTextMaterial = async (input: { title: string; content: string }) => {
+  const createTextMaterial = async (input: { title: string; content: string; metadata?: MaterialMetadataInput }) => {
     setActionError(null);
     setMessage(null);
 
@@ -271,7 +276,7 @@ export const useMaterials = () => {
     }
   };
 
-  const uploadMaterial = async (input: { title: string; file: File }) => {
+  const uploadMaterial = async (input: { title: string; file: File; metadata?: MaterialMetadataInput }) => {
     setActionError(null);
     setMessage(null);
     let activePolicy = uploadPolicy;

@@ -1,7 +1,13 @@
 import { useEffect, useState } from "react";
 import { apiClient, isApiClientError } from "../api/client";
 import { translateCommonApiError } from "../api/errorMessages";
-import type { CreateInstructionRequest, InstructionDetail, InstructionSummary } from "../types";
+import type {
+  CreateInstructionRequest,
+  InstructionDetail,
+  InstructionRevisionDiff,
+  InstructionRevisionDetail,
+  InstructionSummary,
+} from "../types";
 
 const translateInstructionError = (error: unknown, fallback: string) => {
   if (isApiClientError(error)) {
@@ -28,6 +34,8 @@ const translateInstructionError = (error: unknown, fallback: string) => {
 export const useInstructions = () => {
   const [instructions, setInstructions] = useState<InstructionSummary[]>([]);
   const [selectedInstruction, setSelectedInstruction] = useState<InstructionDetail | null>(null);
+  const [revisions, setRevisions] = useState<InstructionRevisionDetail[]>([]);
+  const [revisionDiff, setRevisionDiff] = useState<InstructionRevisionDiff | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [isLoadingDetail, setIsLoadingDetail] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -42,6 +50,16 @@ export const useInstructions = () => {
       setInstructions(payload);
       setSelectedInstruction((current) =>
         current && payload.some((instruction) => instruction.id === current.id) ? current : null,
+      );
+      setRevisions((current) =>
+        selectedInstruction && payload.some((instruction) => instruction.id === selectedInstruction.id)
+          ? current
+          : [],
+      );
+      setRevisionDiff((current) =>
+        selectedInstruction && payload.some((instruction) => instruction.id === selectedInstruction.id)
+          ? current
+          : null,
       );
       setError(null);
       return payload;
@@ -72,6 +90,7 @@ export const useInstructions = () => {
       const created = await apiClient.createInstruction(input);
       await loadInstructions();
       setSelectedInstruction(created);
+      setRevisionDiff(null);
       setDetailError(null);
       setMessage("Инструкция сохранена и теперь реально участвует в execution flow через явный выбор.");
     } catch (submissionError) {
@@ -88,6 +107,7 @@ export const useInstructions = () => {
       const updated = await apiClient.updateInstruction(instructionId, input);
       await loadInstructions();
       setSelectedInstruction(updated);
+      setRevisionDiff(null);
       setDetailError(null);
       setMessage("Инструкция обновлена без смены id и продолжает участвовать в execution flow через явный выбор.");
       return updated;
@@ -106,6 +126,7 @@ export const useInstructions = () => {
       await apiClient.deleteInstruction(instructionId);
       await loadInstructions();
       setSelectedInstruction((current) => (current?.id === instructionId ? null : current));
+      setRevisionDiff((current) => (selectedInstruction?.id === instructionId ? null : current));
       setDetailError(null);
       setMessage("Инструкция удалена из локальной библиотеки.");
     } catch (deleteError) {
@@ -137,9 +158,70 @@ export const useInstructions = () => {
     }
   };
 
+  const loadInstructionRevisions = async (instructionId: string, signal?: AbortSignal) => {
+    setDetailError(null);
+
+    try {
+      const payload = await apiClient.fetchInstructionRevisions(instructionId, signal);
+      setRevisions(payload);
+      return payload;
+    } catch (loadError) {
+      if (signal?.aborted) {
+        return null;
+      }
+
+      const nextError = translateInstructionError(loadError, "Не удалось загрузить историю инструкции");
+      setDetailError(nextError);
+      return null;
+    }
+  };
+
+  const restoreInstructionRevision = async (instructionId: string, revision: number) => {
+    setActionError(null);
+    setMessage(null);
+
+    try {
+      const restored = await apiClient.restoreInstructionRevision(instructionId, revision);
+      await Promise.all([loadInstructions(), loadInstructionRevisions(instructionId)]);
+      setSelectedInstruction(restored);
+      setRevisionDiff(null);
+      setDetailError(null);
+      setMessage(`Инструкция восстановлена из ревизии ${revision}.`);
+      return restored;
+    } catch (submissionError) {
+      setActionError(translateInstructionError(submissionError, "Не удалось восстановить инструкцию"));
+      throw submissionError;
+    }
+  };
+
+  const loadInstructionDiff = async (
+    instructionId: string,
+    fromRevision: number,
+    toRevision: number,
+    signal?: AbortSignal,
+  ) => {
+    setDetailError(null);
+
+    try {
+      const payload = await apiClient.fetchInstructionDiff(instructionId, fromRevision, toRevision, signal);
+      setRevisionDiff(payload);
+      return payload;
+    } catch (loadError) {
+      if (signal?.aborted) {
+        return null;
+      }
+
+      const nextError = translateInstructionError(loadError, "Не удалось загрузить diff инструкции");
+      setDetailError(nextError);
+      return null;
+    }
+  };
+
   return {
     instructions,
     selectedInstruction,
+    revisions,
+    revisionDiff,
     detailError,
     isLoadingDetail,
     error,
@@ -151,5 +233,8 @@ export const useInstructions = () => {
     updateInstruction,
     deleteInstruction,
     loadInstruction,
+    loadInstructionRevisions,
+    loadInstructionDiff,
+    restoreInstructionRevision,
   };
 };

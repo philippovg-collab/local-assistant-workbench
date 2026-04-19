@@ -2,25 +2,34 @@ package com.example.demo.service;
 
 import com.example.demo.api.ApiException;
 import com.example.demo.config.MaterialProperties;
+import com.example.demo.config.RolloutProperties;
+import com.example.demo.infrastructure.material.ChunkProfile;
+import com.example.demo.infrastructure.material.DocumentBlock;
+import com.example.demo.infrastructure.material.DocumentBlockConfidence;
+import com.example.demo.infrastructure.material.DocumentBlockType;
+import com.example.demo.infrastructure.material.DocumentParseResult;
+import com.example.demo.infrastructure.material.DocumentParserProfile;
 import com.example.demo.infrastructure.material.DocumentTextExtractor;
-import com.example.demo.infrastructure.material.ExtractedDocument;
-import com.example.demo.infrastructure.material.ExtractedDocumentSegment;
 import com.example.demo.infrastructure.material.MaterialCatalogRepository;
-import com.example.demo.infrastructure.material.MaterialIndexingQueueRepository;
+import com.example.demo.infrastructure.material.MaterialLineageIdentity;
+import com.example.demo.infrastructure.material.MaterialLineageRepository;
 import com.example.demo.infrastructure.material.StoredMaterialChunk;
 import com.example.demo.infrastructure.material.StoredMaterialRecord;
+import com.example.demo.infrastructure.material.StoredMaterialSegment;
 import com.example.demo.model.MaterialIndexingStatus;
+import com.example.demo.model.MaterialMetadataInput;
+import com.example.demo.model.MaterialMetadataSnapshot;
 import com.example.demo.model.MaterialSummary;
 import com.example.demo.model.MaterialVersionState;
 import java.io.IOException;
 import java.time.Instant;
-import java.util.Comparator;
 import java.util.List;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -32,29 +41,67 @@ public class MaterialIngestionService {
     private static final String SUPERSEDE_REASON_REACTIVATED_VERSION = "material.superseded_by_reactivated_version";
 
     private final MaterialCatalogRepository catalogRepository;
-    private final MaterialIndexingQueueRepository indexingQueueRepository;
+    private final MaterialLineageRepository lineageRepository;
     private final DocumentTextExtractor extractor;
     private final MaterialProperties properties;
     private final MaterialContentSupport contentSupport;
+    private final MaterialMetadataResolver metadataResolver;
+    private final MaterialSearchSyncLifecycleService lifecycleService;
     private final MaterialIndexingService indexingService;
+    private final AfterCommitExecutor afterCommitExecutor;
+    private final RolloutProperties rolloutProperties;
 
     public MaterialIngestionService(
         MaterialCatalogRepository catalogRepository,
-        MaterialIndexingQueueRepository indexingQueueRepository,
+        MaterialLineageRepository lineageRepository,
         DocumentTextExtractor extractor,
         MaterialProperties properties,
         MaterialContentSupport contentSupport,
-        MaterialIndexingService indexingService
+        MaterialMetadataResolver metadataResolver,
+        MaterialSearchSyncLifecycleService lifecycleService,
+        MaterialIndexingService indexingService,
+        AfterCommitExecutor afterCommitExecutor,
+        RolloutProperties rolloutProperties
     ) {
         this.catalogRepository = catalogRepository;
-        this.indexingQueueRepository = indexingQueueRepository;
+        this.lineageRepository = lineageRepository;
         this.extractor = extractor;
         this.properties = properties;
         this.contentSupport = contentSupport;
+        this.metadataResolver = metadataResolver;
+        this.lifecycleService = lifecycleService;
         this.indexingService = indexingService;
+        this.afterCommitExecutor = afterCommitExecutor;
+        this.rolloutProperties = rolloutProperties == null ? new RolloutProperties() : rolloutProperties;
     }
 
-    public MaterialSummary saveText(String title, String content) {
+    public MaterialIngestionService(
+        MaterialCatalogRepository catalogRepository,
+        MaterialLineageRepository lineageRepository,
+        DocumentTextExtractor extractor,
+        MaterialProperties properties,
+        MaterialContentSupport contentSupport,
+        MaterialMetadataResolver metadataResolver,
+        MaterialSearchSyncLifecycleService lifecycleService,
+        MaterialIndexingService indexingService,
+        AfterCommitExecutor afterCommitExecutor
+    ) {
+        this(
+            catalogRepository,
+            lineageRepository,
+            extractor,
+            properties,
+            contentSupport,
+            metadataResolver,
+            lifecycleService,
+            indexingService,
+            afterCommitExecutor,
+            RolloutProperties.enabledForTests()
+        );
+    }
+
+    @Transactional
+    public MaterialSummary saveText(String title, String content, MaterialMetadataInput metadataInput) {
         if (!StringUtils.hasText(content)) {
             throw new ApiException(
                 HttpStatus.BAD_REQUEST,
@@ -65,6 +112,24 @@ public class MaterialIngestionService {
 
         String resolvedTitle = StringUtils.hasText(title) ? title.trim() : "Text material";
         String lineageTitle = StringUtils.hasText(title) ? title.trim() : null;
+        DocumentParseResult parseResult = new DocumentParseResult(
+            List.of(new DocumentBlock(
+                0,
+                DocumentBlockType.NARRATIVE,
+                content,
+                null,
+                "direct-text",
+                false,
+                DocumentBlockConfidence.HIGH,
+                null
+            )),
+            com.example.demo.infrastructure.material.MaterialMetadataHints.empty(),
+            List.of(),
+            null,
+            "direct-text",
+            false,
+            DocumentParserProfile.RICH_TEXT
+        );
         try {
             return persistMaterial(
                 resolvedTitle,
@@ -72,14 +137,16 @@ public class MaterialIngestionService {
                 null,
                 "text/plain",
                 lineageTitle,
-                new ExtractedDocument(
-                    List.of(new ExtractedDocumentSegment(content, null, "direct-text", false)),
-                    "direct-text",
-                    false,
+                resolveMetadata(
+                    metadataInput,
+                    resolvedTitle,
+                    "text",
                     null,
-                    null,
-                    null
-                )
+                    "text/plain",
+                    contentSupport.headerTextForHints(parseResult),
+                    parseResult.metadataHints()
+                ),
+                parseResult
             );
         } catch (ApiException exception) {
             logKnownMaterialFailure("persist", "text", resolvedTitle, null, "text/plain", exception);
@@ -90,7 +157,8 @@ public class MaterialIngestionService {
         }
     }
 
-    public MaterialSummary saveUpload(String title, MultipartFile file) {
+    @Transactional
+    public MaterialSummary saveUpload(String title, MultipartFile file, MaterialMetadataInput metadataInput) {
         if (file == null || file.isEmpty()) {
             throw new ApiException(
                 HttpStatus.BAD_REQUEST,
@@ -116,7 +184,7 @@ public class MaterialIngestionService {
 
         try {
             byte[] fileBytes = file.getBytes();
-            ExtractedDocument document;
+            DocumentParseResult document;
             try {
                 document = extractor.extract(originalFileName, mediaType, fileBytes);
             } catch (ApiException exception) {
@@ -134,6 +202,15 @@ public class MaterialIngestionService {
                     originalFileName,
                     mediaType,
                     lineageTitle,
+                    resolveMetadata(
+                        metadataInput,
+                        resolvedTitle,
+                        "file",
+                        originalFileName,
+                        mediaType,
+                        contentSupport.headerTextForHints(document),
+                        document.metadataHints()
+                    ),
                     document
                 );
             } catch (ApiException exception) {
@@ -161,6 +238,7 @@ public class MaterialIngestionService {
         }
     }
 
+    @Transactional
     public boolean importLegacyRecord(StoredMaterialRecord legacyRecord) {
         if (legacyRecord == null) {
             return false;
@@ -171,20 +249,29 @@ public class MaterialIngestionService {
             return false;
         }
 
-        if (catalogRepository.findByContentHash(normalizedRecord.contentHash()).isPresent()) {
+        MaterialLineageIdentity lineageIdentity = contentSupport.buildLineageIdentity(normalizedRecord);
+        String sourceKey = lineageRepository.resolveSourceKey(lineageIdentity);
+        StoredMaterialRecord resolvedRecord = normalizedRecord.withSourceKey(sourceKey);
+        lineageRepository.lockLineage(sourceKey);
+        if (catalogRepository.findBySourceKeyAndContentHash(sourceKey, resolvedRecord.contentHash()).isPresent()) {
             return false;
         }
 
-        catalogRepository.save(normalizedRecord, normalizedRecord.chunks());
-        catalogRepository.supersedeActiveVersions(
-            normalizedRecord.sourceKey(),
-            normalizedRecord.id(),
-            normalizedRecord.contentHash(),
-            SUPERSEDE_REASON_NEW_ACTIVE_VERSION,
-            normalizedRecord.updatedAt()
+        List<StoredMaterialSegment> legacySegments = contentSupport.pseudoSegmentsFromChunks(
+            resolvedRecord.chunks(),
+            resolvedRecord.extractor(),
+            Boolean.TRUE.equals(resolvedRecord.ocrUsed())
         );
-        indexingService.requestProcessing();
-        return true;
+        boolean imported = lifecycleService.importLegacyRecord(
+            resolvedRecord,
+            ChunkProfile.FIXED_V1.propertyValue(),
+            legacySegments,
+            SUPERSEDE_REASON_NEW_ACTIVE_VERSION
+        );
+        if (imported) {
+            afterCommitExecutor.afterCommit(indexingService::requestProcessing);
+        }
+        return imported;
     }
 
     private MaterialSummary persistMaterial(
@@ -193,10 +280,11 @@ public class MaterialIngestionService {
         String originalFileName,
         String mediaType,
         String lineageTitle,
-        ExtractedDocument document
+        MaterialMetadataSnapshot metadata,
+        DocumentParseResult document
     ) {
-        List<ExtractedDocumentSegment> normalizedSegments = contentSupport.normalizeSegments(document.segments());
-        String storedContent = contentSupport.joinSegments(normalizedSegments);
+        List<StoredMaterialSegment> normalizedSegments = contentSupport.toStoredSegments(document);
+        String storedContent = contentSupport.joinBlocks(document);
         if (!StringUtils.hasText(storedContent)) {
             throw new ApiException(
                 HttpStatus.BAD_REQUEST,
@@ -215,45 +303,41 @@ public class MaterialIngestionService {
 
         String normalizedContent = contentSupport.normalizeForHash(storedContent);
         String contentHash = contentSupport.sha256(normalizedContent);
-        MaterialContentSupport.MaterialLineageIdentity lineageIdentity = contentSupport.buildLineageIdentity(
+        MaterialLineageIdentity lineageIdentity = contentSupport.buildLineageIdentity(
             sourceType,
             lineageTitle,
             originalFileName,
             storedContent
         );
-        String sourceKey = resolveSourceKey(lineageIdentity);
-        List<StoredMaterialChunk> rawChunks = contentSupport.buildChunks(
-            normalizedSegments,
-            contentSupport.normalizeExtractor(document.extractor()),
-            document.ocrUsed()
+        String sourceKey = lineageRepository.resolveSourceKey(lineageIdentity);
+        ChunkProfile chunkProfile = contentSupport.configuredChunkProfile(rolloutProperties.isStructuredV1());
+        List<StoredMaterialChunk> initialChunks = contentSupport.buildChunks(document, chunkProfile);
+        List<StoredMaterialChunk> rawChunks = initialChunks.isEmpty()
+            ? contentSupport.buildChunks(normalizedSegments, chunkProfile)
+            : initialChunks;
+        lineageRepository.lockLineage(sourceKey);
+
+        java.util.Optional<StoredMaterialRecord> existingRecord =
+            catalogRepository.findBySourceKeyAndContentHash(sourceKey, contentHash);
+        if (existingRecord.isPresent()) {
+            return handleExistingMaterial(existingRecord.get(), sourceKey);
+        }
+
+        return saveNewMaterial(
+            title,
+            sourceType,
+            originalFileName,
+            mediaType,
+            storedContent,
+            normalizedContent,
+            contentHash,
+            sourceKey,
+            metadata,
+            document,
+            chunkProfile,
+            rawChunks,
+            normalizedSegments
         );
-
-        return catalogRepository.findByContentHash(contentHash)
-            .map(existingRecord -> handleExistingMaterial(existingRecord, sourceKey))
-            .orElseGet(() -> saveNewMaterial(
-                title,
-                sourceType,
-                originalFileName,
-                mediaType,
-                storedContent,
-                normalizedContent,
-                contentHash,
-                sourceKey,
-                document,
-                rawChunks
-            ));
-    }
-
-    private String resolveSourceKey(MaterialContentSupport.MaterialLineageIdentity lineageIdentity) {
-        return catalogRepository.findAll().stream()
-            .filter(record -> contentSupport.matchesLineage(record, lineageIdentity))
-            .sorted(Comparator
-                .comparing((StoredMaterialRecord record) -> record.versionState() == MaterialVersionState.ACTIVE ? 0 : 1)
-                .thenComparing(StoredMaterialRecord::updatedAt, Comparator.reverseOrder())
-                .thenComparing(StoredMaterialRecord::createdAt, Comparator.reverseOrder()))
-            .map(StoredMaterialRecord::sourceKey)
-            .findFirst()
-            .orElseGet(() -> contentSupport.buildSourceKey(lineageIdentity));
     }
 
     private MaterialSummary saveNewMaterial(
@@ -265,8 +349,11 @@ public class MaterialIngestionService {
         String normalizedContent,
         String contentHash,
         String sourceKey,
-        ExtractedDocument document,
-        List<StoredMaterialChunk> rawChunks
+        MaterialMetadataSnapshot metadata,
+        DocumentParseResult document,
+        ChunkProfile chunkProfile,
+        List<StoredMaterialChunk> rawChunks,
+        List<StoredMaterialSegment> normalizedSegments
     ) {
         Instant now = Instant.now();
         StoredMaterialRecord record = new StoredMaterialRecord(
@@ -285,24 +372,49 @@ public class MaterialIngestionService {
             rawChunks,
             MaterialIndexingStatus.PENDING,
             MaterialVersionState.ACTIVE,
-            document.warningCode(),
-            document.warningMessage(),
+            document.firstWarningCode(),
+            document.firstWarningMessage(),
             now,
             now
+            ,
+            metadata
         );
 
-        StoredMaterialRecord savedRecord = catalogRepository.save(record, rawChunks);
+        StoredMaterialRecord savedRecord = lifecycleService.saveNewActiveMaterial(
+            record,
+            chunkProfile.propertyValue(),
+            rawChunks,
+            normalizedSegments,
+            SUPERSEDE_REASON_NEW_ACTIVE_VERSION,
+            now
+        );
         if (savedRecord.id().equals(record.id())) {
-            catalogRepository.supersedeActiveVersions(
-                sourceKey,
-                savedRecord.id(),
-                contentHash,
-                SUPERSEDE_REASON_NEW_ACTIVE_VERSION,
-                now
-            );
-            indexingService.requestProcessing();
+            afterCommitExecutor.afterCommit(indexingService::requestProcessing);
         }
         return contentSupport.toSummary(savedRecord);
+    }
+
+    private MaterialMetadataSnapshot resolveMetadata(
+        MaterialMetadataInput metadataInput,
+        String title,
+        String sourceType,
+        String originalFileName,
+        String mediaType,
+        String headerText,
+        com.example.demo.infrastructure.material.MaterialMetadataHints parserHints
+    ) {
+        if (!rolloutProperties.isMetadataV1()) {
+            return MaterialMetadataSnapshot.fromInput(metadataInput);
+        }
+        return metadataResolver.resolve(
+            metadataInput,
+            title,
+            sourceType,
+            originalFileName,
+            mediaType,
+            headerText,
+            parserHints
+        );
     }
 
     private MaterialSummary handleExistingMaterial(StoredMaterialRecord existingRecord, String sourceKey) {
@@ -311,30 +423,21 @@ public class MaterialIngestionService {
 
         if (existingRecord.sourceKey().equals(sourceKey)
             && existingRecord.versionState() == MaterialVersionState.SUPERSEDED) {
-            catalogRepository.supersedeActiveVersions(
-                sourceKey,
-                existingRecord.id(),
-                existingRecord.contentHash(),
+            resolvedRecord = lifecycleService.reactivateVersion(
+                existingRecord,
                 SUPERSEDE_REASON_REACTIVATED_VERSION,
-                now
-            );
-            resolvedRecord = catalogRepository.updateVersionState(
-                existingRecord.id(),
-                MaterialVersionState.ACTIVE,
-                null,
-                null,
                 now
             );
         }
 
         if (resolvedRecord.status() == MaterialIndexingStatus.FAILED) {
-            StoredMaterialRecord requeuedRecord = indexingQueueRepository.markIndexingPending(
+            StoredMaterialRecord requeuedRecord = lifecycleService.markIndexingPending(
                 resolvedRecord.id(),
                 null,
                 null,
                 now
             );
-            indexingService.requestProcessing();
+            afterCommitExecutor.afterCommit(indexingService::requestProcessing);
             return contentSupport.toSummary(requeuedRecord);
         }
 

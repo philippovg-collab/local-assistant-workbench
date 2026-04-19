@@ -1,0 +1,65 @@
+{
+  "settings": {
+    "analysis": {
+      "filter": {
+        "rag_synonyms": {
+          "type": "synonym",
+          "synonyms": [
+            "электроэнергия, электричество, электропитание",
+            "подстанция, пс, п/ст",
+            "тариф, plan, pricing, tariff",
+            "dispatch, диспетчеризация, диспетчерский"
+          ]
+        }
+      },
+      "normalizer": {
+        "rag_keyword": {
+          "type": "custom",
+          "filter": [
+            "lowercase",
+            "asciifolding"
+          ]
+        }
+      },
+      "analyzer": {
+        "rag_text": {
+          "tokenizer": "standard",
+          "filter": [
+            "lowercase",
+            "asciifolding",
+            "rag_synonyms"
+          ]
+        }
+      }
+    },
+    "index": {
+      "number_of_shards": "1",
+      "number_of_replicas": "0"
+    }
+  },
+  "mappings": {
+    "dynamic": "strict",
+    "properties": {
+      "chunkId": { "type": "keyword" },
+      "materialId": { "type": "keyword" },
+      "sourceKey": { "type": "keyword" },
+      "title": { "type": "text", "analyzer": "rag_text" },
+      "chunkText": { "type": "text", "analyzer": "rag_text" },
+      "page": { "type": "integer" },
+      "extractor": { "type": "keyword" },
+      "ocrUsed": { "type": "boolean" },
+      "chunkType": { "type": "keyword" },
+      "documentNumber": { "type": "keyword", "normalizer": "rag_keyword" },
+      "documentDate": { "type": "date" },
+      "department": { "type": "keyword", "normalizer": "rag_keyword" },
+      "project": { "type": "keyword", "normalizer": "rag_keyword" },
+      "counterparty": { "type": "keyword", "normalizer": "rag_keyword" },
+      "businessStatus": { "type": "keyword", "normalizer": "rag_keyword" },
+      "language": { "type": "keyword", "normalizer": "rag_keyword" },
+      "tags": { "type": "keyword", "normalizer": "rag_keyword" },
+      "sourceTrust": { "type": "keyword", "normalizer": "rag_keyword" },
+      "sourceType": { "type": "keyword" },
+      "updatedAt": { "type": "date" }
+    }
+  }
+}

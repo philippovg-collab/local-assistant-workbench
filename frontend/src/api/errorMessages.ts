@@ -35,6 +35,10 @@ export const translateCommonApiError = (error: unknown, fallback: string) => {
       case "chat.invalid_prompt":
       case "request.invalid_payload":
         return "Запрос заполнен некорректно. Обнови форму и попробуй ещё раз.";
+      case "instruction.inactive":
+        return "Выбранная инструкция сейчас неактивна и не может участвовать в запросе.";
+      case "knowledge_preset.inactive":
+        return "Выбранный knowledge preset сейчас неактивен и не может ограничивать корпус.";
       default:
         return error.message || fallback;
     }

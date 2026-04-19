@@ -55,22 +55,22 @@ public class PdfDocumentExtractionStrategy implements DocumentTextExtractionStra
     }
 
     @Override
-    public ExtractedDocument extract(String originalFileName, String mediaType, byte[] bytes) {
+    public DocumentParseResult extract(String originalFileName, String mediaType, byte[] bytes) {
         try (PDDocument document = PDDocument.load(bytes)) {
             int pageCount = document.getNumberOfPages();
-            List<ExtractedDocumentSegment> extractedPages = extractEmbeddedText(document, pageCount);
-            List<ExtractedDocumentSegment> resolvedPages = new ArrayList<>();
+            List<PageParseUnit> extractedPages = extractEmbeddedText(document, pageCount);
+            List<PageParseUnit> resolvedPages = new ArrayList<>();
             List<Integer> skippedPages = new ArrayList<>();
             String partialReason = null;
             boolean usedOcr = false;
             ApiException firstOcrFailure = null;
 
-            List<ExtractedDocumentSegment> ocrRequiredPages = extractedPages.stream()
+            List<PageParseUnit> ocrRequiredPages = extractedPages.stream()
                 .filter(this::requiresOcr)
                 .toList();
 
             if (ocrRequiredPages.isEmpty()) {
-                return buildResult(extractedPages, false, pageCount, null, null);
+                return buildResult(extractedPages, false, pageCount, List.of());
             }
 
             OcrCapability capability = ocrCapabilityProvider.currentCapability();
@@ -78,7 +78,7 @@ public class PdfDocumentExtractionStrategy implements DocumentTextExtractionStra
             int ocrBudget = capability.maxPages();
             int ocrAttempts = 0;
 
-            for (ExtractedDocumentSegment page : extractedPages) {
+            for (PageParseUnit page : extractedPages) {
                 if (!requiresOcr(page)) {
                     resolvedPages.add(page);
                     continue;
@@ -130,12 +130,15 @@ public class PdfDocumentExtractionStrategy implements DocumentTextExtractionStra
                 );
             }
 
-            String warningCode = skippedPages.isEmpty() ? null : PARTIAL_WARNING_CODE;
-            String warningMessage = skippedPages.isEmpty()
-                ? null
-                : buildPartialWarning(pageCount, skippedPages, partialReason);
+            List<ParseWarning> warnings = skippedPages.isEmpty()
+                ? List.of()
+                : List.of(new ParseWarning(
+                    PARTIAL_WARNING_CODE,
+                    buildPartialWarning(pageCount, skippedPages, partialReason),
+                    skippedPages
+                ));
 
-            return buildResult(resolvedPages, usedOcr, pageCount, warningCode, warningMessage);
+            return buildResult(resolvedPages, usedOcr, pageCount, warnings);
         } catch (IOException exception) {
             throw new ApiException(
                 HttpStatus.BAD_REQUEST,
@@ -146,14 +149,13 @@ public class PdfDocumentExtractionStrategy implements DocumentTextExtractionStra
         }
     }
 
-    private ExtractedDocument buildResult(
-        List<ExtractedDocumentSegment> pages,
+    private DocumentParseResult buildResult(
+        List<PageParseUnit> pages,
         boolean usedOcr,
         int pageCount,
-        String warningCode,
-        String warningMessage
+        List<ParseWarning> warnings
     ) {
-        List<ExtractedDocumentSegment> nonEmptyPages = pages.stream()
+        List<PageParseUnit> nonEmptyPages = pages.stream()
             .filter(page -> StringUtils.hasText(page.text()))
             .sorted(Comparator.comparing(page -> page.page() == null ? 0 : page.page()))
             .toList();
@@ -166,13 +168,38 @@ public class PdfDocumentExtractionStrategy implements DocumentTextExtractionStra
             );
         }
 
-        return new ExtractedDocument(
-            nonEmptyPages,
+        List<DocumentBlock> blocks = new ArrayList<>();
+        int nextIndex = 0;
+        for (PageParseUnit page : nonEmptyPages) {
+            List<DocumentBlock> pageBlocks = DocumentBlockBuilder.fromText(
+                page.text(),
+                page.page(),
+                page.extractor(),
+                page.ocrUsed(),
+                false,
+                DocumentBlockType.NARRATIVE,
+                nextIndex
+            );
+            blocks.addAll(pageBlocks);
+            nextIndex += pageBlocks.size();
+        }
+
+        if (blocks.isEmpty()) {
+            throw new ApiException(
+                HttpStatus.BAD_REQUEST,
+                "material.extraction_failed",
+                "Unable to extract readable text from the uploaded PDF"
+            );
+        }
+
+        return new DocumentParseResult(
+            blocks,
+            MaterialMetadataHints.empty(),
+            warnings,
+            pageCount,
             usedOcr ? "pdfbox+tesseract" : "pdfbox",
             usedOcr,
-            pageCount,
-            warningCode,
-            warningMessage
+            DocumentParserProfile.PDF
         );
     }
 
@@ -195,14 +222,14 @@ public class PdfDocumentExtractionStrategy implements DocumentTextExtractionStra
             + suffix;
     }
 
-    private List<ExtractedDocumentSegment> extractEmbeddedText(PDDocument document, int pageCount) throws IOException {
+    private List<PageParseUnit> extractEmbeddedText(PDDocument document, int pageCount) throws IOException {
         PDFTextStripper stripper = new PDFTextStripper();
-        List<ExtractedDocumentSegment> pages = new ArrayList<>();
+        List<PageParseUnit> pages = new ArrayList<>();
 
         for (int page = 1; page <= pageCount; page++) {
             stripper.setStartPage(page);
             stripper.setEndPage(page);
-            pages.add(new ExtractedDocumentSegment(
+            pages.add(new PageParseUnit(
                 stripper.getText(document),
                 page,
                 "pdfbox",
@@ -213,11 +240,11 @@ public class PdfDocumentExtractionStrategy implements DocumentTextExtractionStra
         return pages;
     }
 
-    private boolean requiresOcr(ExtractedDocumentSegment page) {
+    private boolean requiresOcr(PageParseUnit page) {
         return meaningfulLength(page.text()) < ocrProperties.getMinTextThreshold();
     }
 
-    private ExtractedDocumentSegment extractPageWithOcr(
+    private PageParseUnit extractPageWithOcr(
         PDDocument document,
         PDFRenderer renderer,
         Integer pageNumber
@@ -261,7 +288,7 @@ public class PdfDocumentExtractionStrategy implements DocumentTextExtractionStra
                 );
             }
 
-            return new ExtractedDocumentSegment(
+            return new PageParseUnit(
                 ocrClient.extract(imagePath, pageNumber),
                 pageNumber,
                 "tesseract",
@@ -308,5 +335,13 @@ public class PdfDocumentExtractionStrategy implements DocumentTextExtractionStra
         return text.toLowerCase(Locale.ROOT)
             .replaceAll("[^\\p{L}\\p{N}]+", "")
             .length();
+    }
+
+    private record PageParseUnit(
+        String text,
+        Integer page,
+        String extractor,
+        boolean ocrUsed
+    ) {
     }
 }

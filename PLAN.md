@@ -41,12 +41,12 @@
 - Остался хвост: нет отдельного edit/update сценария для существующих инструкций, только create/delete/read.
 
 ### 3. Пересобрать health и status plane
-- Сделано: `RuntimeReadinessService` больше не полагается на `listModels()` и использует активные probes через `chat(...)` и `embed(...)`.
-- Сделано: `HealthController` разделяет `status`, `directStatus`, `ragStatus`, `ocrStatus`, а OCR не валит общий backend status.
+- Сделано: `RuntimeReadinessService` разделяет `llmStatus` и `directStatus`: catalog/provider readiness идёт через `listModels()`, а direct readiness подтверждается отдельным `chat(...)` probe.
+- Сделано: `HealthController` разделяет `status`, `directStatus`, `ragStatus`, `knowledgeStatus`, `ocrStatus`, а empty/history/indexing corpus не валит общий backend status.
 - Сделано: response shape расширена обратно-совместимо.
 - Сделано: frontend polling для `useHealth` и `useModels` раз в `15s`, для `useMaterials` раз в `5s`, пока есть активная индексация.
-- Сделано: добавлен общий derived readiness helper `frontend/src/utils/readiness.ts`.
-- Частично сделано: не все UI-ветки используют derived readiness одинаково; часть условий в `App.tsx` всё ещё смотрит на общее число материалов.
+- Сделано: `frontend/src/utils/readiness.ts` использует backend-driven truth-model из `/api/health`, а не локально выводит RAG readiness из `health + materials`.
+- Сделано: `App.tsx`, `StatusSummary`, `RagChatPanel` и `DirectChatPanel` используют один и тот же backend contract для helper text, disabled state и overview messaging.
 
 ### 4. Исправить knowledge lifecycle и frontend transport
 - Сделано: `source_key` и `version_state` появились в runtime, БД и API.

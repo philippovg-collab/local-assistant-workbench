@@ -15,7 +15,7 @@ public class RoutingDocumentTextExtractor implements DocumentTextExtractor {
     }
 
     @Override
-    public ExtractedDocument extract(String originalFileName, String mediaType, byte[] bytes) {
+    public DocumentParseResult extract(String originalFileName, String mediaType, byte[] bytes) {
         return strategies.stream()
             .filter(strategy -> strategy.supports(originalFileName, mediaType))
             .findFirst()

@@ -22,18 +22,29 @@ public class PlainTextDocumentExtractionStrategy implements DocumentTextExtracti
             || (!StringUtils.hasText(extension)
                 && StringUtils.hasText(mediaType)
                 && mediaType.toLowerCase(Locale.ROOT).startsWith("text/")
-                && !mediaType.toLowerCase(Locale.ROOT).contains("html"));
+                && !mediaType.toLowerCase(Locale.ROOT).contains("html")
+                && !mediaType.toLowerCase(Locale.ROOT).contains("csv"));
     }
 
     @Override
-    public ExtractedDocument extract(String originalFileName, String mediaType, byte[] bytes) {
-        return new ExtractedDocument(
-            List.of(new ExtractedDocumentSegment(new String(bytes, StandardCharsets.UTF_8), null, "plain-text", false)),
+    public DocumentParseResult extract(String originalFileName, String mediaType, byte[] bytes) {
+        List<DocumentBlock> blocks = DocumentBlockBuilder.fromText(
+            new String(bytes, StandardCharsets.UTF_8),
+            null,
             "plain-text",
             false,
+            false,
+            DocumentBlockType.NARRATIVE,
+            0
+        );
+        return new DocumentParseResult(
+            blocks,
+            MaterialMetadataHints.empty(),
+            List.of(),
             null,
-            null,
-            null
+            "plain-text",
+            false,
+            DocumentParserProfile.RICH_TEXT
         );
     }
 }

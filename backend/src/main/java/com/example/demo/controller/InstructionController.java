@@ -3,6 +3,8 @@ package com.example.demo.controller;
 import java.util.List;
 import com.example.demo.model.CreateInstructionRequest;
 import com.example.demo.model.InstructionDetail;
+import com.example.demo.model.InstructionRevisionDiff;
+import com.example.demo.model.InstructionRevisionDetail;
 import com.example.demo.model.InstructionSummary;
 import com.example.demo.service.InstructionService;
 import org.springframework.http.HttpStatus;
@@ -14,6 +16,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -50,5 +53,29 @@ public class InstructionController {
     @DeleteMapping("/{id}")
     public void deleteInstruction(@PathVariable String id) {
         instructionService.deleteInstruction(id);
+    }
+
+    @GetMapping("/{id}/revisions")
+    public List<InstructionRevisionDetail> listInstructionRevisions(@PathVariable String id) {
+        return instructionService.listRevisions(id);
+    }
+
+    @GetMapping("/{id}/revisions/{revision}")
+    public InstructionRevisionDetail getInstructionRevision(@PathVariable String id, @PathVariable int revision) {
+        return instructionService.getRevision(id, revision);
+    }
+
+    @GetMapping("/{id}/diff")
+    public InstructionRevisionDiff diffInstructionRevisions(
+        @PathVariable String id,
+        @RequestParam int fromRevision,
+        @RequestParam int toRevision
+    ) {
+        return instructionService.diffRevisions(id, fromRevision, toRevision);
+    }
+
+    @PostMapping("/{id}/restore/{revision}")
+    public InstructionDetail restoreInstructionRevision(@PathVariable String id, @PathVariable int revision) {
+        return instructionService.restoreRevision(id, revision);
     }
 }

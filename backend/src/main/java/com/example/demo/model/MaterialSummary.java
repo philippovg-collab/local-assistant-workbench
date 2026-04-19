@@ -16,7 +16,8 @@ public record MaterialSummary(
     int indexingAttempts,
     Instant nextRetryAt,
     int contentLength,
-    String preview
+    String preview,
+    MaterialMetadataSnapshot metadata
 ) {
     public MaterialSummary(
         String id,
@@ -45,7 +46,8 @@ public record MaterialSummary(
             0,
             null,
             contentLength,
-            preview
+            preview,
+            MaterialMetadataSnapshot.empty()
         );
     }
 }

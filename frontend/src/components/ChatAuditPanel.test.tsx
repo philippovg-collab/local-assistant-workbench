@@ -1,0 +1,263 @@
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { ChatAuditPanel } from "./ChatAuditPanel";
+import type {
+  ChatAuditRunDetail,
+  ChatAuditRunSummary,
+  InstructionTraceEntry,
+  KnowledgeScopeResolved,
+  RetrievalTrace,
+} from "../types";
+import {
+  EMPTY_KNOWLEDGE_SCOPE_RESOLVED,
+  EMPTY_RETRIEVAL_TRACE,
+} from "../utils/workbenchPresentation";
+
+const buildInstructionTrace = (title: string, revision: number): InstructionTraceEntry => ({
+  instructionId: `${title}-${revision}`,
+  title,
+  category: "context",
+  scopeLevel: "chat_scenario",
+  scopeTargetId: null,
+  revision,
+  active: true,
+  temporary: false,
+  contentPreview: `${title} preview`,
+});
+
+const buildKnowledgeScopeResolved = (
+  overrides: Partial<KnowledgeScopeResolved> = {},
+): KnowledgeScopeResolved => ({
+  ...EMPTY_KNOWLEDGE_SCOPE_RESOLVED,
+  presets: [],
+  documentClasses: [],
+  tags: [],
+  workspaceKey: null,
+  uploadedTodayOnly: false,
+  ...overrides,
+});
+
+const buildRetrievalTrace = (overrides: Partial<RetrievalTrace> = {}): RetrievalTrace => ({
+  ...EMPTY_RETRIEVAL_TRACE,
+  totalMaterials: 2,
+  totalActiveMaterials: 2,
+  totalReadyMaterials: 2,
+  scopedMaterials: 2,
+  scopedActiveMaterials: 2,
+  scopedReadyMaterials: 2,
+  semanticCandidates: 2,
+  lexicalCandidates: 1,
+  finalChunks: 1,
+  supportVerdict: "sufficient",
+  ...overrides,
+});
+
+const buildRunDetail = (overrides: Partial<ChatAuditRunDetail> = {}): ChatAuditRunDetail => ({
+  id: "run-1",
+  mode: "rag",
+  model: "qwen2.5:7b",
+  prompt: "Base prompt",
+  answer: "Base answer",
+  contextStatus: "ready",
+  answerMode: "brief",
+  createdAt: "2026-04-19T00:00:00Z",
+  instructionTrace: [buildInstructionTrace("Context rule", 1)],
+  knowledgeScopeResolved: buildKnowledgeScopeResolved({
+    presets: [{ id: "preset-1", name: "Договоры", revision: 1 }],
+    documentClasses: ["contracts"],
+    tags: ["finance"],
+    workspaceKey: "north-upgrade",
+  }),
+  retrievalTrace: buildRetrievalTrace(),
+  sources: [
+    {
+      materialId: "material-1",
+      chunkId: "material-1:0",
+      title: "North contract",
+      excerpt: "Тариф Премиум стоит 12000 тенге.",
+      score: 100,
+      confidence: 1,
+      matchedTerms: ["тариф", "12000"],
+      openSourceUrl: "/api/materials/material-1?chunkId=material-1%3A0&chunkIndex=0",
+      chunkIndex: 0,
+      page: 2,
+      extractor: "direct-text",
+      ocrUsed: false,
+      semanticDistance: 0.1,
+      lexicalScore: 1.2,
+    },
+  ],
+  ...overrides,
+});
+
+const summaryOf = (detail: ChatAuditRunDetail): ChatAuditRunSummary => ({
+  id: detail.id,
+  mode: detail.mode,
+  model: detail.model,
+  answerMode: detail.answerMode,
+  promptPreview: detail.prompt,
+  answerPreview: detail.answer,
+  createdAt: detail.createdAt,
+});
+
+describe("ChatAuditPanel", () => {
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+  });
+
+  it("renders the empty state when no runs exist", () => {
+    render(
+      <ChatAuditPanel
+        runs={[]}
+        selectedRun={null}
+        error={null}
+        onLoadRun={vi.fn()}
+        currentInstructionTrace={[]}
+        currentKnowledgeScopeResolved={EMPTY_KNOWLEDGE_SCOPE_RESOLVED}
+        currentRetrievalTrace={EMPTY_RETRIEVAL_TRACE}
+      />,
+    );
+
+    expect(screen.getByText("История запусков пока пуста")).toBeTruthy();
+  });
+
+  it("loads compare runs, switches the base run, and renders diff plus inspectors", async () => {
+    const user = userEvent.setup();
+    const selectedRun = buildRunDetail();
+    const compareRun = buildRunDetail({
+      id: "run-2",
+      model: "deepseek-r1:14b",
+      prompt: "Compare prompt",
+      answer: "Compare answer",
+      answerMode: "strict_sources_only",
+      createdAt: "2026-04-19T00:05:00Z",
+      instructionTrace: [buildInstructionTrace("Strict rule", 2)],
+      knowledgeScopeResolved: buildKnowledgeScopeResolved({
+        presets: [{ id: "preset-1", name: "Договоры", revision: 2 }],
+        documentClasses: ["contracts"],
+        tags: ["finance", "priority"],
+        workspaceKey: "north-upgrade",
+        uploadedTodayOnly: true,
+      }),
+      retrievalTrace: buildRetrievalTrace({
+        semanticCandidates: 4,
+        lexicalCandidates: 3,
+        finalChunks: 2,
+        supportVerdict: "weak",
+      }),
+      sources: [
+        {
+          materialId: "material-1",
+          chunkId: "material-1:1",
+          title: "North contract",
+          excerpt: "Дополнительный chunk про приоритетную поддержку.",
+          score: 90,
+          confidence: 0.9,
+          matchedTerms: ["поддержка"],
+          openSourceUrl: "/api/materials/material-1?chunkId=material-1%3A1&chunkIndex=1",
+          chunkIndex: 1,
+          page: 3,
+          extractor: "pdfbox",
+          ocrUsed: false,
+          semanticDistance: 0.2,
+          lexicalScore: 0.8,
+        },
+      ],
+    });
+    const newBaseRun = buildRunDetail({
+      id: "run-3",
+      model: "qwen2.5:32b",
+      prompt: "New base prompt",
+      answer: "New base answer",
+      answerMode: "documents_only",
+      createdAt: "2026-04-19T00:10:00Z",
+      instructionTrace: [buildInstructionTrace("Documents rule", 4)],
+      knowledgeScopeResolved: buildKnowledgeScopeResolved({
+        presets: [{ id: "preset-2", name: "Регламенты", revision: 3 }],
+        documentClasses: ["regulations"],
+        tags: ["policy"],
+        workspaceKey: "ops-workspace",
+      }),
+      retrievalTrace: buildRetrievalTrace({
+        semanticCandidates: 1,
+        lexicalCandidates: 1,
+        finalChunks: 1,
+        supportVerdict: "sufficient",
+      }),
+      sources: [
+        {
+          materialId: "material-2",
+          chunkId: "material-2:0",
+          title: "Operations policy",
+          excerpt: "Регламент подтверждает SLA.",
+          score: 88,
+          confidence: 0.88,
+          matchedTerms: ["sla"],
+          openSourceUrl: "/api/materials/material-2?chunkId=material-2%3A0&chunkIndex=0",
+          chunkIndex: 0,
+          page: 1,
+          extractor: "tika",
+          ocrUsed: false,
+          semanticDistance: 0.3,
+          lexicalScore: 0.7,
+        },
+      ],
+    });
+
+    const runs = [summaryOf(selectedRun), summaryOf(compareRun), summaryOf(newBaseRun)];
+    const onLoadRun = vi.fn(async (runId: string) => {
+      if (runId === compareRun.id) {
+        return compareRun;
+      }
+      if (runId === newBaseRun.id) {
+        return newBaseRun;
+      }
+      return null;
+    });
+
+    render(
+      <ChatAuditPanel
+        runs={runs}
+        selectedRun={selectedRun}
+        error="История частично недоступна."
+        onLoadRun={onLoadRun}
+        currentAuditRunId={selectedRun.id}
+        currentInstructionTrace={selectedRun.instructionTrace}
+        currentKnowledgeScopeResolved={selectedRun.knowledgeScopeResolved}
+        currentRetrievalTrace={selectedRun.retrievalTrace}
+      />,
+    );
+
+    expect(screen.getByText("История частично недоступна.")).toBeTruthy();
+
+    const compareCard = screen.getByText(compareRun.prompt).closest("article");
+    const newBaseCard = screen.getByText(newBaseRun.prompt).closest("article");
+
+    if (!compareCard || !newBaseCard) {
+      throw new Error("Run cards not rendered");
+    }
+
+    await user.click(within(compareCard).getByRole("button", { name: "Сравнить" }));
+    await user.click(within(newBaseCard).getByRole("button", { name: "База" }));
+
+    await waitFor(() => {
+      expect(onLoadRun).toHaveBeenCalledWith(compareRun.id);
+      expect(onLoadRun).toHaveBeenCalledWith(newBaseRun.id);
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("Model: qwen2.5:32b vs deepseek-r1:14b")).toBeTruthy();
+    });
+
+    expect(screen.getByText("Preset revisions: +1 / -1")).toBeTruthy();
+    expect(screen.getByText("Chunk ids: +1 / -1")).toBeTruthy();
+    expect(screen.getByText("Base run inspector")).toBeTruthy();
+    expect(screen.getByText("Compare run inspector")).toBeTruthy();
+    expect(screen.getByText("New base answer")).toBeTruthy();
+    expect(screen.getByText("Compare answer")).toBeTruthy();
+    expect(screen.getByText("Operations policy")).toBeTruthy();
+    expect(screen.getByText("North contract")).toBeTruthy();
+  });
+});

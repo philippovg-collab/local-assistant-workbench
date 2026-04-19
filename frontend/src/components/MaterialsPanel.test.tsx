@@ -2,12 +2,38 @@ import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MaterialsPanel } from "./MaterialsPanel";
+import { buildMaterialSummary } from "../testBuilders";
 import { buildRagReadinessPresentation, deriveRagReadiness } from "../utils/readiness";
+import type { HealthResponse } from "../types";
 
 const renderPanel = (
   overrides: Partial<Parameters<typeof MaterialsPanel>[0]> = {},
 ) => {
   const materials = overrides.materials ?? [];
+  const health: HealthResponse = {
+    application: "Local Assistant Workbench",
+    status: "UP",
+    timestamp: "2026-04-16T10:00:00Z",
+    directStatus: "UP",
+    ragStatus: materials.some((material) => material.versionState !== "SUPERSEDED") ? "UP" : "DOWN",
+    llmStatus: "UP",
+    embeddingStatus: "UP",
+    knowledgeStatus: materials.length === 0
+      ? "EMPTY"
+      : materials.every((material) => material.versionState === "SUPERSEDED")
+        ? "HISTORICAL_ONLY"
+        : "READY",
+    materialCount: materials.length,
+    activeMaterialCount: materials.filter((material) => material.versionState !== "SUPERSEDED").length,
+    historicalMaterialCount: materials.filter((material) => material.versionState === "SUPERSEDED").length,
+    readyMaterialCount: materials.filter(
+      (material) =>
+        material.versionState !== "SUPERSEDED"
+        && (material.status === "READY" || material.status === "PARTIAL_READY"),
+    ).length,
+    indexingPendingCount: 0,
+    indexingInProgressCount: 0,
+  };
 
   return render(
     <MaterialsPanel
@@ -18,6 +44,7 @@ const renderPanel = (
       lineageError={null}
       loadingLineageMaterialId={null}
       materials={materials}
+      metadataV1Enabled={false}
       message={null}
       onClearLineage={vi.fn()}
       onCreateText={vi.fn()}
@@ -28,8 +55,8 @@ const renderPanel = (
       policyWarning={null}
       ragPresentation={
         overrides.ragPresentation ?? buildRagReadinessPresentation({
-          health: null,
-          ragReadiness: deriveRagReadiness(null, materials),
+          health,
+          ragReadiness: deriveRagReadiness(health),
           isLoadingMaterials: false,
           materialsError: null,
           selectedModel: "qwen2.5:7b",
@@ -144,7 +171,7 @@ describe("MaterialsPanel", () => {
 
   it("warns when the catalog contains only historical versions", () => {
     const materials = [
-      {
+      buildMaterialSummary({
         id: "historical-1",
         title: "Archived tariff note",
         sourceType: "file",
@@ -154,7 +181,7 @@ describe("MaterialsPanel", () => {
         createdAt: "2026-04-16T10:00:00Z",
         contentLength: 128,
         preview: "Старая версия тарифа.",
-      },
+      }),
     ];
 
     renderPanel({ materials });
@@ -169,26 +196,30 @@ describe("MaterialsPanel", () => {
     renderPanel({
       materials: [
         {
-          id: "active-ready",
-          title: "Ready tariff",
-          sourceType: "file",
-          originalFileName: "ready.pdf",
-          status: "READY",
-          versionState: "ACTIVE",
-          createdAt: "2026-04-16T10:00:00Z",
-          contentLength: 128,
-          preview: "Готовый материал.",
+          ...buildMaterialSummary({
+            id: "active-ready",
+            title: "Ready tariff",
+            sourceType: "file",
+            originalFileName: "ready.pdf",
+            status: "READY",
+            versionState: "ACTIVE",
+            createdAt: "2026-04-16T10:00:00Z",
+            contentLength: 128,
+            preview: "Готовый материал.",
+          }),
         },
         {
-          id: "failed-active",
-          title: "Broken tariff",
-          sourceType: "file",
-          originalFileName: "broken.pdf",
-          status: "FAILED",
-          versionState: "ACTIVE",
-          createdAt: "2026-04-16T10:00:00Z",
-          contentLength: 128,
-          preview: "Проблемный материал.",
+          ...buildMaterialSummary({
+            id: "failed-active",
+            title: "Broken tariff",
+            sourceType: "file",
+            originalFileName: "broken.pdf",
+            status: "FAILED",
+            versionState: "ACTIVE",
+            createdAt: "2026-04-16T10:00:00Z",
+            contentLength: 128,
+            preview: "Проблемный материал.",
+          }),
         },
       ],
     });
@@ -206,7 +237,7 @@ describe("MaterialsPanel", () => {
         requestedMaterialId: "historical-1",
         activeMaterialId: "active-2",
         versions: [
-          {
+          buildMaterialSummary({
             id: "active-2",
             title: "Current tariff",
             sourceType: "file",
@@ -218,8 +249,9 @@ describe("MaterialsPanel", () => {
             indexingAttempts: 1,
             contentLength: 200,
             preview: "Актуальная версия.",
-          },
+          }),
           {
+            ...buildMaterialSummary({
             id: "historical-1",
             title: "Old tariff",
             sourceType: "file",
@@ -229,9 +261,10 @@ describe("MaterialsPanel", () => {
             createdAt: "2026-04-15T10:00:00Z",
             updatedAt: "2026-04-16T10:00:00Z",
             indexingAttempts: 1,
-            supersedeReason: "material.superseded_by_new_active_version",
             contentLength: 190,
             preview: "Старая версия.",
+            }),
+            supersedeReason: "material.superseded_by_new_active_version",
           },
         ],
       },
@@ -240,5 +273,95 @@ describe("MaterialsPanel", () => {
     expect(screen.getByText("История версий")).toBeTruthy();
     expect(screen.getByText(/была вытеснена более новой активной загрузкой/i)).toBeTruthy();
     expect(screen.getByText(/Активная версия: active-2/i)).toBeTruthy();
+  });
+
+  it("blocks text submit until required metadata are provided", async () => {
+    const user = userEvent.setup();
+    const onCreateText = vi.fn();
+
+    renderPanel({ metadataV1Enabled: true, onCreateText });
+
+    await user.type(screen.getByLabelText("Содержимое"), "Новый материал");
+    await user.click(screen.getByRole("button", { name: "Сохранить текст" }));
+
+    expect(onCreateText).not.toHaveBeenCalled();
+    expect(screen.getAllByText(/выбери тип документа/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/выбери уровень доверия/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/заполни автора или подразделение/i).length).toBeGreaterThan(0);
+  });
+
+  it("allows text submit without metadata when metadata rollout is disabled", async () => {
+    const user = userEvent.setup();
+    const onCreateText = vi.fn();
+
+    renderPanel({ metadataV1Enabled: false, onCreateText });
+
+    await user.type(screen.getByLabelText("Содержимое"), "Новый материал");
+    await user.click(screen.getByRole("button", { name: "Сохранить текст" }));
+
+    expect(onCreateText).toHaveBeenCalledWith({
+      title: "",
+      content: "Новый материал",
+    });
+    expect(screen.queryByText(/выбери тип документа/i)).toBeNull();
+  });
+
+  it("renders effective metadata with provenance badges", () => {
+    renderPanel({
+      materials: [
+        buildMaterialSummary({
+          id: "material-provenance",
+          title: "Provenance sample",
+          metadata: {
+            documentType: "CONTRACT",
+            documentDate: "2026-04-15",
+            documentNumber: "KZ-2026-0415-ENERGY",
+            author: "Dana Sarsen",
+            department: "Grid operations",
+            versionLabel: "v2",
+            language: "ru",
+            tags: ["energy", "grid"],
+            sourceTrust: "UNKNOWN",
+            project: "North Upgrade",
+            counterparty: null,
+            businessStatus: null,
+            periodStart: null,
+            periodEnd: null,
+            provenance: {
+              fieldOrigins: {
+                documentType: "MANUAL",
+                documentDate: "INFERRED",
+                documentNumber: "INFERRED",
+                author: "MANUAL",
+                department: "INFERRED",
+                versionLabel: "INFERRED",
+                language: "INFERRED",
+                tags: "INFERRED",
+                sourceTrust: "DEFAULT",
+                project: "MANUAL",
+              },
+              fieldConfidence: {
+                documentDate: 0.75,
+                documentNumber: 0.75,
+                department: 0.9,
+              },
+            },
+          },
+        }),
+      ],
+    });
+
+    expect(
+      screen.getAllByText((_, element) => element?.textContent?.includes("Тип: Contract") ?? false).length,
+    ).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText((_, element) => element?.textContent?.includes("Номер: KZ-2026-0415-ENERGY") ?? false).length,
+    ).toBeGreaterThan(0);
+    expect(screen.getByText(/KZ-2026-0415-ENERGY/i)).toBeTruthy();
+    expect(screen.getAllByText("manual").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("auto").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("default").length).toBeGreaterThan(0);
+    expect(screen.queryByText(/Корпус:/i)).toBeNull();
+    expect(screen.queryByText(/Workspace:/i)).toBeNull();
   });
 });

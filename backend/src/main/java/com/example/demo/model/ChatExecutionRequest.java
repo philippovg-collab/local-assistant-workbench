@@ -7,6 +7,45 @@ public record ChatExecutionRequest(
     String model,
     String prompt,
     String systemPrompt,
-    List<String> instructionIds
+    List<String> instructionIds,
+    AnswerMode answerMode,
+    KnowledgeScope knowledgeScope,
+    RetrievalFilters retrievalFilters,
+    List<String> scenarioInstructionIds,
+    String temporaryInstruction
 ) {
+    public ChatExecutionRequest(
+        ChatMode mode,
+        String model,
+        String prompt,
+        String systemPrompt,
+        List<String> instructionIds
+    ) {
+        this(mode, model, prompt, systemPrompt, instructionIds, null, null, null, null, null);
+    }
+
+    public ChatExecutionRequest(
+        ChatMode mode,
+        String model,
+        String prompt,
+        String systemPrompt,
+        List<String> instructionIds,
+        AnswerMode answerMode,
+        KnowledgeScope knowledgeScope,
+        List<String> scenarioInstructionIds,
+        String temporaryInstruction
+    ) {
+        this(
+            mode,
+            model,
+            prompt,
+            systemPrompt,
+            instructionIds,
+            answerMode,
+            knowledgeScope,
+            null,
+            scenarioInstructionIds,
+            temporaryInstruction
+        );
+    }
 }

@@ -1,42 +1,110 @@
 import { useEffect, useState, type Dispatch, type SetStateAction } from "react";
-import "./App.css";
-import kegocLogo from "./assets/logo-kegoc.png";
-import { DirectChatPanel } from "./components/DirectChatPanel";
-import { InstructionLibraryPanel } from "./components/InstructionLibraryPanel";
-import { MaterialsPanel } from "./components/MaterialsPanel";
-import { RagChatPanel } from "./components/RagChatPanel";
-import { StatusSummary } from "./components/StatusSummary";
-import { useChatExecution } from "./hooks/useChatExecution";
-import { useHealth } from "./hooks/useHealth";
-import { useInstructions } from "./hooks/useInstructions";
-import { useMaterials } from "./hooks/useMaterials";
-import { useModels } from "./hooks/useModels";
-import { buildRagReadinessPresentation, deriveRagReadiness } from "./utils/readiness";
+import {
+  BookOpenText,
+  BrainCircuit,
+  Files,
+  LayoutDashboard,
+  Menu,
+  MessageCircleCode,
+  NotebookPen,
+  Radar,
+} from "lucide-react";
+import kegocLogo from "@/assets/logo-kegoc.png";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Separator } from "@/components/ui/separator";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet";
+import { DirectChatPanel } from "@/components/DirectChatPanel";
+import { InstructionLibraryPanel } from "@/components/InstructionLibraryPanel";
+import { KnowledgePresetLibraryPanel } from "@/components/KnowledgePresetLibraryPanel";
+import { MaterialsPanel } from "@/components/MaterialsPanel";
+import { RagChatPanel } from "@/components/RagChatPanel";
+import { StatusSummary } from "@/components/StatusSummary";
+import { cn } from "@/lib/utils";
+import { useChatExecution } from "@/hooks/useChatExecution";
+import { useChatRuns } from "@/hooks/useChatRuns";
+import { useHealth } from "@/hooks/useHealth";
+import { useInstructions } from "@/hooks/useInstructions";
+import { useKnowledgePresets } from "@/hooks/useKnowledgePresets";
+import { useMaterials } from "@/hooks/useMaterials";
+import { useModels } from "@/hooks/useModels";
+import {
+  buildDirectReadinessPresentation,
+  buildRagReadinessPresentation,
+  deriveRagReadiness,
+} from "@/utils/readiness";
+import { DEFAULT_KNOWLEDGE_SCOPE } from "@/utils/workbenchPresentation";
 
 type WorkspaceTab = "overview" | "materials" | "instructions" | "rag" | "direct";
 
-const tabs: Array<{ id: WorkspaceTab; label: string }> = [
-  { id: "overview", label: "Обзор" },
-  { id: "materials", label: "Материалы" },
-  { id: "instructions", label: "Инструкции" },
-  { id: "rag", label: "RAG чат" },
-  { id: "direct", label: "Direct чат" },
+const tabs: Array<{
+  id: WorkspaceTab;
+  label: string;
+  description: string;
+  icon: typeof LayoutDashboard;
+}> = [
+  {
+    id: "overview",
+    label: "Dashboard",
+    description: "Общий health, readiness и production signals",
+    icon: LayoutDashboard,
+  },
+  {
+    id: "materials",
+    label: "Materials",
+    description: "Управление knowledge base и lineage",
+    icon: Files,
+  },
+  {
+    id: "instructions",
+    label: "Instructions",
+    description: "Instruction stack и knowledge presets",
+    icon: NotebookPen,
+  },
+  {
+    id: "rag",
+    label: "RAG Studio",
+    description: "Контекстные ответы по локальным материалам",
+    icon: Radar,
+  },
+  {
+    id: "direct",
+    label: "Direct Studio",
+    description: "Прямые запросы к модели без retrieval",
+    icon: MessageCircleCode,
+  },
 ];
 
 function App() {
   const [activeTab, setActiveTab] = useState<WorkspaceTab>("overview");
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [ragInstructionIds, setRagInstructionIds] = useState<string[]>([]);
   const [directInstructionIds, setDirectInstructionIds] = useState<string[]>([]);
   const { health, error: healthError } = useHealth();
   const { models, error: modelsError } = useModels();
   const materials = useMaterials();
   const instructions = useInstructions();
-  const ragReadiness = deriveRagReadiness(health, materials.materials);
+  const knowledgePresets = useKnowledgePresets();
+  const chatRuns = useChatRuns();
+  const ragReadiness = deriveRagReadiness(health);
+  const scenarioInstructions = instructions.instructions.filter(
+    (instruction) => (instruction.scopeLevel ?? "chat_scenario") === "chat_scenario" && (instruction.active ?? true),
+  );
 
   const ragChat = useChatExecution({
     mode: "rag",
     initialModel: "qwen2.5:7b",
     initialPrompt: "Что написано про тариф Премиум?",
+    initialAnswerMode: "strict_sources_only",
+    initialKnowledgeScope: DEFAULT_KNOWLEDGE_SCOPE,
+    rolloutFlags: health?.qualityLayer?.flags ?? null,
     selectedInstructionIds: ragInstructionIds,
   });
 
@@ -44,12 +112,14 @@ function App() {
     mode: "direct",
     initialModel: "qwen2.5:7b",
     initialPrompt: "Покажи пример request-response для локальной LLM через единый API.",
-    initialSystemPrompt: "Отвечай кратко, по делу и на русском языке.",
+    initialTemporaryInstruction: "Отвечай кратко, по делу и на русском языке.",
+    initialAnswerMode: "brief",
+    rolloutFlags: health?.qualityLayer?.flags ?? null,
     selectedInstructionIds: directInstructionIds,
   });
 
   useEffect(() => {
-    const knownInstructionIds = new Set(instructions.instructions.map((instruction) => instruction.id));
+    const knownInstructionIds = new Set(scenarioInstructions.map((instruction) => instruction.id));
 
     setRagInstructionIds((current) => {
       const next = current.filter((instructionId) => knownInstructionIds.has(instructionId));
@@ -59,7 +129,7 @@ function App() {
       const next = current.filter((instructionId) => knownInstructionIds.has(instructionId));
       return next.length === current.length ? current : next;
     });
-  }, [instructions.instructions]);
+  }, [scenarioInstructions]);
 
   const toggleInstructionSelection =
     (setSelectedInstructionIds: Dispatch<SetStateAction<string[]>>) => (instructionId: string) => {
@@ -93,118 +163,256 @@ function App() {
     materialsError: materials.error,
     selectedModel: ragChat.model,
   });
-  const isOverviewTabActive = activeTab === "overview";
-  const isMaterialsTabActive = activeTab === "materials";
-  const isInstructionsTabActive = activeTab === "instructions";
+  const directPresentation = buildDirectReadinessPresentation(health, directChat.model);
+
+  const activeWorkspace = tabs.find((tab) => tab.id === activeTab) ?? tabs[0];
+  const backendStatus = health?.status ?? "Unknown";
+  const searchStatus = health?.searchStatus ?? "DISABLED";
+  const searchLabel = health?.searchMode && health?.searchProvider
+    ? `${health.searchMode} -> ${health.searchProvider}`
+    : health?.searchProvider ?? searchStatus;
+  const navMetrics = [
+    {
+      label: "Models",
+      value: models.length > 0 ? String(models.length) : "0",
+    },
+    {
+      label: "Active KB",
+      value: String(health?.activeMaterialCount ?? ragReadiness.activeMaterialsCount),
+    },
+    {
+      label: "Snippets",
+      value: String(instructions.instructions.length),
+    },
+  ];
+
+  const renderNavigation = (className?: string) => (
+    <nav aria-label="Workspace navigation" className={cn("space-y-2", className)}>
+      {tabs.map((tab) => {
+        const isActive = activeTab === tab.id;
+        const Icon = tab.icon;
+
+        return (
+          <button
+            aria-controls={`panel-${tab.id}`}
+            aria-current={isActive ? "page" : undefined}
+            className={cn(
+              "flex w-full items-center gap-3 rounded-[24px] px-4 py-4 text-left transition",
+              isActive
+                ? "bg-sidebar-accent text-sidebar-accent-foreground shadow-soft"
+                : "text-sidebar-foreground/78 hover:bg-white/8 hover:text-sidebar-foreground",
+            )}
+            id={`nav-${tab.id}`}
+            key={tab.id}
+            type="button"
+            onClick={() => {
+              setActiveTab(tab.id);
+              setMobileNavOpen(false);
+            }}
+          >
+            <span
+              className={cn(
+                "flex h-11 w-11 items-center justify-center rounded-2xl border",
+                isActive
+                  ? "border-white/12 bg-white/12"
+                  : "border-white/8 bg-transparent",
+              )}
+            >
+              <Icon className="h-5 w-5" />
+            </span>
+            <span className="min-w-0">
+              <span className="block text-sm font-semibold">{tab.label}</span>
+              <span className="block text-xs leading-5 text-sidebar-foreground/60">
+                {tab.description}
+              </span>
+            </span>
+          </button>
+        );
+      })}
+    </nav>
+  );
 
   return (
-    <main className="shell">
-      <header className="shell-header">
-        <nav aria-label="Рабочие вкладки" className="tab-strip" role="tablist">
-          {tabs.map((tab) => {
-            const isActive = activeTab === tab.id;
+    <div className="relative mx-auto flex min-h-screen w-full max-w-[1600px] gap-4 px-4 py-4 sm:px-6 lg:px-8">
+      <aside className="surface-sidebar sticky top-4 hidden h-[calc(100vh-2rem)] w-[300px] shrink-0 rounded-[34px] px-5 py-5 lg:flex lg:flex-col">
+        <div className="space-y-5">
+          <div className="flex items-center gap-3">
+            <div className="flex h-14 w-14 items-center justify-center rounded-[20px] bg-white/10">
+              <img alt="Логотип KEGOC" className="h-10 w-10 object-contain" src={kegocLogo} />
+            </div>
+            <div className="space-y-1">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-sidebar-foreground/60">
+                KEGOC Workspace
+              </p>
+              <h1 className="text-xl font-semibold tracking-[-0.04em]">AI Frontline Console</h1>
+            </div>
+          </div>
 
-            return (
-              <button
-                aria-controls={`tabpanel-${tab.id}`}
-                aria-selected={isActive}
-                className={`tab-button ${isActive ? "active" : ""}`}
-                id={`tab-${tab.id}`}
-                key={tab.id}
-                role="tab"
-                type="button"
-                onClick={() => setActiveTab(tab.id)}
-              >
-                {tab.label}
-              </button>
-            );
-          })}
-        </nav>
+          <div className="rounded-[28px] border border-white/8 bg-white/6 p-4">
+            <p className="text-sm leading-6 text-sidebar-foreground/74">
+              Корпоративная оболочка для `Direct` и `RAG` сценариев, локальной knowledge base и prompt policy.
+            </p>
+          </div>
+        </div>
 
-        {isOverviewTabActive ? (
-          <div className="hero-grid">
-            <div className="shell-header-copy">
-              <div className="shell-brand-lockup">
-                <div className="shell-brand-heading">
-                  <img alt="Логотип KEGOC" className="shell-logo" src={kegocLogo} />
-                  <p className="eyebrow">KEGOC AI RAG Workspace</p>
-                </div>
+        <Separator className="my-5 bg-white/10" />
+        {renderNavigation("flex-1")}
+        <Separator className="my-5 bg-white/10" />
 
-                <div className="shell-brand-text">
-                  <h1 className="shell-title">AI-контур для создания direct и RAG сценариев</h1>
-                </div>
+        <div className="grid gap-3">
+          {navMetrics.map((metric) => (
+            <div
+              className="rounded-[22px] border border-white/8 bg-white/6 px-4 py-3"
+              key={metric.label}
+            >
+              <p className="text-[11px] uppercase tracking-[0.18em] text-sidebar-foreground/55">
+                {metric.label}
+              </p>
+              <strong className="text-lg font-semibold text-sidebar-foreground">{metric.value}</strong>
+            </div>
+          ))}
+        </div>
+      </aside>
+
+      <div className="min-w-0 flex-1">
+        <header className="surface-panel mb-6 rounded-[34px] px-5 py-5 sm:px-6 lg:px-7">
+          <div className="mb-5 flex items-center justify-between gap-3 lg:hidden">
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-primary">
+                Workspace
+              </p>
+              <strong className="text-lg font-semibold tracking-[-0.03em] text-foreground">
+                {activeWorkspace.label}
+              </strong>
+            </div>
+
+            <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
+              <SheetTrigger asChild>
+                <Button size="icon" variant="secondary">
+                  <Menu className="h-5 w-5" />
+                  <span className="sr-only">Открыть навигацию</span>
+                </Button>
+              </SheetTrigger>
+              <SheetContent side="left">
+                <SheetHeader className="mb-6">
+                  <SheetTitle>AI Frontline Console</SheetTitle>
+                  <SheetDescription>
+                    Навигация по основным разделам фронтенда.
+                  </SheetDescription>
+                </SheetHeader>
+                {renderNavigation()}
+              </SheetContent>
+            </Sheet>
+          </div>
+
+          <div className="grid gap-6 xl:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)]">
+            <div className="space-y-5">
+              <div className="flex flex-wrap items-center gap-3">
+                <Badge variant="default">KEGOC AI RAG Workspace</Badge>
+                <Badge variant="secondary">{activeWorkspace.label}</Badge>
+                <Badge variant={backendStatus === "UP" ? "success" : "warning"}>
+                  Backend {backendStatus}
+                </Badge>
               </div>
 
-              <p className="shell-subtitle">
-                Рабочее пространство позволяет загружать материалы, извлекать текст из PDF и сканов через OCR,
-                подключать инструкции и выбирать локальные модели. После этого можно запускать direct-запросы
-                без контекста или собирать RAG-сценарии, где ответ формируется по найденным фрагментам из базы
-                знаний.
-              </p>
+              <div className="space-y-3">
+                <h2 className="max-w-[14ch] text-balance text-4xl font-semibold leading-none tracking-[-0.06em] text-foreground sm:text-5xl">
+                  Фронтенд-контур для direct и RAG сценариев
+                </h2>
+                <p className="max-w-3xl text-sm leading-7 text-muted-foreground sm:text-base">
+                  Рабочее пространство объединяет материалы, локальные модели и instruction snippets,
+                  чтобы direct- и RAG-сценарии собирались в одном управляемом интерфейсе без
+                  переключения между разными экранами.
+                </p>
+              </div>
 
-              <div aria-label="Ключевые свойства темы" className="header-pills">
-                <span className="header-pill">Обучение</span>
-                <span className="header-pill">Инструкции</span>
-                <span className="header-pill">Тестирование</span>
+              <div className="flex flex-wrap gap-2">
+                <Badge variant="secondary">Knowledge Base</Badge>
+                <Badge variant="secondary">Prompt Policy</Badge>
+                <Badge variant="secondary">Runtime Signals</Badge>
+                <Badge variant="secondary">Search Plane</Badge>
               </div>
             </div>
 
-            <aside aria-label="Профиль темы" className="brand-panel">
-              <div className="brand-panel-header">
-                <span className="badge subtle">Функциональный профиль</span>
-                <strong>KEGOC AI RAG Workspace</strong>
+            <div className="grid gap-4 sm:grid-cols-3 xl:grid-cols-1">
+              <div className="rounded-[28px] border border-border/80 bg-[#0b243a] p-5 text-white shadow-panel">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-[18px] bg-white/10">
+                    <BrainCircuit className="h-5 w-5" />
+                  </div>
+                  <Badge variant="inverted">{ragPresentation.badgeLabel}</Badge>
+                </div>
+                <div className="mt-4 space-y-2">
+                  <p className="text-sm font-medium text-white/74">RAG readiness</p>
+                  <strong className="block text-2xl font-semibold tracking-[-0.04em]">
+                    {ragPresentation.headline}
+                  </strong>
+                  <p className="text-sm leading-6 text-white/70">{ragPresentation.overviewMessage}</p>
+                </div>
               </div>
 
-              <p className="brand-panel-copy">
-                Рабочее пространство объединяет материалы, локальные модели и instruction snippets, чтобы direct-
-                и RAG-сценарии собирались в одном управляемом контуре без переключения между разными экранами.
-              </p>
-
-              <div className="brand-metrics">
-                <article>
-                  <span>Сценарии</span>
-                  <strong>Direct и RAG</strong>
-                </article>
-                <article>
-                  <span>Контекст</span>
-                  <strong>Материалы и инструкции</strong>
-                </article>
-                <article>
-                  <span>Контроль</span>
-                  <strong>Модели и prompt policy</strong>
-                </article>
+              <div className="surface-subtle rounded-[28px] p-5 shadow-soft">
+                <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                  <BookOpenText className="h-4 w-4 text-primary" />
+                  Search plane
+                </div>
+                <div className="mt-3 space-y-1">
+                  <strong className="block text-lg font-semibold tracking-[-0.03em] text-foreground">
+                    {searchLabel}
+                  </strong>
+                  <p className="text-sm leading-6 text-muted-foreground">
+                    Статус: {searchStatus}
+                  </p>
+                </div>
               </div>
-            </aside>
+
+              <div className="surface-subtle rounded-[28px] p-5 shadow-soft">
+                <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                  <Files className="h-4 w-4 text-primary" />
+                  Workspace context
+                </div>
+                <dl className="mt-3 grid gap-2 text-sm">
+                  <div className="flex items-center justify-between gap-3">
+                    <dt className="text-muted-foreground">Материалы</dt>
+                    <dd className="font-semibold text-foreground">{materials.materials.length}</dd>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <dt className="text-muted-foreground">Инструкции</dt>
+                    <dd className="font-semibold text-foreground">{instructions.instructions.length}</dd>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <dt className="text-muted-foreground">Модели</dt>
+                    <dd className="font-semibold text-foreground">{models.length}</dd>
+                  </div>
+                </dl>
+              </div>
+            </div>
           </div>
-        ) : null}
-      </header>
+        </header>
 
-      <section className="tab-panel-shell">
-        <section
-          aria-labelledby="tab-overview"
-          className="tab-panel"
-          hidden={activeTab !== "overview"}
-          id="tabpanel-overview"
-          role="tabpanel"
-        >
-          <StatusSummary
-            health={health}
-            healthError={healthError}
-            instructionsCount={instructions.instructions.length}
-            models={models}
-            modelsError={modelsError}
-            ragPresentation={ragPresentation}
-          />
-        </section>
+        <main className="space-y-6">
+          <section
+            aria-labelledby="nav-overview"
+            hidden={activeTab !== "overview"}
+            id="panel-overview"
+            role="region"
+          >
+            <StatusSummary
+              health={health}
+              healthError={healthError}
+              instructionsCount={instructions.instructions.length}
+              models={models}
+              modelsError={modelsError}
+              ragPresentation={ragPresentation}
+            />
+          </section>
 
-        <section
-          aria-labelledby="tab-materials"
-          className="tab-panel"
-          hidden={!isMaterialsTabActive}
-          id="tabpanel-materials"
-          role="tabpanel"
-        >
-          {isMaterialsTabActive ? (
+          <section
+            aria-labelledby="nav-materials"
+            hidden={activeTab !== "materials"}
+            id="panel-materials"
+            role="region"
+          >
             <MaterialsPanel
               actionError={materials.actionError}
               deletingMaterialId={materials.deletingMaterialId}
@@ -213,6 +421,7 @@ function App() {
               lineageError={materials.lineageError}
               loadingLineageMaterialId={materials.loadingLineageMaterialId}
               materials={materials.materials}
+              metadataV1Enabled={health?.qualityLayer?.flags.metadataV1 === true}
               message={materials.message}
               onClearLineage={materials.clearLineage}
               onCreateText={materials.createTextMaterial}
@@ -226,17 +435,14 @@ function App() {
               selectedLineage={materials.selectedLineage}
               uploadPolicy={materials.uploadPolicy}
             />
-          ) : null}
-        </section>
+          </section>
 
-        <section
-          aria-labelledby="tab-instructions"
-          className="tab-panel"
-          hidden={!isInstructionsTabActive}
-          id="tabpanel-instructions"
-          role="tabpanel"
-        >
-          {isInstructionsTabActive ? (
+          <section
+            aria-labelledby="nav-instructions"
+            hidden={activeTab !== "instructions"}
+            id="panel-instructions"
+            role="region"
+          >
             <InstructionLibraryPanel
               actionError={instructions.actionError}
               detailError={instructions.detailError}
@@ -248,77 +454,136 @@ function App() {
               message={instructions.message}
               onCreateInstruction={instructions.createInstruction}
               onDeleteInstruction={instructions.deleteInstruction}
+              onLoadInstructionDiff={(instructionId, fromRevision, toRevision) =>
+                instructions.loadInstructionDiff(instructionId, fromRevision, toRevision)}
               onLoadInstruction={(instructionId) => instructions.loadInstruction(instructionId)}
+              onLoadInstructionRevisions={(instructionId) => instructions.loadInstructionRevisions(instructionId)}
+              onRestoreInstructionRevision={(instructionId, revision) =>
+                instructions.restoreInstructionRevision(instructionId, revision)}
               onUpdateInstruction={instructions.updateInstruction}
+              revisionDiff={instructions.revisionDiff}
+              revisions={instructions.revisions}
               selectedInstruction={instructions.selectedInstruction}
             />
-          ) : null}
-        </section>
 
-        <section
-          aria-labelledby="tab-rag"
-          className="tab-panel"
-          hidden={activeTab !== "rag"}
-          id="tabpanel-rag"
-          role="tabpanel"
-        >
-          <RagChatPanel
-            error={ragChat.error}
-            helperText={ragPresentation.chatHelperText}
-            isBlocked={ragPresentation.isRagSubmitBlocked}
-            isSubmitting={ragChat.isSubmitting}
-            instructions={instructions.instructions}
-            models={models}
-            modelsError={modelsError}
-            prompt={ragChat.prompt}
-            response={ragChat.response}
-            selectedModel={ragChat.model}
-            selectedInstructionIds={ragInstructionIds}
-            systemPrompt={ragChat.systemPrompt}
-            onModelChange={ragChat.setModel}
-            onPromptChange={ragChat.setPrompt}
-            onSubmit={ragChat.submit}
-            onSystemPromptChange={ragChat.setSystemPrompt}
-            onToggleInstruction={toggleInstructionSelection(setRagInstructionIds)}
-          />
-        </section>
+            <div className="mt-6">
+              <KnowledgePresetLibraryPanel
+                actionError={knowledgePresets.actionError}
+                error={knowledgePresets.error}
+                isLoading={knowledgePresets.isLoading}
+                message={knowledgePresets.message}
+                onCreatePreset={knowledgePresets.createPreset}
+                onDeletePreset={knowledgePresets.deletePreset}
+                onLoadPreset={(presetId) => knowledgePresets.loadPreset(presetId)}
+                onLoadRevisionDiff={(presetId, fromRevision, toRevision) =>
+                  knowledgePresets.loadRevisionDiff(presetId, fromRevision, toRevision)}
+                onLoadRevisions={(presetId) => knowledgePresets.loadRevisions(presetId)}
+                onRestoreRevision={(presetId, revision) => knowledgePresets.restoreRevision(presetId, revision)}
+                onUpdatePreset={knowledgePresets.updatePreset}
+                presets={knowledgePresets.presets}
+                revisionDiff={knowledgePresets.revisionDiff}
+                revisions={knowledgePresets.revisions}
+                selectedPreset={knowledgePresets.selectedPreset}
+              />
+            </div>
+          </section>
 
-        <section
-          aria-labelledby="tab-direct"
-          className="tab-panel"
-          hidden={activeTab !== "direct"}
-          id="tabpanel-direct"
-          role="tabpanel"
-        >
-          <DirectChatPanel
-            error={directChat.error}
-            isSubmitting={directChat.isSubmitting}
-            instructions={instructions.instructions}
-            models={models}
-            modelsError={modelsError}
-            prompt={directChat.prompt}
-            requestPreview={directChat.lastSubmittedRequest && (directChat.isSubmitting || directChat.response)
-              ? directChat.lastSubmittedRequest
-              : {
-                  mode: "direct",
-                  model: directChat.model,
-                  prompt: directChat.prompt,
-                  instructionIds: directInstructionIds,
-                  ...(directChat.systemPrompt.trim() ? { systemPrompt: directChat.systemPrompt.trim() } : {}),
-                }}
-            response={directChat.response}
-            selectedModel={directChat.model}
-            selectedInstructionIds={directInstructionIds}
-            systemPrompt={directChat.systemPrompt}
-            onModelChange={directChat.setModel}
-            onPromptChange={directChat.setPrompt}
-            onSubmit={directChat.submit}
-            onSystemPromptChange={directChat.setSystemPrompt}
-            onToggleInstruction={toggleInstructionSelection(setDirectInstructionIds)}
-          />
-        </section>
-      </section>
-    </main>
+          <section
+            aria-labelledby="nav-rag"
+            hidden={activeTab !== "rag"}
+            id="panel-rag"
+            role="region"
+          >
+            <RagChatPanel
+              answerMode={ragChat.answerMode}
+              chatRuns={chatRuns.runs}
+              chatRunsError={chatRuns.error}
+              error={ragChat.error}
+              helperText={ragPresentation.chatHelperText}
+              metadataFiltersEnabled={ragChat.metadataFiltersEnabled}
+              queryHintsEnabled={ragChat.queryHintsEnabled}
+              isBlocked={ragPresentation.isRagSubmitBlocked}
+              isSubmitting={ragChat.isSubmitting}
+              instructions={scenarioInstructions}
+              knowledgePresets={knowledgePresets.presets}
+              knowledgeScope={ragChat.knowledgeScope}
+              retrievalFilters={ragChat.retrievalFilters}
+              effectiveRetrievalFilters={ragChat.effectiveRetrievalFilters}
+              queryHints={ragChat.queryHints}
+              hintOwnedFields={ragChat.hintOwnedFields}
+              manualOwnedFields={ragChat.manualOwnedFields}
+              dismissedHintKeys={ragChat.dismissedHintKeys}
+              models={models}
+              modelsError={modelsError}
+              onAnswerModeChange={ragChat.setAnswerMode}
+              onKnowledgeScopeChange={ragChat.setKnowledgeScope}
+              onRetrievalFilterChange={ragChat.updateRetrievalFilter}
+              onClearRetrievalFilter={ragChat.clearRetrievalFilter}
+              onDismissHint={ragChat.dismissHint}
+              onResetDismissedHints={ragChat.resetDismissedHints}
+              onLoadChatRun={(runId) => chatRuns.loadRun(runId)}
+              prompt={ragChat.prompt}
+              response={ragChat.response}
+              selectedChatRun={chatRuns.selectedRun}
+              selectedModel={ragChat.model}
+              selectedInstructionIds={ragInstructionIds}
+              temporaryInstruction={ragChat.temporaryInstruction}
+              onModelChange={ragChat.setModel}
+              onPromptChange={ragChat.setPrompt}
+              onSubmit={ragChat.submit}
+              onTemporaryInstructionChange={ragChat.setTemporaryInstruction}
+              onToggleInstruction={toggleInstructionSelection(setRagInstructionIds)}
+            />
+          </section>
+
+          <section
+            aria-labelledby="nav-direct"
+            hidden={activeTab !== "direct"}
+            id="panel-direct"
+            role="region"
+          >
+            <DirectChatPanel
+              answerMode={directChat.answerMode}
+              chatRuns={chatRuns.runs}
+              chatRunsError={chatRuns.error}
+              error={directChat.error}
+              helperText={directPresentation.helperText}
+              isBlocked={directPresentation.isDirectSubmitBlocked}
+              isSubmitting={directChat.isSubmitting}
+              instructions={scenarioInstructions}
+              models={models}
+              modelsError={modelsError}
+              onAnswerModeChange={directChat.setAnswerMode}
+              onLoadChatRun={(runId) => chatRuns.loadRun(runId)}
+              prompt={directChat.prompt}
+              requestPreview={directChat.lastSubmittedRequest && (directChat.isSubmitting || directChat.response)
+                ? directChat.lastSubmittedRequest
+                : {
+                    mode: "direct",
+                    model: directChat.model,
+                    prompt: directChat.prompt,
+                    instructionIds: directInstructionIds,
+                    scenarioInstructionIds: directInstructionIds,
+                    answerMode: directChat.answerMode,
+                    ...(directChat.temporaryInstruction.trim()
+                      ? { temporaryInstruction: directChat.temporaryInstruction.trim() }
+                      : {}),
+                  }}
+              response={directChat.response}
+              selectedChatRun={chatRuns.selectedRun}
+              selectedModel={directChat.model}
+              selectedInstructionIds={directInstructionIds}
+              temporaryInstruction={directChat.temporaryInstruction}
+              onModelChange={directChat.setModel}
+              onPromptChange={directChat.setPrompt}
+              onSubmit={directChat.submit}
+              onTemporaryInstructionChange={directChat.setTemporaryInstruction}
+              onToggleInstruction={toggleInstructionSelection(setDirectInstructionIds)}
+            />
+          </section>
+        </main>
+      </div>
+    </div>
   );
 }
 

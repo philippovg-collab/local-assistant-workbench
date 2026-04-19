@@ -1,10 +1,21 @@
 import type {
+  ChatAuditRunDetail,
+  ChatAuditRunSummary,
   ChatExecutionRequest,
   ChatExecutionResponse,
+  CreateKnowledgePresetRequest,
   CreateInstructionRequest,
   HealthResponse,
+  InstructionRevisionDiff,
   InstructionDetail,
+  InstructionRevisionDetail,
+  KnowledgePresetRevisionDiff,
+  KnowledgePresetDetail,
+  KnowledgePresetRevisionDetail,
+  KnowledgePresetSummary,
   InstructionSummary,
+  MaterialDetail,
+  MaterialMetadataInput,
   MaterialLineageResponse,
   MaterialUploadPolicy,
   MaterialSummary,
@@ -134,7 +145,7 @@ export const apiClient = {
   fetchMaterialUploadPolicy(signal?: AbortSignal) {
     return requestJson<MaterialUploadPolicy>("/api/materials/policy", { signal });
   },
-  createTextMaterial(input: { title: string; content: string }) {
+  createTextMaterial(input: { title: string; content: string; metadata?: MaterialMetadataInput }) {
     return requestJson<MaterialSummary>("/api/materials", {
       method: "POST",
       headers: {
@@ -143,17 +154,23 @@ export const apiClient = {
       body: JSON.stringify(input),
     });
   },
-  uploadMaterial(input: { title: string; file: File }) {
+  uploadMaterial(input: { title: string; file: File; metadata?: MaterialMetadataInput }) {
     const formData = new FormData();
     formData.append("file", input.file);
     if (input.title.trim()) {
       formData.append("title", input.title.trim());
+    }
+    if (input.metadata) {
+      formData.append("metadata", new Blob([JSON.stringify(input.metadata)], { type: "application/json" }));
     }
 
     return requestJson<MaterialSummary>("/api/materials/upload", {
       method: "POST",
       body: formData,
     });
+  },
+  fetchMaterial(materialId: string, signal?: AbortSignal) {
+    return requestJson<MaterialDetail>(`/api/materials/${materialId}`, { signal });
   },
   deleteMaterial(materialId: string) {
     return requestVoid(`/api/materials/${materialId}`, {
@@ -173,6 +190,23 @@ export const apiClient = {
   },
   fetchInstruction(instructionId: string, signal?: AbortSignal) {
     return requestJson<InstructionDetail>(`/api/instructions/${instructionId}`, { signal });
+  },
+  fetchInstructionRevisions(instructionId: string, signal?: AbortSignal) {
+    return requestJson<InstructionRevisionDetail[]>(`/api/instructions/${instructionId}/revisions`, { signal });
+  },
+  fetchInstructionRevision(instructionId: string, revision: number, signal?: AbortSignal) {
+    return requestJson<InstructionRevisionDetail>(`/api/instructions/${instructionId}/revisions/${revision}`, { signal });
+  },
+  fetchInstructionDiff(instructionId: string, fromRevision: number, toRevision: number, signal?: AbortSignal) {
+    return requestJson<InstructionRevisionDiff>(
+      `/api/instructions/${instructionId}/diff?fromRevision=${fromRevision}&toRevision=${toRevision}`,
+      { signal },
+    );
+  },
+  restoreInstructionRevision(instructionId: string, revision: number) {
+    return requestJson<InstructionDetail>(`/api/instructions/${instructionId}/restore/${revision}`, {
+      method: "POST",
+    });
   },
   createInstruction(input: CreateInstructionRequest) {
     return requestJson<InstructionDetail>("/api/instructions", {
@@ -196,6 +230,55 @@ export const apiClient = {
     return requestVoid(`/api/instructions/${instructionId}`, {
       method: "DELETE",
     });
+  },
+  fetchKnowledgePresets(signal?: AbortSignal) {
+    return requestJson<KnowledgePresetSummary[]>("/api/knowledge-presets", { signal });
+  },
+  fetchKnowledgePreset(presetId: string, signal?: AbortSignal) {
+    return requestJson<KnowledgePresetDetail>(`/api/knowledge-presets/${presetId}`, { signal });
+  },
+  fetchKnowledgePresetRevisions(presetId: string, signal?: AbortSignal) {
+    return requestJson<KnowledgePresetRevisionDetail[]>(`/api/knowledge-presets/${presetId}/revisions`, { signal });
+  },
+  fetchKnowledgePresetDiff(presetId: string, fromRevision: number, toRevision: number, signal?: AbortSignal) {
+    return requestJson<KnowledgePresetRevisionDiff>(
+      `/api/knowledge-presets/${presetId}/diff?fromRevision=${fromRevision}&toRevision=${toRevision}`,
+      { signal },
+    );
+  },
+  createKnowledgePreset(input: CreateKnowledgePresetRequest) {
+    return requestJson<KnowledgePresetDetail>("/api/knowledge-presets", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(input),
+    });
+  },
+  updateKnowledgePreset(presetId: string, input: CreateKnowledgePresetRequest) {
+    return requestJson<KnowledgePresetDetail>(`/api/knowledge-presets/${presetId}`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(input),
+    });
+  },
+  restoreKnowledgePresetRevision(presetId: string, revision: number) {
+    return requestJson<KnowledgePresetDetail>(`/api/knowledge-presets/${presetId}/restore/${revision}`, {
+      method: "POST",
+    });
+  },
+  deleteKnowledgePreset(presetId: string) {
+    return requestVoid(`/api/knowledge-presets/${presetId}`, {
+      method: "DELETE",
+    });
+  },
+  fetchChatRuns(signal?: AbortSignal) {
+    return requestJson<ChatAuditRunSummary[]>("/api/chat-runs", { signal });
+  },
+  fetchChatRun(runId: string, signal?: AbortSignal) {
+    return requestJson<ChatAuditRunDetail>(`/api/chat-runs/${runId}`, { signal });
   },
   executeChat(input: ChatExecutionRequest, signal?: AbortSignal) {
     return requestJson<ChatExecutionResponse>("/api/chat", {

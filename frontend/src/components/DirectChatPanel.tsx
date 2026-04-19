@@ -1,19 +1,38 @@
-import { apiClient } from "../api/client";
-import { AppliedInstructionList } from "./AppliedInstructionList";
-import { ChatForm } from "./ChatForm";
-import { ChatWorkspace } from "./ChatWorkspace";
-import type { ChatExecutionRequest, ChatExecutionResponse, InstructionSummary, ModelInfo } from "../types";
-import { formatDate } from "../utils/format";
+import { Braces, MessageSquareCode, Sparkles, TerminalSquare } from "lucide-react";
+import { apiClient } from "@/api/client";
+import { EmptyState } from "@/components/app/EmptyState";
+import { SectionIntro } from "@/components/app/SectionIntro";
+import { StudioScaffold } from "@/components/app/StudioScaffold";
+import { AppliedInstructionList } from "@/components/AppliedInstructionList";
+import { ChatAuditPanel } from "@/components/ChatAuditPanel";
+import { ChatForm } from "@/components/ChatForm";
+import { Badge } from "@/components/ui/badge";
+import { Separator } from "@/components/ui/separator";
+import type {
+  AnswerMode,
+  ChatAuditRunDetail,
+  ChatAuditRunSummary,
+  ChatExecutionRequest,
+  ChatExecutionResponse,
+  InstructionSummary,
+  ModelInfo,
+} from "@/types";
+import { formatDate } from "@/utils/format";
+import { answerModeLabels } from "@/utils/workbenchPresentation";
 
 type DirectChatPanelProps = {
+  helperText: string;
+  isBlocked: boolean;
   models: ModelInfo[];
   modelsError: string | null;
   selectedModel: string;
   onModelChange: (value: string) => void;
+  answerMode: AnswerMode;
+  onAnswerModeChange: (value: AnswerMode) => void;
   prompt: string;
   onPromptChange: (value: string) => void;
-  systemPrompt: string;
-  onSystemPromptChange: (value: string) => void;
+  temporaryInstruction: string;
+  onTemporaryInstructionChange: (value: string) => void;
   instructions: InstructionSummary[];
   selectedInstructionIds: string[];
   onToggleInstruction: (instructionId: string) => void;
@@ -21,18 +40,29 @@ type DirectChatPanelProps = {
   error: string | null;
   response: ChatExecutionResponse | null;
   requestPreview: ChatExecutionRequest;
+  chatRuns: ChatAuditRunSummary[];
+  selectedChatRun: ChatAuditRunDetail | null;
+  chatRunsError: string | null;
+  onLoadChatRun: (runId: string) => Promise<ChatAuditRunDetail | null>;
   onSubmit: () => Promise<unknown>;
 };
 
+const codeBlockClassName =
+  "overflow-x-auto rounded-[22px] border border-border/70 bg-[#0c2238] px-4 py-4 font-mono text-xs leading-6 text-[#dceeff]";
+
 export function DirectChatPanel({
+  helperText,
+  isBlocked,
   models,
   modelsError,
   selectedModel,
   onModelChange,
+  answerMode,
+  onAnswerModeChange,
   prompt,
   onPromptChange,
-  systemPrompt,
-  onSystemPromptChange,
+  temporaryInstruction,
+  onTemporaryInstructionChange,
   instructions,
   selectedInstructionIds,
   onToggleInstruction,
@@ -40,29 +70,31 @@ export function DirectChatPanel({
   error,
   response,
   requestPreview,
+  chatRuns,
+  selectedChatRun,
+  chatRunsError,
+  onLoadChatRun,
   onSubmit,
 }: DirectChatPanelProps) {
   return (
-    <section className="workspace-grid">
-      <ChatWorkspace
-        badge="POST /api/chat mode=direct"
-        description="Direct-режим использует тот же execution contract, но без retrieval. Здесь остаются только модель, system prompt и прямой пользовательский запрос."
-        eyebrow="Direct Playground"
-        title="Прямой запрос к модели"
-      >
+    <StudioScaffold
+      badge="POST /api/chat mode=direct"
+      controls={
         <ChatForm
+          answerMode={answerMode}
           error={error}
-          helperText="Direct-режим уходит в unified `/api/chat` без retrieval-контекста и использует только модель, prompt policy и пользовательский запрос."
-          instructionEmptyStateMessage="Сначала создай инструкцию во вкладке библиотеки, чтобы затем применять её в direct-режиме."
+          helperText={helperText}
+          instructionEmptyStateMessage="Сначала создай chat/scenario инструкцию во вкладке библиотеки."
           instructions={instructions}
-          isSubmitDisabled={isSubmitting || !prompt.trim()}
+          isSubmitDisabled={isSubmitting || !prompt.trim() || isBlocked}
           isSubmitting={isSubmitting}
           models={models}
           modelsError={modelsError}
+          onAnswerModeChange={onAnswerModeChange}
           onModelChange={onModelChange}
           onPromptChange={onPromptChange}
           onSubmit={onSubmit}
-          onSystemPromptChange={onSystemPromptChange}
+          onTemporaryInstructionChange={onTemporaryInstructionChange}
           onToggleInstruction={onToggleInstruction}
           prompt={prompt}
           promptLabel="User prompt"
@@ -71,57 +103,91 @@ export function DirectChatPanel({
           selectedModel={selectedModel}
           submitBusyLabel="Отправляем..."
           submitIdleLabel="Отправить напрямую"
-          systemPrompt={systemPrompt}
-          systemPromptLabel="System prompt"
-          systemPromptRows={4}
+          temporaryInstruction={temporaryInstruction}
+          temporaryInstructionLabel="Временная инструкция на этот запрос"
+          temporaryInstructionPlaceholder="Например: структурируй ответ в 3 пункта."
+          temporaryInstructionRows={4}
         />
-      </ChatWorkspace>
+      }
+      description="Direct-режим использует тот же execution contract, но без retrieval. Здесь можно проверить instruction stack, answer mode и audit trail без влияния локального контекста."
+      eyebrow="Direct Studio"
+      results={
+        <div className="space-y-5">
+          <SectionIntro
+            badge="Live contract"
+            badgeVariant="secondary"
+            description="Справа виден transport-слой: пример запроса, raw JSON и итоговый ответ модели вместе с применённым instruction trace."
+            eyebrow="Direct Response"
+            title="Контракт запроса и ответа"
+          />
 
-      <aside className="panel">
-        <div className="panel-header">
-          <div>
-            <p className="eyebrow">Direct Response</p>
-            <h2>Контракт запроса и ответа</h2>
+          <div className="space-y-4">
+            <article className="surface-subtle space-y-3 rounded-[24px] p-5">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                  <TerminalSquare className="h-4 w-4 text-primary" />
+                  curl
+                </div>
+                <Badge variant="secondary">unified chat contract</Badge>
+              </div>
+              <pre className={codeBlockClassName}>{apiClient.buildCurlExample(requestPreview)}</pre>
+            </article>
+
+            {response ? (
+              <>
+                <article className="surface-subtle space-y-4 rounded-[24px] p-5">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                      <Braces className="h-4 w-4 text-primary" />
+                      JSON
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge variant="default">{response.model}</Badge>
+                      <Badge variant="secondary">{answerModeLabels[response.answerModeApplied ?? answerMode]}</Badge>
+                    </div>
+                  </div>
+                  <pre className={codeBlockClassName}>{JSON.stringify(response, null, 2)}</pre>
+                </article>
+
+                <article className="surface-subtle space-y-4 rounded-[24px] p-5">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                      <MessageSquareCode className="h-4 w-4 text-primary" />
+                      Ответ модели
+                    </div>
+                    <Badge variant="secondary">{formatDate(response.createdAt)}</Badge>
+                  </div>
+                  <Separator />
+                  <p className="text-sm leading-7 text-foreground">{response.answer}</p>
+                </article>
+
+                <AppliedInstructionList
+                  appliedInstructions={response.appliedInstructions}
+                  instructionTrace={response.instructionTrace}
+                />
+
+                <ChatAuditPanel
+                  currentAuditRunId={response.auditRunId}
+                  currentInstructionTrace={response.instructionTrace}
+                  currentKnowledgeScopeResolved={response.knowledgeScopeResolved}
+                  currentRetrievalTrace={response.retrievalTrace}
+                  error={chatRunsError}
+                  runs={chatRuns}
+                  selectedRun={selectedChatRun}
+                  onLoadRun={onLoadChatRun}
+                />
+              </>
+            ) : (
+              <EmptyState
+                description="После запроса здесь появятся JSON-ответ, instruction trace и аудит запуска."
+                icon={Sparkles}
+                title="Прямой ответ пока пустой"
+              />
+            )}
           </div>
         </div>
-
-        <div className="response-stack">
-          <article className="answer-card">
-            <div className="item-row">
-              <h3>curl</h3>
-              <span className="badge subtle">unified chat contract</span>
-            </div>
-            <pre className="code-block">{apiClient.buildCurlExample(requestPreview)}</pre>
-          </article>
-
-          {response ? (
-            <>
-              <article className="answer-card">
-                <div className="item-row">
-                  <h3>JSON</h3>
-                  <span className="badge subtle">{response.model}</span>
-                </div>
-                <pre className="code-block">{JSON.stringify(response, null, 2)}</pre>
-              </article>
-
-              <article className="answer-card">
-                <div className="item-row">
-                  <h3>Ответ модели</h3>
-                  <span className="badge subtle">{formatDate(response.createdAt)}</span>
-                </div>
-                <p>{response.answer}</p>
-              </article>
-
-              <AppliedInstructionList appliedInstructions={response.appliedInstructions} />
-            </>
-          ) : (
-            <div className="empty-state">
-              <strong>Прямой ответ пока пустой</strong>
-              <span>После запроса здесь появятся JSON-ответ, токены и итоговый ответ модели.</span>
-            </div>
-          )}
-        </div>
-      </aside>
-    </section>
+      }
+      title="Прямой запрос к модели"
+    />
   );
 }

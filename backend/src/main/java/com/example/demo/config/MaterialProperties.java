@@ -1,5 +1,6 @@
 package com.example.demo.config;
 
+import com.example.demo.infrastructure.material.ChunkProfile;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
@@ -12,6 +13,7 @@ public class MaterialProperties {
     private int chunkSize = 900;
     private int chunkOverlap = 180;
     private int maxChunks = 24;
+    private String chunkProfile = ChunkProfile.STRUCTURED_V1.propertyValue();
     private int extractionTimeoutSeconds = 10;
     private boolean legacyImportEnabled = false;
     private int indexingLeaseSeconds = 120;
@@ -57,6 +59,14 @@ public class MaterialProperties {
 
     public void setMaxChunks(int maxChunks) {
         this.maxChunks = maxChunks;
+    }
+
+    public String getChunkProfile() {
+        return chunkProfile;
+    }
+
+    public void setChunkProfile(String chunkProfile) {
+        this.chunkProfile = chunkProfile;
     }
 
     public int getExtractionTimeoutSeconds() {

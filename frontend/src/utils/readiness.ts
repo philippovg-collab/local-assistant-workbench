@@ -8,6 +8,7 @@ export type RagReadiness = {
   activeMaterialsCount: number;
   historicalMaterialsCount: number;
   readyMaterialsCount: number;
+  hasContractDrift: boolean;
   hasActiveIndexing: boolean;
   hasAnyMaterials: boolean;
   hasOnlyHistoricalMaterials: boolean;
@@ -23,6 +24,11 @@ export type RagReadinessPresentation = {
   isRagSubmitBlocked: boolean;
   statusDotClass: "idle" | "online" | "warn";
   materialsMessageClassName: "helper" | "warning-state";
+};
+
+export type DirectReadinessPresentation = {
+  helperText: string;
+  isDirectSubmitBlocked: boolean;
 };
 
 type BuildRagReadinessPresentationInput = {
@@ -47,47 +53,65 @@ export const hasActiveIndexing = (materials: MaterialSummary[]) =>
       && (material.status === "PENDING" || material.status === "IN_PROGRESS"),
   );
 
-export const deriveRagReadiness = (health: HealthResponse | null, materials: MaterialSummary[]) => {
-  const activeMaterials = materials.filter(isActiveMaterialVersion);
-  const readyMaterials = activeMaterials.filter(isReadyMaterial);
-  const hasAnyMaterials = materials.length > 0;
-  const hasOnlyHistoricalMaterials = hasAnyMaterials && activeMaterials.length === 0;
-  const hasIndexingInFlight = hasActiveIndexing(materials);
+export const deriveRagReadiness = (health: HealthResponse | null): RagReadiness => {
+  const totalMaterialsCount = health?.materialCount ?? 0;
+  const activeMaterialsCount = health?.activeMaterialCount ?? 0;
+  const historicalMaterialsCount = health?.historicalMaterialCount ?? Math.max(0, totalMaterialsCount - activeMaterialsCount);
+  const readyMaterialsCount = health?.readyMaterialCount ?? 0;
+  const hasContractDrift = Boolean(health) && !health?.knowledgeStatus;
+  const hasAnyMaterials = totalMaterialsCount > 0;
+  const hasOnlyHistoricalMaterials = hasAnyMaterials && activeMaterialsCount === 0;
+  const hasIndexingInFlight = (health?.indexingPendingCount ?? 0) > 0 || (health?.indexingInProgressCount ?? 0) > 0;
   let state: RagReadinessState = "degraded";
 
-  if (!hasAnyMaterials) {
+  if (health?.knowledgeStatus === "EMPTY") {
     state = "empty";
-  } else if (hasOnlyHistoricalMaterials) {
+  } else if (health?.knowledgeStatus === "HISTORICAL_ONLY") {
     state = "historical-only";
-  } else if (health?.ragStatus === "DOWN") {
-    state = "degraded";
-  } else if (readyMaterials.length > 0) {
+  } else if (health?.knowledgeStatus === "INDEXING") {
+    state = "indexing";
+  } else if (health?.knowledgeStatus === "READY") {
     state = "ready";
-  } else if (hasIndexingInFlight) {
+  } else if (health?.knowledgeStatus === "DEGRADED") {
+    state = "degraded";
+  } else if (hasContractDrift) {
+    state = "degraded";
+  } else if (!health && !hasAnyMaterials) {
+    state = "empty";
+  } else if (!health && hasOnlyHistoricalMaterials) {
+    state = "historical-only";
+  } else if (!health && hasIndexingInFlight) {
     state = "indexing";
   }
 
   return {
     state,
-    totalMaterialsCount: materials.length,
-    activeMaterialsCount: activeMaterials.length,
-    historicalMaterialsCount: materials.length - activeMaterials.length,
-    readyMaterialsCount: readyMaterials.length,
+    totalMaterialsCount,
+    activeMaterialsCount,
+    historicalMaterialsCount,
+    readyMaterialsCount,
+    hasContractDrift,
     hasActiveIndexing: hasIndexingInFlight,
     hasAnyMaterials,
     hasOnlyHistoricalMaterials,
-    isRagReady: state === "ready",
+    isRagReady: state === "ready" && health?.ragStatus === "UP" && !hasContractDrift,
   };
 };
 
 const getRagDegradedReason = (health: HealthResponse | null) =>
-  health?.embeddingReasonMessage
+  health?.ragDegradedReasonMessage
+  ?? health?.directReasonMessage
+  ?? health?.embeddingReasonMessage
   ?? health?.vectorReasonMessage
   ?? health?.databaseReasonMessage
+  ?? health?.knowledgeReasonMessage
   ?? health?.llmReasonMessage
   ?? null;
 
 const buildDegradedMessage = (health: HealthResponse | null) => {
+  if (health && !health.knowledgeStatus) {
+    return "Backend health contract неполный: knowledgeStatus отсутствует, поэтому RAG readiness нельзя подтвердить.";
+  }
   const degradedReason = getRagDegradedReason(health);
   return degradedReason
     ? `RAG backend сейчас деградирован: ${degradedReason}`
@@ -114,16 +138,16 @@ export const buildRagReadinessPresentation = ({
   }
 
   let overviewMessage = "Активные материалы и readiness считаются по одной модели состояния.";
-  if (materialsError) {
-    overviewMessage = `Не удалось загрузить материалы: ${materialsError}.`;
-  } else if (isLoadingMaterials) {
-    overviewMessage = "Сканируем локальное хранилище.";
+  if (!health) {
+    overviewMessage = "Проверяем backend readiness и состояние knowledge base.";
   } else if (ragReadiness.state === "empty") {
-    overviewMessage = "В knowledge base пока нет материалов.";
+    overviewMessage = health.knowledgeReasonMessage ?? "В knowledge base пока нет материалов.";
   } else if (ragReadiness.state === "historical-only") {
-    overviewMessage = "В каталоге остались только исторические версии, поэтому RAG пока не на чем grounded.";
+    overviewMessage = health.knowledgeReasonMessage
+      ?? "В каталоге остались только исторические версии, поэтому RAG пока не на чем grounded.";
   } else if (ragReadiness.state === "indexing") {
-    overviewMessage = "Активная версия уже принята, а индекс ещё догоняет её до READY или PARTIAL_READY.";
+    overviewMessage = health.knowledgeReasonMessage
+      ?? "Активная версия уже принята, а индекс ещё догоняет её до READY или PARTIAL_READY.";
   } else if (ragReadiness.state === "degraded") {
     overviewMessage = degradedMessage;
   }
@@ -148,10 +172,8 @@ export const buildRagReadinessPresentation = ({
   }
 
   let chatHelperText = `Вопрос уйдёт в ${selectedModel} с локально подобранным контекстом из активных материалов.`;
-  if (isLoadingMaterials) {
-    chatHelperText = "Проверяем локальное хранилище материалов.";
-  } else if (materialsError) {
-    chatHelperText = `Не удалось загрузить материалы: ${materialsError}.`;
+  if (!health) {
+    chatHelperText = "Проверяем backend readiness и состояние knowledge base.";
   } else if (ragReadiness.state === "empty") {
     chatHelperText = "Сначала добавь материалы, иначе RAG-режим не на чем grounded.";
   } else if (ragReadiness.state === "historical-only") {
@@ -170,7 +192,7 @@ export const buildRagReadinessPresentation = ({
     materialsMessage,
     chatHelperText,
     badgeLabel,
-    isRagSubmitBlocked: !isLoadingMaterials && !materialsError && ragReadiness.activeMaterialsCount === 0,
+    isRagSubmitBlocked: !health || health.ragStatus !== "UP" || ragReadiness.hasContractDrift,
     statusDotClass: ragReadiness.state === "degraded"
       ? "warn"
       : ragReadiness.state === "ready"
@@ -180,5 +202,30 @@ export const buildRagReadinessPresentation = ({
       ragReadiness.state === "historical-only" || ragReadiness.state === "degraded"
         ? "warning-state"
         : "helper",
+  };
+};
+
+export const buildDirectReadinessPresentation = (
+  health: HealthResponse | null,
+  selectedModel: string,
+): DirectReadinessPresentation => {
+  if (!health) {
+    return {
+      helperText: "Проверяем готовность direct chat path на backend.",
+      isDirectSubmitBlocked: true,
+    };
+  }
+
+  if (health.directStatus !== "UP") {
+    return {
+      helperText: health.directReasonMessage
+        ?? "Direct chat path сейчас недоступен; backend не подтвердил реальный chat(...) probe.",
+      isDirectSubmitBlocked: true,
+    };
+  }
+
+  return {
+    helperText: `Direct-режим уйдёт в unified \`/api/chat\` через ${selectedModel} без retrieval-контекста и использует только instruction stack, временную инструкцию и пользовательский запрос.`,
+    isDirectSubmitBlocked: false,
   };
 };

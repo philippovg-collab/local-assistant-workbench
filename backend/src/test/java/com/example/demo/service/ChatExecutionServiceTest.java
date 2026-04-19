@@ -20,17 +20,26 @@ import com.example.demo.infrastructure.material.RoutingDocumentTextExtractor;
 import com.example.demo.infrastructure.material.TesseractRuntimeProbe;
 import com.example.demo.infrastructure.material.TikaDocumentTextExtractor;
 import com.example.demo.llm.LlmClient;
+import com.example.demo.model.AnswerMode;
 import com.example.demo.model.ChatExecutionRequest;
 import com.example.demo.model.ChatExecutionResponse;
 import com.example.demo.model.ChatMode;
+import com.example.demo.model.ChatSource;
 import com.example.demo.model.CreateInstructionRequest;
 import com.example.demo.model.InstructionDetail;
+import com.example.demo.model.InstructionScopeLevel;
+import com.example.demo.model.KnowledgeScope;
+import com.example.demo.model.KnowledgeScopeResolved;
 import com.example.demo.model.OllamaModelInfo;
+import com.example.demo.model.RetrievalTrace;
 import com.example.demo.support.DeterministicEmbeddingClient;
 import com.example.demo.support.InMemoryInstructionRepository;
 import com.example.demo.support.InMemoryMaterialRepository;
+import com.example.demo.support.TestLexicalRoutingSupport;
+import com.example.demo.support.TestMaterialServices;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 class ChatExecutionServiceTest {
 
@@ -240,9 +249,171 @@ class ChatExecutionServiceTest {
         assertFalse(response.sources().getFirst().excerpt().contains(tailMarker));
     }
 
+    @Test
+    void strictSourcesOnlyFallsBackWhenModelAnswerIsNotSupportedBySources() {
+        CapturingLlmClient llmClient = new CapturingLlmClient();
+        llmClient.nextAnswer = "Тариф Премиум стоит 15000 тенге.";
+        ChatExecutionFixture fixture = createChatExecutionFixture(llmClient);
+
+        fixture.materialService().saveText("Pricing FAQ", "Тариф Премиум стоит 12000 тенге.");
+
+        ChatExecutionResponse response = fixture.chatExecutionService().execute(new ChatExecutionRequest(
+            ChatMode.RAG,
+            null,
+            "Сколько стоит тариф Премиум?",
+            null,
+            List.of(),
+            AnswerMode.STRICT_SOURCES_ONLY,
+            null,
+            null,
+            null
+        ));
+
+        assertEquals("Не найдено в источниках.", response.answer());
+        assertFalse(response.sources().isEmpty());
+    }
+
+    @Test
+    void strictSourcesOnlySkipsModelWhenSupportVerdictIsWeak() {
+        CapturingLlmClient llmClient = new CapturingLlmClient();
+        MaterialService materialService = Mockito.mock(MaterialService.class);
+        ChatSource source = new ChatSource(
+            "material-1",
+            "material-1:0",
+            "Pricing FAQ",
+            "Тариф Премиум стоит 12000 тенге.",
+            50,
+            0.5d,
+            List.of("тариф"),
+            "/api/materials/material-1?chunkId=material-1%3A0&chunkIndex=0",
+            0,
+            null,
+            "direct-text",
+            false,
+            0.21d,
+            null
+        );
+        Mockito.when(materialService.retrieveContext(Mockito.anyString(), Mockito.any(), Mockito.any()))
+            .thenReturn(new MaterialRetrievalResult(
+                1,
+                1,
+                1,
+                1,
+                1,
+                1,
+                List.of(new RetrievedMaterialChunk("Тариф Премиум стоит 12000 тенге.", source)),
+                new RetrievalTrace(1, 1, 1, 1, 1, 1, 1, 0, 1, "weak")
+            ));
+
+        ChatExecutionService service = new ChatExecutionService(
+            llmClient,
+            materialService,
+            new InstructionService(new InMemoryInstructionRepository()),
+            passthroughKnowledgePresetService(),
+            mockAuditService(),
+            new PromptPolicyResolver(new LlmProperties()),
+            new AnswerModePostProcessor(new MaterialContentSupport(new MaterialProperties()))
+        );
+
+        ChatExecutionResponse response = service.execute(new ChatExecutionRequest(
+            ChatMode.RAG,
+            null,
+            "Сколько стоит тариф Премиум?",
+            null,
+            List.of(),
+            AnswerMode.STRICT_SOURCES_ONLY,
+            KnowledgeScope.empty(),
+            List.of(),
+            null
+        ));
+
+        assertEquals("Не найдено в источниках.", response.answer());
+        assertEquals(0, llmClient.chatCalls);
+        assertEquals("weak", response.retrievalTrace().supportVerdict());
+        assertFalse(response.sources().isEmpty());
+    }
+
+    @Test
+    void resolvesWorkspaceInstructionsFromResolvedKnowledgePresetWorkspaceKey() {
+        CapturingLlmClient llmClient = new CapturingLlmClient();
+        MaterialService materialService = createMaterialService();
+        InstructionService instructionService = createInstructionService();
+        instructionService.createInstruction(new CreateInstructionRequest(
+            "Sales workspace role",
+            "system",
+            "Используй терминологию sales workspace.",
+            InstructionScopeLevel.WORKSPACE_PROJECT,
+            "sales-workspace",
+            true
+        ));
+
+        KnowledgePresetService knowledgePresetService = Mockito.mock(KnowledgePresetService.class);
+        Mockito.when(knowledgePresetService.resolveScope(Mockito.any())).thenReturn(
+            new KnowledgePresetService.ResolvedKnowledgeScopeContext(
+                new KnowledgeScope(List.of("preset-sales"), List.of(), List.of(), "sales-workspace", false),
+                new KnowledgeScopeResolved(List.of(), List.of(), List.of(), "sales-workspace", false)
+            )
+        );
+
+        ChatExecutionService service = new ChatExecutionService(
+            llmClient,
+            materialService,
+            instructionService,
+            knowledgePresetService,
+            mockAuditService(),
+            new PromptPolicyResolver(new LlmProperties()),
+            new AnswerModePostProcessor(new MaterialContentSupport(new MaterialProperties()))
+        );
+
+        ChatExecutionResponse response = service.execute(new ChatExecutionRequest(
+            ChatMode.DIRECT,
+            "qwen2.5:7b",
+            "Объясни pipeline",
+            null,
+            List.of(),
+            AnswerMode.BRIEF,
+            new KnowledgeScope(List.of("preset-sales"), List.of(), List.of(), null, false),
+            List.of(),
+            null
+        ));
+
+        assertEquals(ChatMode.DIRECT, response.mode());
+        assertTrue(llmClient.lastRequest.messages().getFirst().content().contains("sales workspace"));
+        assertTrue(response.instructionTrace().stream().anyMatch(entry ->
+            entry.scopeLevel() == InstructionScopeLevel.WORKSPACE_PROJECT
+                && "sales-workspace".equals(entry.scopeTargetId())
+        ));
+    }
+
+    @Test
+    void withQuotesAppendsShortQuotesFromRetrievedChunks() {
+        CapturingLlmClient llmClient = new CapturingLlmClient();
+        llmClient.nextAnswer = "Тариф Премиум стоит 12000 тенге.";
+        ChatExecutionFixture fixture = createChatExecutionFixture(llmClient);
+
+        fixture.materialService().saveText("Pricing FAQ", "Тариф Премиум стоит 12000 тенге в месяц.");
+
+        ChatExecutionResponse response = fixture.chatExecutionService().execute(new ChatExecutionRequest(
+            ChatMode.RAG,
+            null,
+            "Сколько стоит тариф Премиум?",
+            null,
+            List.of(),
+            AnswerMode.WITH_QUOTES,
+            null,
+            null,
+            null
+        ));
+
+        assertTrue(response.answer().contains("Цитаты из источников:"));
+        assertTrue(response.answer().contains("\""));
+    }
+
     private ChatExecutionFixture createChatExecutionFixture(CapturingLlmClient llmClient) {
         MaterialService materialService = createMaterialService();
         InstructionService instructionService = createInstructionService();
+        KnowledgePresetService knowledgePresetService = passthroughKnowledgePresetService();
+        ChatAuditService chatAuditService = mockAuditService();
         PromptPolicyResolver promptPolicyResolver = new PromptPolicyResolver(new LlmProperties());
 
         return new ChatExecutionFixture(
@@ -250,7 +421,10 @@ class ChatExecutionServiceTest {
                 llmClient,
                 materialService,
                 instructionService,
-                promptPolicyResolver
+                knowledgePresetService,
+                chatAuditService,
+                promptPolicyResolver,
+                new AnswerModePostProcessor(new MaterialContentSupport(new MaterialProperties()))
             ),
             materialService,
             instructionService
@@ -284,12 +458,22 @@ class ChatExecutionServiceTest {
         InMemoryMaterialRepository repository = new InMemoryMaterialRepository();
         DeterministicEmbeddingClient embeddingClient = new DeterministicEmbeddingClient();
         MaterialContentSupport contentSupport = new MaterialContentSupport(properties);
+        RagProperties ragProperties = new RagProperties();
+        MaterialSearchSyncLifecycleService lifecycleService = TestMaterialServices.lifecycleService(
+            repository,
+            repository,
+            repository,
+            repository,
+            repository
+        );
+        AfterCommitExecutor afterCommitExecutor = new AfterCommitExecutor();
         MaterialIndexingService indexingService = new MaterialIndexingService(
             repository,
             repository,
             contentSupport,
             embeddingClient,
             properties,
+            lifecycleService,
             Runnable::run
         );
         return new MaterialService(
@@ -300,7 +484,9 @@ class ChatExecutionServiceTest {
                 formatRegistry,
                 ocrCapabilityService,
                 contentSupport,
-                indexingService
+                lifecycleService,
+                indexingService,
+                afterCommitExecutor
             ),
             new MaterialIngestionService(
                 repository,
@@ -308,13 +494,18 @@ class ChatExecutionServiceTest {
                 extractor,
                 properties,
                 contentSupport,
-                indexingService
+                new MaterialMetadataResolver(),
+                lifecycleService,
+                indexingService,
+                afterCommitExecutor
             ),
-            new MaterialRetrievalService(
+            TestMaterialServices.retrievalService(
                 repository,
                 repository,
+                repository,
+                TestLexicalRoutingSupport.productionRouter(repository, ragProperties, List.of(repository)),
                 embeddingClient,
-                new RagProperties(),
+                ragProperties,
                 new HybridChunkRanker(),
                 contentSupport
             )
@@ -325,10 +516,36 @@ class ChatExecutionServiceTest {
         return new InstructionService(new InMemoryInstructionRepository());
     }
 
+    private KnowledgePresetService passthroughKnowledgePresetService() {
+        KnowledgePresetService knowledgePresetService = Mockito.mock(KnowledgePresetService.class);
+        Mockito.when(knowledgePresetService.resolveScope(Mockito.any())).thenAnswer(invocation -> {
+            KnowledgeScope requestedScope = invocation.getArgument(0);
+            KnowledgeScope effectiveScope = requestedScope == null ? KnowledgeScope.empty() : requestedScope;
+            return new KnowledgePresetService.ResolvedKnowledgeScopeContext(
+                effectiveScope,
+                new KnowledgeScopeResolved(
+                    List.of(),
+                    effectiveScope.documentClasses(),
+                    effectiveScope.tags(),
+                    effectiveScope.workspaceKey(),
+                    effectiveScope.uploadedTodayOnly()
+                )
+            );
+        });
+        return knowledgePresetService;
+    }
+
+    private ChatAuditService mockAuditService() {
+        ChatAuditService chatAuditService = Mockito.mock(ChatAuditService.class);
+        Mockito.when(chatAuditService.record(Mockito.any())).thenReturn("audit-test-id");
+        return chatAuditService;
+    }
+
     private static final class CapturingLlmClient implements LlmClient {
 
         private ChatRequest lastRequest;
         private int chatCalls = 0;
+        private String nextAnswer = "ok";
 
         @Override
         public List<OllamaModelInfo> listModels() {
@@ -341,7 +558,7 @@ class ChatExecutionServiceTest {
             lastRequest = request;
             return new ChatResult(
                 request.model() == null ? "qwen2.5:7b" : request.model(),
-                "ok",
+                nextAnswer,
                 "2026-04-16T10:00:00Z",
                 1,
                 1,

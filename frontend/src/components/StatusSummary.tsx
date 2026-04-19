@@ -1,6 +1,17 @@
-import type { HealthResponse, ModelInfo } from "../types";
-import type { RagReadinessPresentation } from "../utils/readiness";
-import { formatDate } from "../utils/format";
+import {
+  Activity,
+  BookCopy,
+  BrainCircuit,
+  DatabaseZap,
+  SearchCheck,
+  ShieldCheck,
+} from "lucide-react";
+import { Badge, type BadgeProps } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Separator } from "@/components/ui/separator";
+import type { HealthResponse, ModelInfo } from "@/types";
+import type { RagReadinessPresentation } from "@/utils/readiness";
+import { formatDate } from "@/utils/format";
 
 type StatusSummaryProps = {
   health: HealthResponse | null;
@@ -9,6 +20,18 @@ type StatusSummaryProps = {
   modelsError: string | null;
   ragPresentation: RagReadinessPresentation;
   instructionsCount: number;
+};
+
+const badgeVariantByStatus = (
+  status: "online" | "idle" | "warn",
+): BadgeProps["variant"] => {
+  if (status === "online") {
+    return "success";
+  }
+  if (status === "warn") {
+    return "warning";
+  }
+  return "secondary";
 };
 
 export function StatusSummary({
@@ -20,92 +43,308 @@ export function StatusSummary({
   instructionsCount,
 }: StatusSummaryProps) {
   const isBackendHealthy = health?.status === "UP";
+  const searchStatus = health?.searchStatus ?? "DISABLED";
+  const searchStatusDotClass = searchStatus === "UP" ? "online" : searchStatus === "DISABLED" ? "idle" : "warn";
+  const searchMode = health?.searchMode;
+  const searchProvider = health?.searchProvider;
   const backendMessage = health
     ? isBackendHealthy
       ? health.application
-      : health.llmReasonMessage ??
+      : health.directReasonMessage ??
+        health.llmReasonMessage ??
         health.embeddingReasonMessage ??
+        health.knowledgeReasonMessage ??
         health.ocrReasonMessage ??
         health.vectorReasonMessage ??
         health.application
     : healthError ?? "Проверяем сервис";
-  const llmMessage = health?.llmStatus === "DOWN"
-    ? health.llmReasonMessage ?? "LLM runtime недоступен."
+  const llmMessage = health?.directStatus === "DOWN"
+    ? health.directReasonMessage ?? "Direct chat path сейчас недоступен."
+    : health?.llmStatus === "DOWN"
+      ? health.llmReasonMessage ?? "Каталог моделей сейчас недоступен."
     : modelsError ?? "Единый LLM client обслуживает direct и RAG режимы.";
   const queueSummary = health
     ? `${health.indexingPendingCount ?? 0} pending / ${health.indexingInProgressCount ?? 0} in progress / ${health.indexingFailedCount ?? 0} failed`
     : "Ожидаем snapshot очереди индексации.";
+  const searchBacklogSummary = health?.searchSyncBacklog
+    ? `${health.searchSyncBacklog.pendingCount ?? 0} pending / ${health.searchSyncBacklog.inProgressCount ?? 0} in progress / ${health.searchSyncBacklog.failedCount ?? 0} failed`
+    : "Ожидаем snapshot search sync backlog.";
+  const qualityFlagsSummary = health?.qualityLayer
+    ? [
+        `metadata=${health.qualityLayer.flags.metadataV1 ? "on" : "off"}`,
+        `structured=${health.qualityLayer.flags.structuredV1 ? "on" : "off"}`,
+        `filters=${health.qualityLayer.flags.metadataFiltersV1 ? "on" : "off"}`,
+        `search=${health.qualityLayer.flags.searchApiV1 ? "on" : "off"}`,
+        `reranker=${health.qualityLayer.flags.rerankerV1 ? "on" : "off"}`,
+        `hints=${health.qualityLayer.flags.queryHintsV1 ? "on" : "off"}`,
+      ].join(" · ")
+    : "Quality-layer flags пока не опубликованы backend-контрактом.";
+  const qualityMetadataSummary = health?.qualityLayer
+    ? `${health.qualityLayer.metadataCoverage.activeWithEffectiveMetadata}/${health.qualityLayer.metadataCoverage.activeTotal} active материалов с meaningful metadata`
+    : "Ждём metadata coverage.";
+  const qualityBackfillSummary = health?.qualityLayer
+    ? `${health.qualityLayer.activeBackfillCoverage.structuredProfileActive}/${health.qualityLayer.activeBackfillCoverage.activeTotal} active на structured-v1`
+    : "Ждём ACTIVE backfill coverage.";
+  const qualityRetrievalWindowSummary = health?.qualityLayer
+    ? `sample=${health.qualityLayer.retrievalWindow.sampleSize} · no-context=${Math.round(health.qualityLayer.retrievalWindow.noContextRate * 100)}%`
+    : "Ждём retrieval window.";
+  const searchHeaderLabel = searchMode && searchProvider
+    ? `${searchMode} -> ${searchProvider} / ${searchStatus}`
+    : searchProvider
+      ? `${searchProvider} / ${searchStatus}`
+      : searchStatus;
+  const searchMessage = (() => {
+    if (searchStatus === "UP" && searchMode === "auto" && searchProvider === "elasticsearch") {
+      return "Production lexical retrieval идёт через Elasticsearch; PostgreSQL остаётся fallback path.";
+    }
+    if (searchStatus === "UP" && searchMode === "postgres") {
+      return "Production lexical retrieval сейчас закреплён за PostgreSQL.";
+    }
+    if ((searchStatus === "DOWN" || searchStatus === "DEGRADED" || searchStatus === "DISABLED")
+      && searchMode === "auto"
+      && searchProvider === "postgres") {
+      return health?.searchReasonMessage
+        ? `RAG lexical retrieval продолжает работать через PostgreSQL fallback: ${health.searchReasonMessage}`
+        : "RAG lexical retrieval продолжает работать через PostgreSQL fallback.";
+    }
+    if (searchStatus === "DISABLED") {
+      return health?.searchReasonMessage ?? "Search sync plane сейчас выключен конфигом.";
+    }
+    return health?.searchReasonMessage ?? "Search plane сейчас не деградирован.";
+  })();
+
+  const summaryCards = [
+    {
+      icon: Activity,
+      label: "Backend",
+      headline: health ? health.status : "Недоступен",
+      message: backendMessage,
+      tone: isBackendHealthy ? "online" : "warn",
+    },
+    {
+      icon: BrainCircuit,
+      label: "LLM",
+      headline:
+        health?.directStatus === "DOWN"
+          ? "Direct недоступен"
+          : health?.llmStatus === "DOWN"
+            ? "Каталог моделей недоступен"
+          : models.length > 0
+            ? `${models.length} моделей`
+            : "Нет списка моделей",
+      message: llmMessage,
+      tone: health?.directStatus === "DOWN" || health?.llmStatus === "DOWN" ? "warn" : models.length > 0 ? "online" : "idle",
+    },
+    {
+      icon: SearchCheck,
+      label: "RAG",
+      headline: ragPresentation.headline,
+      message: ragPresentation.overviewMessage,
+      tone: ragPresentation.statusDotClass,
+    },
+    {
+      icon: DatabaseZap,
+      label: "Search",
+      headline: searchHeaderLabel,
+      message: searchMessage,
+      tone: searchStatusDotClass,
+    },
+    {
+      icon: BookCopy,
+      label: "Инструкции",
+      headline: `${instructionsCount}`,
+      message:
+        "Instruction snippets теперь подключаются явно и реально влияют на prompt policy.",
+      tone: instructionsCount > 0 ? "online" : "idle",
+    },
+  ] as const;
+
+  const runtimeRows = [
+    {
+      label: "Последний успешный direct probe",
+      value:
+        health?.directLastSuccessfulProbeAt
+          ? formatDate(health.directLastSuccessfulProbeAt)
+          : "Пока нет",
+    },
+    {
+      label: "Последний успешный LLM probe",
+      value: health?.llmLastSuccessfulProbeAt ? formatDate(health.llmLastSuccessfulProbeAt) : "Пока нет",
+    },
+    {
+      label: "Последний успешный embedding probe",
+      value:
+        health?.embeddingLastSuccessfulProbeAt
+          ? formatDate(health.embeddingLastSuccessfulProbeAt)
+          : "Пока нет",
+    },
+    {
+      label: "Knowledge status",
+      value: health?.knowledgeStatus ?? "Неизвестно",
+    },
+    {
+      label: "Knowledge readiness reason",
+      value: health?.knowledgeReasonMessage ?? "Knowledge base готова для RAG.",
+    },
+    {
+      label: "Ready active материалы",
+      value: health
+        ? `${health.readyMaterialCount ?? 0} ready / ${health.activeMaterialCount ?? 0} active / ${health.materialCount ?? 0} total`
+        : "Ожидаем snapshot knowledge base.",
+    },
+    {
+      label: "Причина RAG degraded",
+      value: health?.ragDegradedReasonMessage ?? "RAG readiness сейчас не деградирован.",
+    },
+    {
+      label: "Причина Direct degraded",
+      value: health?.directReasonMessage ?? "Direct chat path сейчас не деградирован.",
+    },
+    {
+      label: "Причина model catalog degraded",
+      value: health?.llmReasonMessage ?? "Model catalog сейчас не деградирован.",
+    },
+    {
+      label: "Очередь индексации",
+      value: queueSummary,
+    },
+    {
+      label: "Следующий retry",
+      value: health?.indexingNextRetryAt ? formatDate(health.indexingNextRetryAt) : "Не запланирован",
+    },
+    {
+      label: "Quality-layer flags",
+      value: qualityFlagsSummary,
+    },
+    {
+      label: "Metadata coverage",
+      value: qualityMetadataSummary,
+    },
+    {
+      label: "ACTIVE backfill coverage",
+      value: qualityBackfillSummary,
+    },
+    {
+      label: "Retrieval window",
+      value: qualityRetrievalWindowSummary,
+    },
+  ];
+
+  const searchRows = [
+    {
+      label: "Configured mode",
+      value: searchMode ?? "Неизвестно",
+    },
+    {
+      label: "Effective provider",
+      value: searchProvider ?? "Неизвестно",
+    },
+    {
+      label: "Search status",
+      value: searchStatus,
+    },
+    {
+      label: "Причина search degraded",
+      value: health?.searchReasonMessage ?? "Search plane сейчас не деградирован.",
+    },
+    {
+      label: "Search sync backlog",
+      value: searchBacklogSummary,
+    },
+    {
+      label: "Самый старый outstanding",
+      value:
+        health?.searchSyncBacklog?.oldestOutstandingAt
+          ? formatDate(health.searchSyncBacklog.oldestOutstandingAt)
+          : "Нет backlog",
+    },
+    {
+      label: "Последний успешный sync",
+      value:
+        health?.searchSyncBacklog?.lastSuccessfulSyncAt
+          ? formatDate(health.searchSyncBacklog.lastSuccessfulSyncAt)
+          : "Пока нет",
+    },
+  ];
 
   return (
-    <>
-      <section className="summary-grid">
-        <article className="stat-card">
-          <div className="status-chip">
-            <span className={`status-dot ${health ? isBackendHealthy ? "online" : "warn" : "warn"}`} />
-            Backend
-          </div>
-          <strong>{health ? health.status : "Недоступен"}</strong>
-          <p>{backendMessage}</p>
-        </article>
+    <div className="space-y-6">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+        {summaryCards.map((card) => {
+          const Icon = card.icon;
 
-        <article className="stat-card">
-          <div className="status-chip">
-            <span className={`status-dot ${health?.llmStatus === "DOWN" ? "warn" : models.length > 0 ? "online" : "idle"}`} />
-            LLM
-          </div>
-          <strong>{health?.directStatus === "DOWN" ? "Direct недоступен" : models.length > 0 ? `${models.length} моделей` : "Нет списка моделей"}</strong>
-          <p>{llmMessage}</p>
-        </article>
+          return (
+            <Card className="h-full p-0" key={card.label}>
+              <CardContent className="mt-0 flex h-full flex-col gap-4 p-5">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                    <Icon className="h-5 w-5" />
+                  </div>
+                  <Badge variant={badgeVariantByStatus(card.tone)}>{card.label}</Badge>
+                </div>
+                <div className="space-y-2">
+                  <strong className="block text-xl font-semibold tracking-[-0.04em] text-foreground">
+                    {card.headline}
+                  </strong>
+                  <p className="text-sm leading-6 text-muted-foreground">{card.message}</p>
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })}
+      </div>
 
-        <article className="stat-card">
-          <div className="status-chip">
-            <span className={`status-dot ${ragPresentation.statusDotClass}`} />
-            RAG
-          </div>
-          <strong>{ragPresentation.headline}</strong>
-          <p>{ragPresentation.overviewMessage}</p>
-        </article>
+      <div className="grid gap-6 xl:grid-cols-2">
+        <Card>
+          <CardHeader className="gap-4">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="h-4 w-4 text-primary" />
+                <CardTitle>Runtime Signals</CardTitle>
+              </div>
+              <Badge variant="secondary">/api/health</Badge>
+            </div>
+          </CardHeader>
+          <CardContent className="mt-0 space-y-3">
+            {runtimeRows.map((row, index) => (
+              <div key={row.label}>
+                {index > 0 ? <Separator className="mb-3" /> : null}
+                <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
+                  <strong className="text-sm font-medium text-foreground">{row.label}</strong>
+                  <span className="text-sm leading-6 text-muted-foreground sm:max-w-[52%] sm:text-right">
+                    {row.value}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
 
-        <article className="stat-card">
-          <div className="status-chip">
-            <span className={`status-dot ${instructionsCount > 0 ? "online" : "idle"}`} />
-            Инструкции
-          </div>
-          <strong>{instructionsCount}</strong>
-          <p>Instruction snippets теперь подключаются явно и реально влияют на prompt policy.</p>
-        </article>
-      </section>
-
-      <section className="runtime-grid">
-        <article className="panel">
-          <div className="panel-header compact">
-            <h3>Runtime Signals</h3>
-            <span className="badge subtle">/api/health</span>
-          </div>
-          <div className="stack-list">
-            <div className="signal-row">
-              <strong>Последний успешный LLM probe</strong>
-              <span>{health?.llmLastSuccessfulProbeAt ? formatDate(health.llmLastSuccessfulProbeAt) : "Пока нет"}</span>
+        <Card>
+          <CardHeader className="gap-4">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <SearchCheck className="h-4 w-4 text-primary" />
+                <CardTitle>Search Plane</CardTitle>
+              </div>
+              <Badge variant="secondary">production lexical</Badge>
             </div>
-            <div className="signal-row">
-              <strong>Последний успешный embedding probe</strong>
-              <span>{health?.embeddingLastSuccessfulProbeAt ? formatDate(health.embeddingLastSuccessfulProbeAt) : "Пока нет"}</span>
-            </div>
-            <div className="signal-row">
-              <strong>Причина RAG degraded</strong>
-              <span>{health?.ragDegradedReasonMessage ?? "RAG readiness сейчас не деградирован."}</span>
-            </div>
-            <div className="signal-row">
-              <strong>Очередь индексации</strong>
-              <span>{queueSummary}</span>
-            </div>
-            <div className="signal-row">
-              <strong>Следующий retry</strong>
-              <span>{health?.indexingNextRetryAt ? formatDate(health.indexingNextRetryAt) : "Не запланирован"}</span>
-            </div>
-          </div>
-        </article>
-      </section>
-    </>
+          </CardHeader>
+          <CardContent className="mt-0 space-y-3">
+            {searchRows.map((row, index) => (
+              <div key={row.label}>
+                {index > 0 ? <Separator className="mb-3" /> : null}
+                <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
+                  <strong className="text-sm font-medium text-foreground">{row.label}</strong>
+                  <span className="text-sm leading-6 text-muted-foreground sm:max-w-[52%] sm:text-right">
+                    {row.value}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      </div>
+    </div>
   );
 }

@@ -2,7 +2,8 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiClientError, apiClient } from "../api/client";
-import type { ChatExecutionResponse } from "../types";
+import type { ChatExecutionResponse, QualityLayerFlags } from "../types";
+import { buildChatExecutionResponse } from "../testBuilders";
 import { useChatExecution } from "./useChatExecution";
 
 vi.mock("../api/client", async () => {
@@ -20,21 +21,36 @@ vi.mock("../api/client", async () => {
 type HarnessProps = {
   mode: "direct" | "rag";
   initialPrompt: string;
-  initialSystemPrompt?: string;
+  initialTemporaryInstruction?: string;
+  initialAnswerMode?: "brief" | "strict_sources_only";
+  rolloutFlags?: QualityLayerFlags | null;
   selectedInstructionIds?: string[];
+};
+
+const enabledFlags: QualityLayerFlags = {
+  metadataV1: true,
+  structuredV1: true,
+  metadataFiltersV1: true,
+  searchApiV1: true,
+  rerankerV1: true,
+  queryHintsV1: true,
 };
 
 function HookHarness({
   mode,
   initialPrompt,
-  initialSystemPrompt = "",
+  initialTemporaryInstruction = "",
+  initialAnswerMode = "brief",
+  rolloutFlags = null,
   selectedInstructionIds = [],
 }: HarnessProps) {
   const chat = useChatExecution({
     mode,
     initialModel: "qwen2.5:7b",
     initialPrompt,
-    initialSystemPrompt,
+    initialTemporaryInstruction,
+    initialAnswerMode,
+    rolloutFlags,
     selectedInstructionIds,
   });
 
@@ -62,25 +78,37 @@ function HookHarness({
       </label>
 
       <label>
-        {mode}-system
+        {mode}-temporary
         <textarea
-          aria-label={`${mode}-system`}
-          value={chat.systemPrompt}
-          onChange={(event) => chat.setSystemPrompt(event.target.value)}
+          aria-label={`${mode}-temporary`}
+          value={chat.temporaryInstruction}
+          onChange={(event) => chat.setTemporaryInstruction(event.target.value)}
         />
       </label>
 
       <button type="button" onClick={() => void chat.submit()}>
         submit-{mode}
       </button>
+      <button type="button" onClick={() => chat.updateRetrievalFilter("project", "Manual Project")}>
+        set-manual-project
+      </button>
+      <button type="button" onClick={() => chat.dismissHint("documentNumber")}>
+        dismiss-document-number
+      </button>
+      <button type="button" onClick={() => chat.resetDismissedHints()}>
+        reset-hints
+      </button>
 
       <output data-testid={`${mode}-model-output`}>{chat.model}</output>
       <output data-testid={`${mode}-prompt-output`}>{chat.prompt}</output>
-      <output data-testid={`${mode}-system-output`}>{chat.systemPrompt}</output>
+      <output data-testid={`${mode}-temporary-output`}>{chat.temporaryInstruction}</output>
       <output data-testid={`${mode}-error-output`}>{chat.error ?? ""}</output>
       <output data-testid={`${mode}-submitting-output`}>{String(chat.isSubmitting)}</output>
       <output data-testid={`${mode}-response-output`}>{chat.response?.answer ?? ""}</output>
       <output data-testid={`${mode}-last-request-output`}>{chat.lastSubmittedRequest?.prompt ?? ""}</output>
+      <output data-testid={`${mode}-hint-document-number-output`}>{chat.queryHints.documentNumber ?? ""}</output>
+      <output data-testid={`${mode}-effective-document-number-output`}>{chat.effectiveRetrievalFilters.documentNumber ?? ""}</output>
+      <output data-testid={`${mode}-effective-project-output`}>{chat.effectiveRetrievalFilters.project ?? ""}</output>
     </section>
   );
 }
@@ -93,22 +121,16 @@ describe("useChatExecution", () => {
 
   it("keeps direct and rag state isolated", async () => {
     const user = userEvent.setup();
-    vi.mocked(apiClient.executeChat).mockResolvedValue({
+    vi.mocked(apiClient.executeChat).mockResolvedValue(buildChatExecutionResponse({
       mode: "direct",
       model: "qwen2.5:7b",
       prompt: "ok",
       answer: "ok",
-      createdAt: "2026-04-16T10:00:00Z",
-      promptTokens: 1,
-      completionTokens: 1,
-      totalTokens: 2,
-      appliedInstructions: [],
-      sources: [],
-    });
+    }));
 
     render(
       <>
-        <HookHarness initialPrompt="direct prompt" initialSystemPrompt="direct system" mode="direct" />
+        <HookHarness initialPrompt="direct prompt" initialTemporaryInstruction="direct system" mode="direct" />
         <HookHarness initialPrompt="rag prompt" mode="rag" />
       </>,
     );
@@ -116,15 +138,15 @@ describe("useChatExecution", () => {
     await user.selectOptions(screen.getByLabelText("direct-model"), "qwen2.5:3b");
     await user.clear(screen.getByLabelText("direct-prompt"));
     await user.type(screen.getByLabelText("direct-prompt"), "updated direct prompt");
-    await user.clear(screen.getByLabelText("direct-system"));
-    await user.type(screen.getByLabelText("direct-system"), "updated direct system");
+    await user.clear(screen.getByLabelText("direct-temporary"));
+    await user.type(screen.getByLabelText("direct-temporary"), "updated direct system");
 
     expect(screen.getByTestId("direct-model-output").textContent).toBe("qwen2.5:3b");
     expect(screen.getByTestId("rag-model-output").textContent).toBe("qwen2.5:7b");
     expect(screen.getByTestId("direct-prompt-output").textContent).toBe("updated direct prompt");
     expect(screen.getByTestId("rag-prompt-output").textContent).toBe("rag prompt");
-    expect(screen.getByTestId("direct-system-output").textContent).toBe("updated direct system");
-    expect(screen.getByTestId("rag-system-output").textContent).toBe("");
+    expect(screen.getByTestId("direct-temporary-output").textContent).toBe("updated direct system");
+    expect(screen.getByTestId("rag-temporary-output").textContent).toBe("");
   });
 
   it("keeps the loading state tied to the latest in-flight request", async () => {
@@ -162,18 +184,12 @@ describe("useChatExecution", () => {
       expect(screen.getByTestId("direct-submitting-output").textContent).toBe("true");
     });
 
-    pendingRequests[1]?.resolve({
+    pendingRequests[1]?.resolve(buildChatExecutionResponse({
       mode: "direct",
       model: "qwen2.5:7b",
       prompt: "direct prompt",
       answer: "ok",
-      createdAt: "2026-04-16T10:00:00Z",
-      promptTokens: 1,
-      completionTokens: 1,
-      totalTokens: 2,
-      appliedInstructions: [],
-      sources: [],
-    });
+    }));
 
     await waitFor(() => {
       expect(screen.getByTestId("direct-submitting-output").textContent).toBe("false");
@@ -182,23 +198,17 @@ describe("useChatExecution", () => {
 
   it("submits the unified chat contract with the selected instruction ids", async () => {
     const user = userEvent.setup();
-    vi.mocked(apiClient.executeChat).mockResolvedValue({
+    vi.mocked(apiClient.executeChat).mockResolvedValue(buildChatExecutionResponse({
       mode: "rag",
       model: "qwen2.5:7b",
       prompt: "Какая цена?",
       answer: "12000",
-      createdAt: "2026-04-16T10:00:00Z",
-      promptTokens: 2,
-      completionTokens: 1,
-      totalTokens: 3,
-      appliedInstructions: [],
-      sources: [],
-    });
+    }));
 
     render(
       <HookHarness
         initialPrompt="Какая цена?"
-        initialSystemPrompt="Не выдумывай"
+        initialTemporaryInstruction="Не выдумывай"
         mode="rag"
         selectedInstructionIds={["instruction-1", "instruction-2"]}
       />,
@@ -212,12 +222,209 @@ describe("useChatExecution", () => {
           mode: "rag",
           model: "qwen2.5:7b",
           prompt: "Какая цена?",
-          systemPrompt: "Не выдумывай",
           instructionIds: ["instruction-1", "instruction-2"],
+          scenarioInstructionIds: ["instruction-1", "instruction-2"],
+          answerMode: "brief",
+          knowledgeScope: {
+            presetIds: [],
+            documentClasses: [],
+            tags: [],
+            workspaceKey: null,
+            uploadedTodayOnly: false,
+          },
+          temporaryInstruction: "Не выдумывай",
         },
         expect.any(AbortSignal),
       );
     });
+  });
+
+  it("auto-applies extracted query hints into rag retrieval filters", async () => {
+    const user = userEvent.setup();
+    vi.mocked(apiClient.executeChat).mockResolvedValue(buildChatExecutionResponse({
+      mode: "rag",
+      model: "qwen2.5:7b",
+      prompt: "Что указано в договоре KZ-2026-0415-ENERGY по проекту North Upgrade?",
+      answer: "Ответ",
+    }));
+
+    render(
+      <HookHarness
+        initialPrompt="Что указано в договоре KZ-2026-0415-ENERGY по проекту North Upgrade?"
+        mode="rag"
+        rolloutFlags={enabledFlags}
+      />,
+    );
+
+    expect(screen.getByTestId("rag-hint-document-number-output").textContent).toBe("KZ-2026-0415-ENERGY");
+    expect(screen.getByTestId("rag-effective-project-output").textContent).toContain("North Upgrade");
+
+    await user.click(screen.getByText("submit-rag"));
+
+    await waitFor(() => {
+      expect(apiClient.executeChat).toHaveBeenCalledWith(
+        expect.objectContaining({
+          retrievalFilters: expect.objectContaining({
+            documentNumber: "KZ-2026-0415-ENERGY",
+            project: expect.stringContaining("North Upgrade"),
+          }),
+        }),
+        expect.any(AbortSignal),
+      );
+    });
+  });
+
+  it("does not submit hint filters when rollout flags are missing", async () => {
+    const user = userEvent.setup();
+    vi.mocked(apiClient.executeChat).mockResolvedValue(buildChatExecutionResponse({
+      mode: "rag",
+      model: "qwen2.5:7b",
+      prompt: "Что указано в договоре KZ-2026-0415-ENERGY?",
+      answer: "Ответ",
+    }));
+
+    render(
+      <HookHarness
+        initialPrompt="Что указано в договоре KZ-2026-0415-ENERGY?"
+        mode="rag"
+      />,
+    );
+
+    expect(screen.getByTestId("rag-hint-document-number-output").textContent).toBe("");
+    expect(screen.getByTestId("rag-effective-document-number-output").textContent).toBe("");
+
+    await user.click(screen.getByText("submit-rag"));
+
+    await waitFor(() => {
+      expect(apiClient.executeChat).toHaveBeenCalledWith(
+        expect.not.objectContaining({
+          retrievalFilters: expect.anything(),
+        }),
+        expect.any(AbortSignal),
+      );
+    });
+  });
+
+  it("submits only manual filters when query hints rollout is disabled", async () => {
+    const user = userEvent.setup();
+    vi.mocked(apiClient.executeChat).mockResolvedValue(buildChatExecutionResponse({
+      mode: "rag",
+      model: "qwen2.5:7b",
+      prompt: "Что указано в договоре KZ-2026-0415-ENERGY по проекту North Upgrade?",
+      answer: "Ответ",
+    }));
+
+    render(
+      <HookHarness
+        initialPrompt="Что указано в договоре KZ-2026-0415-ENERGY по проекту North Upgrade?"
+        mode="rag"
+        rolloutFlags={{ ...enabledFlags, queryHintsV1: false }}
+      />,
+    );
+
+    await user.click(screen.getByText("set-manual-project"));
+    await user.click(screen.getByText("submit-rag"));
+
+    await waitFor(() => {
+      expect(apiClient.executeChat).toHaveBeenCalledWith(
+        expect.objectContaining({
+          retrievalFilters: expect.objectContaining({
+            project: "Manual Project",
+          }),
+        }),
+        expect.any(AbortSignal),
+      );
+    });
+    expect(vi.mocked(apiClient.executeChat).mock.calls[0][0].retrievalFilters).not.toMatchObject({
+      documentNumber: "KZ-2026-0415-ENERGY",
+    });
+  });
+
+  it("does not submit manual filters when metadata filters rollout is disabled", async () => {
+    const user = userEvent.setup();
+    vi.mocked(apiClient.executeChat).mockResolvedValue(buildChatExecutionResponse({
+      mode: "rag",
+      model: "qwen2.5:7b",
+      prompt: "Что указано по проекту North Upgrade?",
+      answer: "Ответ",
+    }));
+
+    render(
+      <HookHarness
+        initialPrompt="Что указано по проекту North Upgrade?"
+        mode="rag"
+        rolloutFlags={{ ...enabledFlags, metadataFiltersV1: false, queryHintsV1: false }}
+      />,
+    );
+
+    await user.click(screen.getByText("set-manual-project"));
+    await user.click(screen.getByText("submit-rag"));
+
+    await waitFor(() => {
+      expect(apiClient.executeChat).toHaveBeenCalledWith(
+        expect.not.objectContaining({
+          retrievalFilters: expect.anything(),
+        }),
+        expect.any(AbortSignal),
+      );
+    });
+  });
+
+  it("keeps manual override over auto hint in retrieval filters", async () => {
+    const user = userEvent.setup();
+    vi.mocked(apiClient.executeChat).mockResolvedValue(buildChatExecutionResponse({
+      mode: "rag",
+      model: "qwen2.5:7b",
+      prompt: "Что указано в договоре KZ-2026-0415-ENERGY по проекту North Upgrade?",
+      answer: "Ответ",
+    }));
+
+    render(
+      <HookHarness
+        initialPrompt="Что указано в договоре KZ-2026-0415-ENERGY по проекту North Upgrade?"
+        mode="rag"
+        rolloutFlags={enabledFlags}
+      />,
+    );
+
+    await user.click(screen.getByText("set-manual-project"));
+    expect(screen.getByTestId("rag-effective-project-output").textContent).toBe("Manual Project");
+
+    await user.click(screen.getByText("submit-rag"));
+
+    await waitFor(() => {
+      expect(apiClient.executeChat).toHaveBeenCalledWith(
+        expect.objectContaining({
+          retrievalFilters: expect.objectContaining({
+            project: "Manual Project",
+          }),
+        }),
+        expect.any(AbortSignal),
+      );
+    });
+  });
+
+  it("keeps dismissed hints cleared until reset", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <HookHarness
+        initialPrompt="Что указано в договоре KZ-2026-0415-ENERGY?"
+        mode="rag"
+        rolloutFlags={enabledFlags}
+      />,
+    );
+
+    expect(screen.getByTestId("rag-effective-document-number-output").textContent).toBe("KZ-2026-0415-ENERGY");
+
+    await user.click(screen.getByText("dismiss-document-number"));
+    expect(screen.getByTestId("rag-effective-document-number-output").textContent).toBe("");
+
+    await user.type(screen.getByLabelText("rag-prompt"), " обнови ответ");
+    expect(screen.getByTestId("rag-effective-document-number-output").textContent).toBe("");
+
+    await user.click(screen.getByText("reset-hints"));
+    expect(screen.getByTestId("rag-effective-document-number-output").textContent).toBe("KZ-2026-0415-ENERGY");
   });
 
   it("shows requestId for unexpected backend failures", async () => {
@@ -257,23 +464,67 @@ describe("useChatExecution", () => {
     });
   });
 
+  it("translates inactive instruction errors into a friendly message", async () => {
+    const user = userEvent.setup();
+    vi.mocked(apiClient.executeChat).mockRejectedValue(
+      new ApiClientError("Instruction is inactive", {
+        code: "instruction.inactive",
+        status: 400,
+      }),
+    );
+
+    render(<HookHarness initialPrompt="Какая цена?" mode="rag" />);
+
+    await user.click(screen.getByText("submit-rag"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("rag-error-output").textContent).toContain("неактивна");
+    });
+  });
+
+  it("submits strict mode and renders the no-sources fallback message", async () => {
+    const user = userEvent.setup();
+    vi.mocked(apiClient.executeChat).mockResolvedValue(buildChatExecutionResponse({
+      mode: "rag",
+      model: "qwen2.5:7b",
+      prompt: "Какая цена?",
+      answer: "Не найдено в источниках.",
+      contextStatus: "no-context",
+      answerModeApplied: "strict_sources_only",
+    }));
+
+    render(
+      <HookHarness
+        initialPrompt="Какая цена?"
+        initialAnswerMode="strict_sources_only"
+        mode="rag"
+      />,
+    );
+
+    await user.click(screen.getByText("submit-rag"));
+
+    await waitFor(() => {
+      expect(apiClient.executeChat).toHaveBeenCalledWith(
+        expect.objectContaining({
+          answerMode: "strict_sources_only",
+        }),
+        expect.any(AbortSignal),
+      );
+      expect(screen.getByTestId("rag-response-output").textContent).toBe("Не найдено в источниках.");
+    });
+  });
+
   it("clears stale response on a new submit and tracks the last submitted request", async () => {
     const user = userEvent.setup();
     let resolveSecondRequest: (value: ChatExecutionResponse) => void = () => undefined;
 
     vi.mocked(apiClient.executeChat)
-      .mockResolvedValueOnce({
+      .mockResolvedValueOnce(buildChatExecutionResponse({
         mode: "direct",
         model: "qwen2.5:7b",
         prompt: "first prompt",
         answer: "first answer",
-        createdAt: "2026-04-16T10:00:00Z",
-        promptTokens: 1,
-        completionTokens: 1,
-        totalTokens: 2,
-        appliedInstructions: [],
-        sources: [],
-      })
+      }))
       .mockImplementationOnce(() =>
         new Promise<ChatExecutionResponse>((resolve) => {
           resolveSecondRequest = resolve;
@@ -299,18 +550,13 @@ describe("useChatExecution", () => {
       expect(screen.getByTestId("direct-submitting-output").textContent).toBe("true");
     });
 
-    resolveSecondRequest({
+    resolveSecondRequest(buildChatExecutionResponse({
       mode: "direct",
       model: "qwen2.5:7b",
       prompt: "second prompt",
       answer: "second answer",
       createdAt: "2026-04-16T10:00:01Z",
-      promptTokens: 1,
-      completionTokens: 1,
-      totalTokens: 2,
-      appliedInstructions: [],
-      sources: [],
-    });
+    }));
 
     await waitFor(() => {
       expect(screen.getByTestId("direct-response-output").textContent).toBe("second answer");

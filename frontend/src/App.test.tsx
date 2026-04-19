@@ -3,21 +3,35 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import type { HealthResponse, MaterialSummary } from "./types";
+import { buildChatExecutionResponse, buildMaterialSummary } from "./testBuilders";
+import {
+  EMPTY_KNOWLEDGE_SCOPE_RESOLVED,
+  EMPTY_RETRIEVAL_TRACE,
+} from "./utils/workbenchPresentation";
 
-const healthResponse = {
+const buildHealthResponse = (overrides: Partial<HealthResponse> = {}): HealthResponse => ({
   application: "Local Assistant Workbench",
   status: "UP",
   timestamp: "2026-04-16T10:00:00Z",
-  directStatus: "UP" as const,
-  ragStatus: "UP" as const,
-  llmStatus: "UP" as const,
-  embeddingStatus: "UP" as const,
-};
+  directStatus: "UP",
+  ragStatus: "UP",
+  llmStatus: "UP",
+  embeddingStatus: "UP",
+  knowledgeStatus: "READY",
+  materialCount: 1,
+  activeMaterialCount: 1,
+  historicalMaterialCount: 0,
+  readyMaterialCount: 1,
+  indexingPendingCount: 0,
+  indexingInProgressCount: 0,
+  indexingFailedCount: 0,
+  ...overrides,
+});
 
 const modelsResponse = [{ name: "qwen2.5:7b" }, { name: "qwen2.5:3b" }];
 
 const materialsResponse: MaterialSummary[] = [
-  {
+  buildMaterialSummary({
     id: "material-1",
     title: "Pricing note",
     sourceType: "text",
@@ -26,19 +40,21 @@ const materialsResponse: MaterialSummary[] = [
     createdAt: "2026-04-16T10:00:00Z",
     contentLength: 42,
     preview: "Тариф Премиум стоит 12000 тенге в месяц.",
-  },
+  }),
 ];
 
 const buildMaterial = (overrides: Partial<MaterialSummary> = {}): MaterialSummary => ({
-  id: "material-1",
-  title: "Pricing note",
-  sourceType: "text",
-  originalFileName: null,
-  status: "READY",
-  versionState: "ACTIVE",
-  createdAt: "2026-04-16T10:00:00Z",
-  contentLength: 42,
-  preview: "Тариф Премиум стоит 12000 тенге в месяц.",
+  ...buildMaterialSummary({
+    id: "material-1",
+    title: "Pricing note",
+    sourceType: "text",
+    originalFileName: null,
+    status: "READY",
+    versionState: "ACTIVE",
+    createdAt: "2026-04-16T10:00:00Z",
+    contentLength: 42,
+    preview: "Тариф Премиум стоит 12000 тенге в месяц.",
+  }),
   ...overrides,
 });
 
@@ -68,6 +84,9 @@ const instructionsResponse = [
     id: "instruction-1",
     title: "Базовая роль ассистента",
     category: "system",
+    scopeLevel: "chat_scenario" as const,
+    revision: 1,
+    active: true,
     createdAt: "2026-04-16T10:00:00Z",
     preview: "Отвечай кратко и по делу.",
   },
@@ -75,10 +94,66 @@ const instructionsResponse = [
     id: "instruction-2",
     title: "Факты только из контекста",
     category: "safety",
+    scopeLevel: "chat_scenario" as const,
+    revision: 1,
+    active: true,
     createdAt: "2026-04-16T10:01:00Z",
     preview: "Не выходи за пределы доступного контекста.",
   },
 ];
+
+const knowledgePresetsResponse = [
+  {
+    id: "preset-contracts",
+    name: "Договоры",
+    description: "Корпус договоров",
+    revision: 1,
+    active: true,
+    createdAt: "2026-04-16T10:00:00Z",
+  },
+];
+
+const instructionDetailResponse = {
+  id: "instruction-1",
+  title: "Базовая роль ассистента",
+  category: "system" as const,
+  content: "Отвечай кратко и структурированно.",
+  scopeLevel: "chat_scenario" as const,
+  scopeTargetId: null,
+  revision: 2,
+  active: true,
+  createdAt: "2026-04-16T10:00:00Z",
+  updatedAt: "2026-04-16T10:10:00Z",
+};
+
+const instructionRevisionsResponse = [
+  {
+    instructionId: "instruction-1",
+    revision: 1,
+    title: "Базовая роль ассистента",
+    category: "system" as const,
+    content: "Отвечай кратко.",
+    scopeLevel: "chat_scenario" as const,
+    scopeTargetId: null,
+    active: true,
+    restoredFromRevision: null,
+    createdAt: "2026-04-16T10:00:00Z",
+    updatedAt: "2026-04-16T10:00:00Z",
+  },
+];
+
+const instructionDiffResponse = {
+  instructionId: "instruction-1",
+  fromRevision: 2,
+  toRevision: 1,
+  changes: [
+    {
+      field: "content",
+      fromValue: "Отвечай кратко и структурированно.",
+      toValue: "Отвечай кратко.",
+    },
+  ],
+};
 
 const jsonResponse = (payload: unknown) =>
   new Response(JSON.stringify(payload), {
@@ -100,6 +175,13 @@ const getUrl = (input: RequestInfo | URL) => {
   return input.toString();
 };
 
+const getPanel = (panelId: "overview" | "materials" | "instructions" | "rag" | "direct") =>
+  document.querySelector(`#panel-${panelId}`) as HTMLElement;
+
+const openSection = async (user: ReturnType<typeof userEvent.setup>, sectionName: RegExp) => {
+  await user.click(screen.getByRole("button", { name: sectionName }));
+};
+
 describe("App", () => {
   let currentHealthResponse: HealthResponse;
   let currentMaterialUploadPolicyResponse:
@@ -111,12 +193,14 @@ describe("App", () => {
     model: string;
     prompt: string;
     instructionIds: string[];
-    systemPrompt?: string;
+    scenarioInstructionIds?: string[];
+    answerMode?: string;
+    temporaryInstruction?: string;
   }>;
 
   beforeEach(() => {
     vi.useRealTimers();
-    currentHealthResponse = healthResponse;
+    currentHealthResponse = buildHealthResponse();
     currentMaterialUploadPolicyResponse = materialUploadPolicyResponse;
     currentMaterialsResponse = materialsResponse;
     chatRequests = [];
@@ -144,6 +228,26 @@ describe("App", () => {
         return jsonResponse(instructionsResponse);
       }
 
+      if (url.endsWith("/api/instructions/instruction-1/revisions")) {
+        return jsonResponse(instructionRevisionsResponse);
+      }
+
+      if (url.includes("/api/instructions/instruction-1/diff?")) {
+        return jsonResponse(instructionDiffResponse);
+      }
+
+      if (url.endsWith("/api/instructions/instruction-1")) {
+        return jsonResponse(instructionDetailResponse);
+      }
+
+      if (url.endsWith("/api/knowledge-presets")) {
+        return jsonResponse(knowledgePresetsResponse);
+      }
+
+      if (url.endsWith("/api/chat-runs")) {
+        return jsonResponse([]);
+      }
+
       if (url.endsWith("/api/chat")) {
         const request = init?.body
           ? (JSON.parse(String(init.body)) as {
@@ -151,7 +255,9 @@ describe("App", () => {
               model: string;
               prompt: string;
               instructionIds: string[];
-              systemPrompt?: string;
+              scenarioInstructionIds?: string[];
+              answerMode?: string;
+              temporaryInstruction?: string;
             })
           : {
               mode: "direct" as const,
@@ -162,22 +268,47 @@ describe("App", () => {
 
         chatRequests.push(request);
 
-        return jsonResponse({
+        return jsonResponse(buildChatExecutionResponse({
           mode: request.mode,
           model: request.model,
           prompt: request.prompt,
           answer: "ok",
-          createdAt: "2026-04-16T10:00:00Z",
-          promptTokens: 1,
-          completionTokens: 1,
-          totalTokens: 2,
+          answerModeApplied: (request.answerMode as "brief" | "strict_sources_only") ?? "brief",
           appliedInstructions: request.instructionIds
             .map((instructionId) =>
               instructionsResponse.find((instruction) => instruction.id === instructionId),
             )
-            .filter((instruction) => instruction !== undefined),
+            .filter((instruction) => instruction !== undefined)
+            .map((instruction) => ({
+              id: instruction.id,
+              title: instruction.title,
+              category: instruction.category as "system" | "safety",
+              scopeLevel: instruction.scopeLevel,
+              revision: instruction.revision,
+            })),
+          instructionTrace: request.instructionIds
+            .map((instructionId) =>
+              instructionsResponse.find((instruction) => instruction.id === instructionId),
+            )
+            .filter((instruction) => instruction !== undefined)
+            .map((instruction) => ({
+              instructionId: instruction.id,
+              title: instruction.title,
+              category: instruction.category as "system" | "safety",
+              scopeLevel: instruction.scopeLevel,
+              scopeTargetId: null,
+              revision: instruction.revision,
+              active: true,
+              temporary: false,
+              contentPreview: instruction.preview,
+            })),
+          knowledgeScopeResolved: EMPTY_KNOWLEDGE_SCOPE_RESOLVED,
+          retrievalTrace: {
+            ...EMPTY_RETRIEVAL_TRACE,
+            supportVerdict: request.mode === "rag" ? "sufficient" : "none",
+          },
           sources: [],
-        });
+        }));
       }
 
       throw new Error(`Unexpected request: ${url}`);
@@ -190,7 +321,7 @@ describe("App", () => {
     vi.restoreAllMocks();
   });
 
-  const assertRagPresentationAcrossTabs = async ({
+  const assertRagPresentationAcrossSections = async ({
     user,
     overviewHeadline,
     overviewMessage,
@@ -201,24 +332,28 @@ describe("App", () => {
   }: {
     user: ReturnType<typeof userEvent.setup>;
     overviewHeadline: string;
-    overviewMessage: string;
+    overviewMessage?: string | null;
     materialsMessage: string;
     chatHelperText: string;
     isSubmitDisabled: boolean;
     badgeLabel: string;
   }) => {
-    await user.click(screen.getByRole("tab", { name: "Обзор" }));
-    const overviewPanel = screen.getByRole("tabpanel", { name: "Обзор" });
+    await openSection(user, /dashboard/i);
+    const overviewPanel = getPanel("overview");
     expect(within(overviewPanel).getByText(overviewHeadline)).toBeTruthy();
-    expect(within(overviewPanel).getByText(overviewMessage)).toBeTruthy();
+    if (overviewMessage) {
+      expect(
+        within(overviewPanel).getAllByText((content) => content.includes(overviewMessage)).length,
+      ).toBeGreaterThan(0);
+    }
 
-    await user.click(screen.getByRole("tab", { name: "Материалы" }));
-    const materialsPanel = screen.getByRole("tabpanel", { name: "Материалы" });
+    await openSection(user, /materials/i);
+    const materialsPanel = getPanel("materials");
     expect(within(materialsPanel).getByText(materialsMessage)).toBeTruthy();
     expect(within(materialsPanel).getByText(badgeLabel)).toBeTruthy();
 
-    await user.click(screen.getByRole("tab", { name: "RAG чат" }));
-    const ragPanel = screen.getByRole("tabpanel", { name: "RAG чат" });
+    await openSection(user, /rag studio/i);
+    const ragPanel = getPanel("rag");
     const ragSubmitButton = within(ragPanel).getByRole("button", {
       name: "Спросить по материалам",
     }) as HTMLButtonElement;
@@ -227,74 +362,72 @@ describe("App", () => {
     expect(ragSubmitButton.disabled).toBe(isSubmitDisabled);
   };
 
-  it("opens on overview and shows explicit instruction selectors in both chat tabs", async () => {
+  it("opens on dashboard and shows explicit instruction selectors in both studio screens", async () => {
     const user = userEvent.setup();
     const { container } = render(<App />);
 
-    await screen.findByRole("tab", { name: "Обзор" });
+    await screen.findByRole("button", { name: /dashboard/i });
 
-    const overviewTab = screen.getByRole("tab", { name: "Обзор" });
-    const materialsTab = screen.getByRole("tab", { name: "Материалы" });
-    const instructionsTab = screen.getByRole("tab", { name: "Инструкции" });
-    const ragTab = screen.getByRole("tab", { name: "RAG чат" });
-    const directTab = screen.getByRole("tab", { name: "Direct чат" });
+    const overviewButton = screen.getByRole("button", { name: /dashboard/i });
+    const materialsButton = screen.getByRole("button", { name: /materials/i });
+    const instructionsButton = screen.getByRole("button", { name: /instructions/i });
+    const ragButton = screen.getByRole("button", { name: /rag studio/i });
+    const directButton = screen.getByRole("button", { name: /direct studio/i });
 
-    expect(overviewTab.getAttribute("aria-selected")).toBe("true");
-    expect(materialsTab.getAttribute("aria-selected")).toBe("false");
-    expect(instructionsTab.getAttribute("aria-selected")).toBe("false");
-    expect(ragTab.getAttribute("aria-selected")).toBe("false");
-    expect(directTab.getAttribute("aria-selected")).toBe("false");
+    expect(overviewButton.getAttribute("aria-current")).toBe("page");
+    expect(materialsButton.getAttribute("aria-current")).toBeNull();
+    expect(instructionsButton.getAttribute("aria-current")).toBeNull();
+    expect(ragButton.getAttribute("aria-current")).toBeNull();
+    expect(directButton.getAttribute("aria-current")).toBeNull();
 
-    const overviewPanel = container.querySelector("#tabpanel-overview") as HTMLElement;
-    const materialsPanel = container.querySelector("#tabpanel-materials") as HTMLElement;
-    const instructionsPanel = container.querySelector("#tabpanel-instructions") as HTMLElement;
-    const ragPanel = container.querySelector("#tabpanel-rag") as HTMLElement;
-    const directPanel = container.querySelector("#tabpanel-direct") as HTMLElement;
+    const overviewPanel = container.querySelector("#panel-overview") as HTMLElement;
+    const materialsPanel = container.querySelector("#panel-materials") as HTMLElement;
+    const instructionsPanel = container.querySelector("#panel-instructions") as HTMLElement;
+    const ragPanel = container.querySelector("#panel-rag") as HTMLElement;
+    const directPanel = container.querySelector("#panel-direct") as HTMLElement;
 
     expect(overviewPanel.hidden).toBe(false);
     expect(materialsPanel.hidden).toBe(true);
     expect(instructionsPanel.hidden).toBe(true);
     expect(ragPanel.hidden).toBe(true);
     expect(directPanel.hidden).toBe(true);
-    expect(screen.getByText("Backend")).toBeTruthy();
-    expect(screen.queryByText("Knowledge Base")).toBeNull();
-    expect(screen.queryByText("Prompt Snippets")).toBeNull();
-    expect(screen.queryByText("Instruction Library")).toBeNull();
+    expect(within(overviewPanel).getByText("Backend")).toBeTruthy();
 
-    await user.click(materialsTab);
-    expect(materialsTab.getAttribute("aria-selected")).toBe("true");
+    await user.click(materialsButton);
+    expect(materialsButton.getAttribute("aria-current")).toBe("page");
     expect(overviewPanel.hidden).toBe(true);
     expect(materialsPanel.hidden).toBe(false);
-    expect(screen.getByRole("heading", { name: "Материалы для RAG" })).toBeTruthy();
-    expect(screen.queryByText("Prompt Snippets")).toBeNull();
+    expect(within(materialsPanel).getByRole("heading", { name: "Материалы для RAG" })).toBeTruthy();
 
-    await user.click(instructionsTab);
-    expect(instructionsTab.getAttribute("aria-selected")).toBe("true");
+    await user.click(instructionsButton);
+    expect(instructionsButton.getAttribute("aria-current")).toBe("page");
     expect(materialsPanel.hidden).toBe(true);
     expect(instructionsPanel.hidden).toBe(false);
-    expect(screen.getByText("Prompt Snippets")).toBeTruthy();
-    expect(screen.getByText("Instruction Library")).toBeTruthy();
+    expect(within(instructionsPanel).getByText("Библиотека инструкций по уровням")).toBeTruthy();
+    expect(within(instructionsPanel).getByText("Сохранённые наборы знаний")).toBeTruthy();
 
-    await user.click(ragTab);
+    await user.click(ragButton);
     expect(ragPanel.hidden).toBe(false);
-    expect(screen.getByRole("heading", { name: "Ответ по материалам" })).toBeTruthy();
     expect(
-      within(screen.getByRole("tabpanel", { name: "RAG чат" })).getByRole("checkbox", {
+      within(ragPanel).getAllByRole("heading", { name: "Ответ по материалам" }).length,
+    ).toBeGreaterThan(0);
+    expect(
+      within(ragPanel).getByRole("checkbox", {
         name: "Выбрать инструкцию Базовая роль ассистента",
       }),
     ).toBeTruthy();
 
-    await user.click(directTab);
+    await user.click(directButton);
     expect(directPanel.hidden).toBe(false);
-    expect(screen.getByRole("heading", { name: "Прямой запрос к модели" })).toBeTruthy();
+    expect(within(directPanel).getByRole("heading", { name: "Прямой запрос к модели" })).toBeTruthy();
     expect(
-      within(screen.getByRole("tabpanel", { name: "Direct чат" })).getByRole("checkbox", {
+      within(directPanel).getByRole("checkbox", {
         name: "Выбрать инструкцию Факты только из контекста",
       }),
     ).toBeTruthy();
   });
 
-  it("keeps rag and direct form state plus selected instructions isolated when switching tabs", async () => {
+  it("keeps rag and direct form state plus selected instructions isolated when switching sections", async () => {
     const user = userEvent.setup();
     render(<App />);
 
@@ -302,28 +435,28 @@ describe("App", () => {
       expect(globalThis.fetch).toHaveBeenCalled();
     });
 
-    await user.click(screen.getByRole("tab", { name: "RAG чат" }));
+    await openSection(user, /rag studio/i);
 
-    const ragPanel = screen.getByRole("tabpanel", { name: "RAG чат" });
+    const ragPanel = getPanel("rag");
     const ragPrompt = within(ragPanel).getByLabelText("Вопрос") as HTMLTextAreaElement;
-    const ragSystemPrompt = within(ragPanel).getByLabelText("System override") as HTMLTextAreaElement;
+    const ragTemporaryInstruction = within(ragPanel).getByLabelText("Временная инструкция на этот запрос") as HTMLTextAreaElement;
     const ragContextCheckbox = within(ragPanel).getByRole("checkbox", {
       name: "Выбрать инструкцию Факты только из контекста",
-    }) as HTMLInputElement;
+    });
     const ragAssistantCheckbox = within(ragPanel).getByRole("checkbox", {
       name: "Выбрать инструкцию Базовая роль ассистента",
-    }) as HTMLInputElement;
+    });
 
     await user.clear(ragPrompt);
     await user.type(ragPrompt, "Новый вопрос по материалам");
-    await user.type(ragSystemPrompt, "Только по контексту");
+    await user.type(ragTemporaryInstruction, "Только по контексту");
     await user.click(ragContextCheckbox);
     await user.click(ragAssistantCheckbox);
 
     expect(ragPrompt.value).toBe("Новый вопрос по материалам");
-    expect(ragSystemPrompt.value).toBe("Только по контексту");
-    expect(ragContextCheckbox.checked).toBe(true);
-    expect(ragAssistantCheckbox.checked).toBe(true);
+    expect(ragTemporaryInstruction.value).toBe("Только по контексту");
+    expect(ragContextCheckbox.getAttribute("aria-checked")).toBe("true");
+    expect(ragAssistantCheckbox.getAttribute("aria-checked")).toBe("true");
     expect(within(ragPanel).getAllByRole("listitem")[0]?.textContent).toContain(
       "Факты только из контекста",
     );
@@ -331,79 +464,66 @@ describe("App", () => {
       "Базовая роль ассистента",
     );
 
-    await user.click(screen.getByRole("tab", { name: "Direct чат" }));
+    await openSection(user, /direct studio/i);
 
-    const directPanel = screen.getByRole("tabpanel", { name: "Direct чат" });
+    const directPanel = getPanel("direct");
     const directPrompt = within(directPanel).getByLabelText("User prompt") as HTMLTextAreaElement;
-    const directSystemPrompt = within(directPanel).getByLabelText("System prompt") as HTMLTextAreaElement;
+    const directTemporaryInstruction = within(directPanel).getByLabelText("Временная инструкция на этот запрос") as HTMLTextAreaElement;
     const directAssistantCheckbox = within(directPanel).getByRole("checkbox", {
       name: "Выбрать инструкцию Базовая роль ассистента",
-    }) as HTMLInputElement;
+    });
     const directContextCheckbox = within(directPanel).getByRole("checkbox", {
       name: "Выбрать инструкцию Факты только из контекста",
-    }) as HTMLInputElement;
+    });
 
     await user.clear(directPrompt);
     await user.type(directPrompt, "Прямой запрос для проверки");
-    await user.type(directSystemPrompt, "Кратко");
+    await user.type(directTemporaryInstruction, "Кратко");
     await user.click(directAssistantCheckbox);
 
     expect(directPrompt.value).toBe("Прямой запрос для проверки");
-    expect(directSystemPrompt.value).toContain("Кратко");
-    expect(directAssistantCheckbox.checked).toBe(true);
-    expect(directContextCheckbox.checked).toBe(false);
+    expect(directTemporaryInstruction.value).toContain("Кратко");
+    expect(directAssistantCheckbox.getAttribute("aria-checked")).toBe("true");
+    expect(directContextCheckbox.getAttribute("aria-checked")).toBe("false");
 
-    await user.click(screen.getByRole("tab", { name: "Обзор" }));
-    await user.click(screen.getByRole("tab", { name: "RAG чат" }));
+    await openSection(user, /dashboard/i);
+    await openSection(user, /rag studio/i);
 
-    const ragPromptAfterSwitch = within(screen.getByRole("tabpanel", { name: "RAG чат" })).getByLabelText(
-      "Вопрос",
+    const ragPromptAfterSwitch = within(getPanel("rag")).getByLabelText("Вопрос") as HTMLTextAreaElement;
+    const ragTemporaryInstructionAfterSwitch = within(getPanel("rag")).getByLabelText(
+      "Временная инструкция на этот запрос",
     ) as HTMLTextAreaElement;
-    const ragSystemPromptAfterSwitch = within(
-      screen.getByRole("tabpanel", { name: "RAG чат" }),
-    ).getByLabelText("System override") as HTMLTextAreaElement;
-    const ragContextCheckboxAfterSwitch = within(screen.getByRole("tabpanel", { name: "RAG чат" })).getByRole(
-      "checkbox",
-      {
-        name: "Выбрать инструкцию Факты только из контекста",
-      },
-    ) as HTMLInputElement;
-    const ragAssistantCheckboxAfterSwitch = within(screen.getByRole("tabpanel", { name: "RAG чат" })).getByRole(
-      "checkbox",
-      {
-        name: "Выбрать инструкцию Базовая роль ассистента",
-      },
-    ) as HTMLInputElement;
+    const ragContextCheckboxAfterSwitch = within(getPanel("rag")).getByRole("checkbox", {
+      name: "Выбрать инструкцию Факты только из контекста",
+    });
+    const ragAssistantCheckboxAfterSwitch = within(getPanel("rag")).getByRole("checkbox", {
+      name: "Выбрать инструкцию Базовая роль ассистента",
+    });
 
     expect(ragPromptAfterSwitch.value).toBe("Новый вопрос по материалам");
-    expect(ragSystemPromptAfterSwitch.value).toBe("Только по контексту");
-    expect(ragContextCheckboxAfterSwitch.checked).toBe(true);
-    expect(ragAssistantCheckboxAfterSwitch.checked).toBe(true);
+    expect(ragTemporaryInstructionAfterSwitch.value).toBe("Только по контексту");
+    expect(ragContextCheckboxAfterSwitch.getAttribute("aria-checked")).toBe("true");
+    expect(ragAssistantCheckboxAfterSwitch.getAttribute("aria-checked")).toBe("true");
 
-    await user.click(screen.getByRole("tab", { name: "Direct чат" }));
+    await openSection(user, /direct studio/i);
 
-    const directPromptAfterSwitch = within(screen.getByRole("tabpanel", { name: "Direct чат" })).getByLabelText(
+    const directPromptAfterSwitch = within(getPanel("direct")).getByLabelText(
       "User prompt",
     ) as HTMLTextAreaElement;
-    const directSystemPromptAfterSwitch = within(
-      screen.getByRole("tabpanel", { name: "Direct чат" }),
-    ).getByLabelText("System prompt") as HTMLTextAreaElement;
-    const directAssistantCheckboxAfterSwitch = within(
-      screen.getByRole("tabpanel", { name: "Direct чат" }),
-    ).getByRole("checkbox", {
+    const directTemporaryInstructionAfterSwitch = within(getPanel("direct")).getByLabelText(
+      "Временная инструкция на этот запрос",
+    ) as HTMLTextAreaElement;
+    const directAssistantCheckboxAfterSwitch = within(getPanel("direct")).getByRole("checkbox", {
       name: "Выбрать инструкцию Базовая роль ассистента",
-    }) as HTMLInputElement;
-    const directContextCheckboxAfterSwitch = within(screen.getByRole("tabpanel", { name: "Direct чат" })).getByRole(
-      "checkbox",
-      {
-        name: "Выбрать инструкцию Факты только из контекста",
-      },
-    ) as HTMLInputElement;
+    });
+    const directContextCheckboxAfterSwitch = within(getPanel("direct")).getByRole("checkbox", {
+      name: "Выбрать инструкцию Факты только из контекста",
+    });
 
     expect(directPromptAfterSwitch.value).toBe("Прямой запрос для проверки");
-    expect(directSystemPromptAfterSwitch.value).toContain("Кратко");
-    expect(directAssistantCheckboxAfterSwitch.checked).toBe(true);
-    expect(directContextCheckboxAfterSwitch.checked).toBe(false);
+    expect(directTemporaryInstructionAfterSwitch.value).toContain("Кратко");
+    expect(directAssistantCheckboxAfterSwitch.getAttribute("aria-checked")).toBe("true");
+    expect(directContextCheckboxAfterSwitch.getAttribute("aria-checked")).toBe("false");
   });
 
   it("submits selected instructions and renders applied instructions in the response", async () => {
@@ -414,9 +534,9 @@ describe("App", () => {
       expect(globalThis.fetch).toHaveBeenCalled();
     });
 
-    await user.click(screen.getByRole("tab", { name: "RAG чат" }));
+    await openSection(user, /rag studio/i);
 
-    const ragPanel = screen.getByRole("tabpanel", { name: "RAG чат" });
+    const ragPanel = getPanel("rag");
     await user.click(
       within(ragPanel).getByRole("checkbox", {
         name: "Выбрать инструкцию Факты только из контекста",
@@ -434,7 +554,7 @@ describe("App", () => {
     });
 
     expect(chatRequests[0]?.instructionIds).toEqual(["instruction-2", "instruction-1"]);
-    const appliedInstructionsCard = screen
+    const appliedInstructionsCard = within(ragPanel)
       .getByRole("heading", { name: "Применённые инструкции" })
       .closest("article") as HTMLElement;
 
@@ -445,6 +565,34 @@ describe("App", () => {
     expect(within(appliedInstructionsCard).getAllByRole("listitem")[1]?.textContent).toContain(
       "Базовая роль ассистента",
     );
+    expect(within(ragPanel).getByText("достаточная опора")).toBeTruthy();
+  });
+
+  it("loads and shows revision diff for an inspected instruction", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenCalled();
+    });
+
+    await openSection(user, /instructions/i);
+
+    const instructionsPanel = getPanel("instructions");
+    await user.click(within(instructionsPanel).getAllByRole("button", { name: "Открыть" })[0]);
+
+    await waitFor(() => {
+      expect(within(instructionsPanel).getByText("История ревизий")).toBeTruthy();
+    });
+
+    await user.click(within(instructionsPanel).getByRole("button", { name: "Сравнить" }));
+
+    await waitFor(() => {
+      expect(within(instructionsPanel).getByText(/Сравнение rev 2/)).toBeTruthy();
+    });
+
+    expect(within(instructionsPanel).getByText("Текст")).toBeTruthy();
+    expect(within(instructionsPanel).getByText("Отвечай кратко и структурированно.")).toBeTruthy();
   });
 
   it("keeps the app interactive when backend returns a legacy upload policy payload", async () => {
@@ -453,16 +601,16 @@ describe("App", () => {
 
     render(<App />);
 
-    expect(await screen.findByRole("tab", { name: "Обзор" })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: /dashboard/i })).toBeTruthy();
 
-    await user.click(screen.getByRole("tab", { name: "Материалы" }));
+    await openSection(user, /materials/i);
 
-    expect(screen.getByRole("heading", { name: "Материалы для RAG" })).toBeTruthy();
-    expect(screen.getByText(/устаревший upload policy/i)).toBeTruthy();
-    expect(screen.queryByText("Prompt Snippets")).toBeNull();
+    const materialsPanel = getPanel("materials");
+    expect(within(materialsPanel).getByRole("heading", { name: "Материалы для RAG" })).toBeTruthy();
+    expect(within(materialsPanel).getByText(/устаревший upload policy/i)).toBeTruthy();
   });
 
-  it("renders the ready presentation consistently across overview, materials and RAG chat", async () => {
+  it("renders the ready presentation consistently across dashboard, materials and RAG studio", async () => {
     const user = userEvent.setup();
 
     render(<App />);
@@ -471,7 +619,7 @@ describe("App", () => {
       expect(globalThis.fetch).toHaveBeenCalled();
     });
 
-    await assertRagPresentationAcrossTabs({
+    await assertRagPresentationAcrossSections({
       user,
       overviewHeadline: "1/1",
       overviewMessage: "Активные материалы и readiness считаются по одной модели состояния.",
@@ -484,9 +632,18 @@ describe("App", () => {
     });
   });
 
-  it("renders the empty presentation consistently across overview, materials and RAG chat", async () => {
+  it("renders the empty presentation consistently across dashboard, materials and RAG studio", async () => {
     const user = userEvent.setup();
     currentMaterialsResponse = [];
+    currentHealthResponse = buildHealthResponse({
+      ragStatus: "DOWN",
+      knowledgeStatus: "EMPTY",
+      knowledgeReasonMessage: "В knowledge base пока нет материалов.",
+      materialCount: 0,
+      activeMaterialCount: 0,
+      historicalMaterialCount: 0,
+      readyMaterialCount: 0,
+    });
 
     render(<App />);
 
@@ -494,7 +651,7 @@ describe("App", () => {
       expect(globalThis.fetch).toHaveBeenCalled();
     });
 
-    await assertRagPresentationAcrossTabs({
+    await assertRagPresentationAcrossSections({
       user,
       overviewHeadline: "Пустая база",
       overviewMessage: "В knowledge base пока нет материалов.",
@@ -506,7 +663,7 @@ describe("App", () => {
     });
   });
 
-  it("renders the indexing presentation consistently across overview, materials and RAG chat", async () => {
+  it("renders the indexing presentation consistently across dashboard, materials and RAG studio", async () => {
     const user = userEvent.setup();
     currentMaterialsResponse = [
       buildMaterial({
@@ -514,6 +671,14 @@ describe("App", () => {
         preview: "Индекс ещё строится.",
       }),
     ];
+    currentHealthResponse = buildHealthResponse({
+      ragStatus: "DOWN",
+      knowledgeStatus: "INDEXING",
+      knowledgeReasonMessage: "Активная версия уже принята, но индекс ещё догоняет её до READY или PARTIAL_READY.",
+      readyMaterialCount: 0,
+      indexingPendingCount: 1,
+      indexingInProgressCount: 1,
+    });
 
     render(<App />);
 
@@ -521,26 +686,30 @@ describe("App", () => {
       expect(globalThis.fetch).toHaveBeenCalled();
     });
 
-    await assertRagPresentationAcrossTabs({
+    await assertRagPresentationAcrossSections({
       user,
       overviewHeadline: "0/1",
-      overviewMessage: "Активная версия уже принята, а индекс ещё догоняет её до READY или PARTIAL_READY.",
+      overviewMessage: null,
       materialsMessage:
         "Активная версия уже создана, но индекс ещё собирается. RAG начнёт опираться на неё, когда появится READY или PARTIAL_READY.",
       chatHelperText:
         "Активная версия уже принята, но индекс ещё собирается. Как только появится хотя бы один READY- или PARTIAL_READY-материал, RAG сможет отвечать по контексту.",
-      isSubmitDisabled: false,
+      isSubmitDisabled: true,
       badgeLabel: "1 active / 1 total",
     });
   });
 
-  it("renders the degraded presentation consistently across overview, materials and RAG chat", async () => {
+  it("renders the degraded presentation consistently across dashboard, materials and RAG studio", async () => {
     const user = userEvent.setup();
-    currentHealthResponse = {
-      ...healthResponse,
+    currentHealthResponse = buildHealthResponse({
+      status: "DEGRADED",
       ragStatus: "DOWN",
+      knowledgeStatus: "DEGRADED",
+      directStatus: "DOWN",
+      directReasonMessage: "Direct chat probe failed: timeout",
+      ragDegradedReasonMessage: "Direct chat probe failed: timeout",
       embeddingReasonMessage: "Embedding runtime is unavailable.",
-    };
+    });
 
     render(<App />);
 
@@ -548,15 +717,111 @@ describe("App", () => {
       expect(globalThis.fetch).toHaveBeenCalled();
     });
 
-    await assertRagPresentationAcrossTabs({
+    await assertRagPresentationAcrossSections({
       user,
       overviewHeadline: "Readiness degraded",
-      overviewMessage: "RAG backend сейчас деградирован: Embedding runtime is unavailable.",
-      materialsMessage: "RAG backend сейчас деградирован: Embedding runtime is unavailable.",
-      chatHelperText: "RAG backend сейчас деградирован: Embedding runtime is unavailable.",
-      isSubmitDisabled: false,
+      overviewMessage: "RAG backend сейчас деградирован: Direct chat probe failed: timeout",
+      materialsMessage: "RAG backend сейчас деградирован: Direct chat probe failed: timeout",
+      chatHelperText: "RAG backend сейчас деградирован: Direct chat probe failed: timeout",
+      isSubmitDisabled: true,
       badgeLabel: "1 active / 1 total",
     });
+  });
+
+  it("keeps RAG ready when only the Elasticsearch shadow plane is down", async () => {
+    const user = userEvent.setup();
+    currentHealthResponse = buildHealthResponse({
+      searchStatus: "DEGRADED",
+      searchMode: "auto",
+      searchProvider: "postgres",
+      searchReasonCode: "search.sync_backlog_stale",
+      searchReasonMessage: "Elasticsearch sync backlog is older than the safe threshold of 120 seconds.",
+      searchSyncBacklog: {
+        pendingCount: 2,
+        inProgressCount: 1,
+        failedCount: 3,
+        nextRetryAt: "2026-04-17T10:15:00Z",
+        oldestOutstandingAt: "2026-04-17T10:01:00Z",
+        lastSuccessfulSyncAt: "2026-04-17T10:05:00Z",
+      },
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenCalled();
+    });
+
+    await openSection(user, /dashboard/i);
+    const overviewPanel = getPanel("overview");
+    expect(within(overviewPanel).getByText("auto -> postgres / DEGRADED")).toBeTruthy();
+    expect(within(overviewPanel).getAllByText(/PostgreSQL fallback/i)).toHaveLength(1);
+    expect(
+      within(overviewPanel).getByText(
+        "Elasticsearch sync backlog is older than the safe threshold of 120 seconds.",
+      ),
+    ).toBeTruthy();
+
+    await openSection(user, /rag studio/i);
+    const ragPanel = getPanel("rag");
+    const ragSubmitButton = within(ragPanel).getByRole("button", {
+      name: "Спросить по материалам",
+    }) as HTMLButtonElement;
+
+    expect(ragSubmitButton.disabled).toBe(false);
+    expect(within(ragPanel).getByText(/локально подобранным контекстом/i)).toBeTruthy();
+  });
+
+  it("blocks direct submit when backend says direct chat path is not ready", async () => {
+    const user = userEvent.setup();
+    currentHealthResponse = buildHealthResponse({
+      status: "DEGRADED",
+      directStatus: "DOWN",
+      directReasonMessage: "Direct chat probe failed: timeout",
+      llmStatus: "UP",
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenCalled();
+    });
+
+    await openSection(user, /direct studio/i);
+    const directPanel = getPanel("direct");
+    const directSubmitButton = within(directPanel).getByRole("button", {
+      name: "Отправить напрямую",
+    }) as HTMLButtonElement;
+
+    expect(within(directPanel).getByText("Direct chat probe failed: timeout")).toBeTruthy();
+    expect(directSubmitButton.disabled).toBe(true);
+  });
+
+  it("blocks RAG submit when health payload is missing knowledgeStatus", async () => {
+    const user = userEvent.setup();
+    currentHealthResponse = buildHealthResponse({
+      ragStatus: "UP",
+      knowledgeStatus: undefined,
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenCalled();
+    });
+
+    await openSection(user, /rag studio/i);
+    const ragPanel = getPanel("rag");
+    const ragSubmitButton = within(ragPanel).getByRole("button", {
+      name: "Спросить по материалам",
+    }) as HTMLButtonElement;
+
+    expect(ragSubmitButton.disabled).toBe(true);
+    expect(
+      within(ragPanel).getByText(
+        "Backend health contract неполный: knowledgeStatus отсутствует, поэтому RAG readiness нельзя подтвердить.",
+      ),
+    ).toBeTruthy();
   });
 
   it("degrades RAG UX when only superseded materials remain in the catalog", async () => {
@@ -570,6 +835,15 @@ describe("App", () => {
         preview: "Историческая версия тарифа.",
       }),
     ];
+    currentHealthResponse = buildHealthResponse({
+      ragStatus: "DOWN",
+      knowledgeStatus: "HISTORICAL_ONLY",
+      knowledgeReasonMessage: "В каталоге остались только исторические версии, поэтому RAG пока не на чем grounded.",
+      materialCount: 1,
+      activeMaterialCount: 0,
+      historicalMaterialCount: 1,
+      readyMaterialCount: 0,
+    });
 
     render(<App />);
 
@@ -577,7 +851,7 @@ describe("App", () => {
       expect(globalThis.fetch).toHaveBeenCalled();
     });
 
-    await assertRagPresentationAcrossTabs({
+    await assertRagPresentationAcrossSections({
       user,
       overviewHeadline: "Только история версий",
       overviewMessage: "В каталоге остались только исторические версии, поэтому RAG пока не на чем grounded.",
@@ -600,6 +874,14 @@ describe("App", () => {
         preview: "Активная версия ещё индексируется.",
       }),
     ];
+    currentHealthResponse = buildHealthResponse({
+      ragStatus: "DOWN",
+      knowledgeStatus: "INDEXING",
+      knowledgeReasonMessage: "Активная версия уже принята, но индекс ещё догоняет её до READY или PARTIAL_READY.",
+      readyMaterialCount: 0,
+      indexingPendingCount: 1,
+      indexingInProgressCount: 0,
+    });
 
     render(<App />);
 
@@ -607,15 +889,15 @@ describe("App", () => {
       expect(globalThis.fetch).toHaveBeenCalled();
     });
 
-    await assertRagPresentationAcrossTabs({
+    await assertRagPresentationAcrossSections({
       user,
       overviewHeadline: "0/1",
-      overviewMessage: "Активная версия уже принята, а индекс ещё догоняет её до READY или PARTIAL_READY.",
+      overviewMessage: null,
       materialsMessage:
         "Активная версия уже создана, но индекс ещё собирается. RAG начнёт опираться на неё, когда появится READY или PARTIAL_READY.",
       chatHelperText:
         "Активная версия уже принята, но индекс ещё собирается. Как только появится хотя бы один READY- или PARTIAL_READY-материал, RAG сможет отвечать по контексту.",
-      isSubmitDisabled: false,
+      isSubmitDisabled: true,
       badgeLabel: "1 active / 1 total",
     });
 
@@ -627,13 +909,24 @@ describe("App", () => {
         preview: "Историческая версия тарифа.",
       }),
     ];
+    currentHealthResponse = buildHealthResponse({
+      ragStatus: "DOWN",
+      knowledgeStatus: "HISTORICAL_ONLY",
+      knowledgeReasonMessage: "В каталоге остались только исторические версии, поэтому RAG пока не на чем grounded.",
+      materialCount: 1,
+      activeMaterialCount: 0,
+      historicalMaterialCount: 1,
+      readyMaterialCount: 0,
+      indexingPendingCount: 0,
+      indexingInProgressCount: 0,
+    });
 
     await act(async () => {
       document.dispatchEvent(new Event("visibilitychange"));
       await Promise.resolve();
     });
 
-    await assertRagPresentationAcrossTabs({
+    await assertRagPresentationAcrossSections({
       user,
       overviewHeadline: "Только история версий",
       overviewMessage: "В каталоге остались только исторические версии, поэтому RAG пока не на чем grounded.",

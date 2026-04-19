@@ -7,14 +7,20 @@ import com.example.demo.config.MaterialProperties;
 import com.example.demo.config.OcrProperties;
 import com.example.demo.config.RagProperties;
 import com.example.demo.service.HybridChunkRanker;
+import com.example.demo.service.LexicalSearchStrategy;
+import com.example.demo.service.AfterCommitExecutor;
 import com.example.demo.service.MaterialContentSupport;
 import com.example.demo.service.MaterialIndexingService;
 import com.example.demo.service.MaterialIngestionService;
 import com.example.demo.service.MaterialQueryService;
 import com.example.demo.service.MaterialRetrievalService;
+import com.example.demo.service.MaterialMetadataResolver;
+import com.example.demo.service.MaterialSearchSyncLifecycleService;
 import com.example.demo.service.MaterialService;
 import com.example.demo.support.DeterministicEmbeddingClient;
 import com.example.demo.support.PostgresIntegrationTestSupport;
+import com.example.demo.support.TestLexicalRoutingSupport;
+import com.example.demo.support.TestMaterialServices;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.file.Files;
@@ -83,6 +89,19 @@ class LegacyMaterialImporterIT extends PostgresIntegrationTestSupport {
             new JdbcTemplate(dataSource),
             new DataSourceTransactionManager(dataSource)
         );
+        MaterialCatalogRepository catalogRepository = new PostgresMaterialCatalogRepository(postgresRepository);
+        MaterialLineageRepository lineageRepository = new PostgresMaterialLineageRepository(postgresRepository);
+        MaterialChunkingRepository chunkingRepository = new PostgresMaterialChunkingRepository(postgresRepository);
+        MaterialIndexingQueueRepository indexingQueueRepository = new PostgresMaterialIndexingQueueRepository(
+            postgresRepository
+        );
+        MaterialSearchSyncQueueRepository searchSyncQueueRepository = new PostgresMaterialSearchSyncQueueRepository(
+            postgresRepository
+        );
+        SemanticSearchRepository semanticSearchRepository = new PostgresMaterialSemanticSearchRepository(
+            postgresRepository
+        );
+        LexicalSearchProvider lexicalSearchProvider = new PostgresLexicalSearchProvider(postgresRepository);
         MaterialFormatRegistry formatRegistry = new MaterialFormatRegistry();
         MaterialProperties materialProperties = new MaterialProperties();
         OcrProperties ocrProperties = new OcrProperties();
@@ -106,37 +125,58 @@ class LegacyMaterialImporterIT extends PostgresIntegrationTestSupport {
             new TikaDocumentTextExtractor(materialProperties, formatRegistry)
         ));
         MaterialContentSupport contentSupport = new MaterialContentSupport(materialProperties);
+        MaterialSearchSyncLifecycleService lifecycleService = TestMaterialServices.lifecycleService(
+            catalogRepository,
+            lineageRepository,
+            chunkingRepository,
+            indexingQueueRepository,
+            searchSyncQueueRepository
+        );
+        AfterCommitExecutor afterCommitExecutor = new AfterCommitExecutor();
         MaterialIndexingService materialIndexingService = new MaterialIndexingService(
-            postgresRepository,
-            postgresRepository,
+            chunkingRepository,
+            indexingQueueRepository,
             contentSupport,
             new DeterministicEmbeddingClient(),
             materialProperties,
+            lifecycleService,
             Runnable::run
         );
+        RagProperties ragProperties = new RagProperties();
         MaterialService materialService = new MaterialService(
             new MaterialQueryService(
-                postgresRepository,
-                postgresRepository,
+                catalogRepository,
+                chunkingRepository,
                 materialProperties,
                 formatRegistry,
                 ocrCapabilityService,
                 contentSupport,
-                materialIndexingService
+                lifecycleService,
+                materialIndexingService,
+                afterCommitExecutor
             ),
             new MaterialIngestionService(
-                postgresRepository,
-                postgresRepository,
+                catalogRepository,
+                lineageRepository,
                 extractor,
                 materialProperties,
                 contentSupport,
-                materialIndexingService
+                new MaterialMetadataResolver(),
+                lifecycleService,
+                materialIndexingService,
+                afterCommitExecutor
             ),
-            new MaterialRetrievalService(
-                postgresRepository,
-                postgresRepository,
+            TestMaterialServices.retrievalService(
+                catalogRepository,
+                chunkingRepository,
+                semanticSearchRepository,
+                TestLexicalRoutingSupport.productionRouter(
+                    searchSyncQueueRepository,
+                    ragProperties,
+                    List.of(lexicalSearchProvider)
+                ),
                 new DeterministicEmbeddingClient(),
-                new RagProperties(),
+                ragProperties,
                 new HybridChunkRanker(),
                 contentSupport
             )

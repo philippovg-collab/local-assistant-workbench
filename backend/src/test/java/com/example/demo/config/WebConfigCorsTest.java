@@ -5,8 +5,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.example.demo.controller.HealthController;
+import com.example.demo.infrastructure.material.MaterialCatalogRepository;
 import com.example.demo.infrastructure.material.MaterialIndexingQueueRepository;
 import com.example.demo.infrastructure.material.OcrCapabilityProvider;
+import com.example.demo.service.ProductionLexicalSearchRouter;
+import com.example.demo.service.QualityLayerHealthService;
 import com.example.demo.service.RagStorageHealthService;
 import com.example.demo.service.RuntimeReadinessService;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -39,7 +42,16 @@ class WebConfigCorsTest {
     private RuntimeReadinessService runtimeReadinessService;
 
     @MockBean
+    private MaterialCatalogRepository materialCatalogRepository;
+
+    @MockBean
     private MaterialIndexingQueueRepository materialIndexingQueueRepository;
+
+    @MockBean
+    private ProductionLexicalSearchRouter productionLexicalSearchRouter;
+
+    @MockBean
+    private QualityLayerHealthService qualityLayerHealthService;
 
     @ParameterizedTest
     @ValueSource(strings = {

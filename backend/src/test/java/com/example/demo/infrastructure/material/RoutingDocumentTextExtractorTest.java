@@ -16,7 +16,7 @@ class RoutingDocumentTextExtractorTest {
             new StubStrategy(true, "selected")
         ));
 
-        ExtractedDocument result = extractor.extract("sample.pdf", "application/pdf", new byte[0]);
+        DocumentParseResult result = extractor.extract("sample.pdf", "application/pdf", new byte[0]);
 
         assertEquals("selected", result.extractor());
     }
@@ -41,14 +41,24 @@ class RoutingDocumentTextExtractorTest {
         }
 
         @Override
-        public ExtractedDocument extract(String originalFileName, String mediaType, byte[] bytes) {
-            return new ExtractedDocument(
-                List.of(new ExtractedDocumentSegment("ok", null, extractorName, false)),
+        public DocumentParseResult extract(String originalFileName, String mediaType, byte[] bytes) {
+            return new DocumentParseResult(
+                List.of(new DocumentBlock(
+                    0,
+                    DocumentBlockType.NARRATIVE,
+                    "ok",
+                    null,
+                    extractorName,
+                    false,
+                    DocumentBlockConfidence.HIGH,
+                    null
+                )),
+                MaterialMetadataHints.empty(),
+                List.of(),
+                null,
                 extractorName,
                 false,
-                null,
-                null,
-                null
+                DocumentParserProfile.RICH_TEXT
             );
         }
     }

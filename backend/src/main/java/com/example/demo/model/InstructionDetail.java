@@ -7,6 +7,10 @@ public record InstructionDetail(
     String title,
     InstructionCategory category,
     String content,
+    InstructionScopeLevel scopeLevel,
+    String scopeTargetId,
+    int revision,
+    boolean active,
     Instant createdAt,
     Instant updatedAt
 ) {
@@ -15,8 +19,34 @@ public record InstructionDetail(
         String title,
         InstructionCategory category,
         String content,
+        Instant createdAt,
+        Instant updatedAt
+    ) {
+        this(
+            id,
+            title,
+            category,
+            content,
+            InstructionScopeLevel.CHAT_SCENARIO,
+            null,
+            1,
+            true,
+            createdAt,
+            updatedAt
+        );
+    }
+
+    public InstructionDetail(
+        String id,
+        String title,
+        InstructionCategory category,
+        String content,
+        InstructionScopeLevel scopeLevel,
+        String scopeTargetId,
+        int revision,
+        boolean active,
         Instant createdAt
     ) {
-        this(id, title, category, content, createdAt, createdAt);
+        this(id, title, category, content, scopeLevel, scopeTargetId, revision, active, createdAt, createdAt);
     }
 }

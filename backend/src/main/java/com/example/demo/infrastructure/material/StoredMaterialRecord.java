@@ -1,6 +1,7 @@
 package com.example.demo.infrastructure.material;
 
 import com.example.demo.model.MaterialIndexingStatus;
+import com.example.demo.model.MaterialMetadataSnapshot;
 import com.example.demo.model.MaterialVersionState;
 import java.time.Instant;
 import java.util.List;
@@ -28,8 +29,14 @@ public record StoredMaterialRecord(
     int indexingAttempts,
     Instant nextRetryAt,
     String supersededByMaterialId,
-    String supersedeReason
+    String supersedeReason,
+    int lineageVersion,
+    MaterialMetadataSnapshot metadata
 ) {
+    public StoredMaterialRecord {
+        metadata = metadata == null ? MaterialMetadataSnapshot.empty() : metadata;
+    }
+
     public StoredMaterialRecord(
         String id,
         String title,
@@ -74,7 +81,259 @@ public record StoredMaterialRecord(
             0,
             status == MaterialIndexingStatus.PENDING ? updatedAt : null,
             null,
-            null
+            null,
+            0,
+            MaterialMetadataSnapshot.empty()
+        );
+    }
+
+    public StoredMaterialRecord(
+        String id,
+        String title,
+        String sourceType,
+        String originalFileName,
+        String mediaType,
+        String content,
+        String normalizedContent,
+        String contentHash,
+        String sourceKey,
+        String extractor,
+        Boolean ocrUsed,
+        Integer pageCount,
+        List<StoredMaterialChunk> chunks,
+        MaterialIndexingStatus status,
+        MaterialVersionState versionState,
+        String statusReasonCode,
+        String statusReasonMessage,
+        Instant createdAt,
+        Instant updatedAt,
+        MaterialMetadataSnapshot metadata
+    ) {
+        this(
+            id,
+            title,
+            sourceType,
+            originalFileName,
+            mediaType,
+            content,
+            normalizedContent,
+            contentHash,
+            sourceKey,
+            extractor,
+            ocrUsed,
+            pageCount,
+            chunks,
+            status,
+            versionState,
+            statusReasonCode,
+            statusReasonMessage,
+            createdAt,
+            updatedAt,
+            0,
+            status == MaterialIndexingStatus.PENDING ? updatedAt : null,
+            null,
+            null,
+            0,
+            metadata
+        );
+    }
+
+    public StoredMaterialRecord(
+        String id,
+        String title,
+        String sourceType,
+        String originalFileName,
+        String mediaType,
+        String content,
+        String normalizedContent,
+        String contentHash,
+        String sourceKey,
+        String extractor,
+        Boolean ocrUsed,
+        Integer pageCount,
+        List<StoredMaterialChunk> chunks,
+        MaterialIndexingStatus status,
+        MaterialVersionState versionState,
+        String statusReasonCode,
+        String statusReasonMessage,
+        Instant createdAt,
+        Instant updatedAt,
+        int indexingAttempts,
+        Instant nextRetryAt,
+        String supersededByMaterialId,
+        String supersedeReason
+    ) {
+        this(
+            id,
+            title,
+            sourceType,
+            originalFileName,
+            mediaType,
+            content,
+            normalizedContent,
+            contentHash,
+            sourceKey,
+            extractor,
+            ocrUsed,
+            pageCount,
+            chunks,
+            status,
+            versionState,
+            statusReasonCode,
+            statusReasonMessage,
+            createdAt,
+            updatedAt,
+            indexingAttempts,
+            nextRetryAt,
+            supersededByMaterialId,
+            supersedeReason,
+            0,
+            MaterialMetadataSnapshot.empty()
+        );
+    }
+
+    public StoredMaterialRecord(
+        String id,
+        String title,
+        String sourceType,
+        String originalFileName,
+        String mediaType,
+        String content,
+        String normalizedContent,
+        String contentHash,
+        String sourceKey,
+        String extractor,
+        Boolean ocrUsed,
+        Integer pageCount,
+        List<StoredMaterialChunk> chunks,
+        MaterialIndexingStatus status,
+        MaterialVersionState versionState,
+        String statusReasonCode,
+        String statusReasonMessage,
+        Instant createdAt,
+        Instant updatedAt,
+        int indexingAttempts,
+        Instant nextRetryAt,
+        String supersededByMaterialId,
+        String supersedeReason,
+        MaterialMetadataSnapshot metadata
+    ) {
+        this(
+            id,
+            title,
+            sourceType,
+            originalFileName,
+            mediaType,
+            content,
+            normalizedContent,
+            contentHash,
+            sourceKey,
+            extractor,
+            ocrUsed,
+            pageCount,
+            chunks,
+            status,
+            versionState,
+            statusReasonCode,
+            statusReasonMessage,
+            createdAt,
+            updatedAt,
+            indexingAttempts,
+            nextRetryAt,
+            supersededByMaterialId,
+            supersedeReason,
+            0,
+            metadata
+        );
+    }
+
+    public StoredMaterialRecord withMetadata(MaterialMetadataSnapshot updatedMetadata) {
+        return new StoredMaterialRecord(
+            id,
+            title,
+            sourceType,
+            originalFileName,
+            mediaType,
+            content,
+            normalizedContent,
+            contentHash,
+            sourceKey,
+            extractor,
+            ocrUsed,
+            pageCount,
+            chunks,
+            status,
+            versionState,
+            statusReasonCode,
+            statusReasonMessage,
+            createdAt,
+            updatedAt,
+            indexingAttempts,
+            nextRetryAt,
+            supersededByMaterialId,
+            supersedeReason,
+            lineageVersion,
+            updatedMetadata
+        );
+    }
+
+    public StoredMaterialRecord withLineageVersion(int updatedLineageVersion) {
+        return new StoredMaterialRecord(
+            id,
+            title,
+            sourceType,
+            originalFileName,
+            mediaType,
+            content,
+            normalizedContent,
+            contentHash,
+            sourceKey,
+            extractor,
+            ocrUsed,
+            pageCount,
+            chunks,
+            status,
+            versionState,
+            statusReasonCode,
+            statusReasonMessage,
+            createdAt,
+            updatedAt,
+            indexingAttempts,
+            nextRetryAt,
+            supersededByMaterialId,
+            supersedeReason,
+            updatedLineageVersion,
+            metadata
+        );
+    }
+
+    public StoredMaterialRecord withSourceKey(String updatedSourceKey) {
+        return new StoredMaterialRecord(
+            id,
+            title,
+            sourceType,
+            originalFileName,
+            mediaType,
+            content,
+            normalizedContent,
+            contentHash,
+            updatedSourceKey,
+            extractor,
+            ocrUsed,
+            pageCount,
+            chunks,
+            status,
+            versionState,
+            statusReasonCode,
+            statusReasonMessage,
+            createdAt,
+            updatedAt,
+            indexingAttempts,
+            nextRetryAt,
+            supersededByMaterialId,
+            supersedeReason,
+            lineageVersion,
+            metadata
         );
     }
 }

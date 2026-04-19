@@ -18,6 +18,7 @@ public record MaterialLineageVersion(
     String supersededByMaterialId,
     String supersedeReason,
     int contentLength,
-    String preview
+    String preview,
+    MaterialMetadataSnapshot metadata
 ) {
 }

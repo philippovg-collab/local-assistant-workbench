@@ -11,6 +11,7 @@ import com.example.demo.model.MaterialIndexingStatus;
 import com.example.demo.model.MaterialVersionState;
 import com.example.demo.support.DeterministicEmbeddingClient;
 import com.example.demo.support.InMemoryMaterialRepository;
+import com.example.demo.support.TestMaterialServices;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -27,12 +28,20 @@ class MaterialIndexingServiceTest {
         properties.setIndexingRetryBaseSeconds(1);
         properties.setIndexingRetryMaxSeconds(1);
         MaterialContentSupport contentSupport = new MaterialContentSupport(properties);
+        MaterialSearchSyncLifecycleService lifecycleService = TestMaterialServices.lifecycleService(
+            repository,
+            repository,
+            repository,
+            repository,
+            repository
+        );
         MaterialIndexingService service = new MaterialIndexingService(
             repository,
             repository,
             contentSupport,
             new FlakyEmbeddingClient(),
             properties,
+            lifecycleService,
             Runnable::run
         );
 
@@ -53,12 +62,20 @@ class MaterialIndexingServiceTest {
         MaterialProperties properties = new MaterialProperties();
         properties.setIndexingLeaseSeconds(5);
         MaterialContentSupport contentSupport = new MaterialContentSupport(properties);
+        MaterialSearchSyncLifecycleService lifecycleService = TestMaterialServices.lifecycleService(
+            repository,
+            repository,
+            repository,
+            repository,
+            repository
+        );
         MaterialIndexingService service = new MaterialIndexingService(
             repository,
             repository,
             contentSupport,
             new DeterministicEmbeddingClient(),
             properties,
+            lifecycleService,
             Runnable::run
         );
 

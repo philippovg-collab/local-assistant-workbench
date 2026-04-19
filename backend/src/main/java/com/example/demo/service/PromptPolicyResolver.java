@@ -2,6 +2,7 @@ package com.example.demo.service;
 
 import com.example.demo.config.LlmProperties;
 import com.example.demo.model.AppliedInstruction;
+import com.example.demo.model.AnswerMode;
 import com.example.demo.model.ChatExecutionRequest;
 import com.example.demo.model.ChatMode;
 import com.example.demo.model.InstructionCategory;
@@ -23,21 +24,22 @@ public class PromptPolicyResolver {
     /**
      * Prompt policy precedence:
      * 1) request.model overrides the default configured model
-     * 2) request.systemPrompt overrides the default configured system prompt
-     * 3) selected instruction snippets are appended in request order
-     * 4) RAG mode always appends grounding rules that prohibit hallucinating beyond retrieved context
+     * 2) resolved runtime instructions are appended in scope-aware order
+     * 3) request.systemPrompt is treated as a legacy alias for a temporary request instruction
+     * 4) answerMode adds response-shaping rules
+     * 5) RAG mode always appends grounding rules that prohibit hallucinating beyond retrieved context
      */
     public ResolvedPromptPolicy resolve(
         ChatExecutionRequest request,
-        List<InstructionDetail> instructions
+        List<InstructionDetail> instructions,
+        String temporaryInstruction
     ) {
         String model = StringUtils.hasText(request.model())
             ? request.model().trim()
             : properties.getModel();
 
-        String baseSystemPrompt = StringUtils.hasText(request.systemPrompt())
-            ? request.systemPrompt().trim()
-            : properties.getSystemPrompt();
+        String baseSystemPrompt = properties.getSystemPrompt();
+        AnswerMode answerMode = request.answerMode() == null ? AnswerMode.BRIEF : request.answerMode();
 
         String systemInstructions = renderInstructionBlock(
             "System instructions",
@@ -60,7 +62,16 @@ public class PromptPolicyResolver {
             instruction -> instruction.category() == InstructionCategory.USER
         );
 
-        String systemPrompt = joinBlocks(baseSystemPrompt, systemInstructions, safetyInstructions);
+        String temporaryInstructionBlock = StringUtils.hasText(temporaryInstruction)
+            ? "Temporary request instruction:\n" + temporaryInstruction.trim()
+            : "";
+        String systemPrompt = joinBlocks(
+            baseSystemPrompt,
+            systemInstructions,
+            safetyInstructions,
+            temporaryInstructionBlock,
+            answerModeBlock(answerMode, request.mode())
+        );
 
         if (request.mode() == ChatMode.RAG) {
             systemPrompt = joinBlocks(systemPrompt, """
@@ -75,7 +86,10 @@ public class PromptPolicyResolver {
             .map(instruction -> new AppliedInstruction(
                 instruction.id(),
                 instruction.title(),
-                instruction.category()
+                instruction.category(),
+                instruction.scopeLevel(),
+                instruction.scopeTargetId(),
+                instruction.revision()
             ))
             .toList();
 
@@ -84,7 +98,8 @@ public class PromptPolicyResolver {
             systemPrompt,
             contextInstructions,
             userInstructions,
-            appliedInstructions
+            appliedInstructions,
+            answerMode
         );
     }
 
@@ -122,12 +137,49 @@ public class PromptPolicyResolver {
             .orElse("");
     }
 
+    private String answerModeBlock(AnswerMode answerMode, ChatMode chatMode) {
+        if (answerMode == null) {
+            return "";
+        }
+
+        return switch (answerMode) {
+            case BRIEF -> "Answer mode: brief.\n- Keep the answer concise and high-signal.";
+            case WITH_QUOTES -> """
+                Answer mode: with quotes.
+                - Include short supporting quotes when sources are available.
+                - Keep quotes brief and clearly attributable.
+                """.strip();
+            case DOCUMENTS_ONLY -> """
+                Answer mode: documents only.
+                - Do not expand beyond the available documents.
+                - If the documents are insufficient, say so explicitly.
+                """.strip();
+            case BROADER_REASONING -> """
+                Answer mode: broader reasoning.
+                - Ground the answer in the documents first.
+                - If you go broader, label that part as broader reasoning.
+                """.strip();
+            case STRICT_SOURCES_ONLY -> chatMode == ChatMode.RAG
+                ? """
+                    Answer mode: strict sources only.
+                    - If the answer is not fully supported by the retrieved sources, respond with: Не найдено в источниках.
+                    - Do not speculate or fill gaps.
+                    """.strip()
+                : """
+                    Answer mode: strict sources only.
+                    - Explain that direct mode has no retrieved sources.
+                    - Do not pretend that external documents were used.
+                    """.strip();
+        };
+    }
+
     public record ResolvedPromptPolicy(
         String model,
         String systemPrompt,
         String contextInstructions,
         String userInstructions,
-        List<AppliedInstruction> appliedInstructions
+        List<AppliedInstruction> appliedInstructions,
+        AnswerMode answerMode
     ) {
     }
 }

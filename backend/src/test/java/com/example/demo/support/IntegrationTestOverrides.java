@@ -20,4 +20,10 @@ public class IntegrationTestOverrides {
     Executor materialIndexingExecutor() {
         return Runnable::run;
     }
+
+    @Bean(name = "searchSyncExecutor")
+    @Primary
+    Executor searchSyncExecutor() {
+        return Runnable::run;
+    }
 }

@@ -2,58 +2,113 @@ package com.example.demo.service;
 
 import com.example.demo.api.ApiException;
 import com.example.demo.config.MaterialProperties;
+import com.example.demo.config.RolloutProperties;
+import com.example.demo.infrastructure.material.ChunkProfile;
 import com.example.demo.infrastructure.material.MaterialCatalogRepository;
+import com.example.demo.infrastructure.material.MaterialChunkingRepository;
 import com.example.demo.infrastructure.material.MaterialFormatRegistry;
-import com.example.demo.infrastructure.material.MaterialIndexingQueueRepository;
 import com.example.demo.infrastructure.material.OcrCapability;
 import com.example.demo.infrastructure.material.OcrCapabilityProvider;
+import com.example.demo.infrastructure.material.StoredMaterialChunk;
 import com.example.demo.infrastructure.material.StoredMaterialRecord;
+import com.example.demo.infrastructure.material.StoredMaterialSegment;
 import com.example.demo.model.MaterialIndexingStatus;
+import com.example.demo.model.MaterialChunkDetail;
+import com.example.demo.model.MaterialDetail;
 import com.example.demo.model.MaterialLineageResponse;
-import com.example.demo.model.MaterialPdfUploadPolicyResponse;
 import com.example.demo.model.MaterialLineageVersion;
+import com.example.demo.model.MaterialPdfUploadPolicyResponse;
 import com.example.demo.model.MaterialSummary;
 import com.example.demo.model.MaterialUploadPolicyResponse;
 import com.example.demo.model.MaterialVersionState;
+import com.example.demo.model.RechunkActiveMaterialsBatchRequest;
+import com.example.demo.model.RechunkActiveMaterialsBatchResponse;
+import com.example.demo.model.RechunkActiveMaterialsResponse;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Base64;
 import java.util.Comparator;
 import java.util.List;
+import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 @Service
 public class MaterialQueryService {
 
+    private static final Logger logger = LoggerFactory.getLogger(MaterialQueryService.class);
+
     private static final String SUPERSEDE_REASON_NEW_ACTIVE_VERSION = "material.superseded_by_new_active_version";
     private static final String SUPERSEDE_REASON_REACTIVATED_VERSION = "material.superseded_by_reactivated_version";
     private static final String SUPERSEDE_REASON_LEGACY_FALLBACK = "material.supersede_reason_legacy_unknown";
+    private static final String RECHUNK_BATCH_INVALID_LIMIT = "material.rechunk_batch_invalid_limit";
+    private static final String RECHUNK_BATCH_INVALID_CURSOR = "material.rechunk_batch_invalid_cursor";
+    private static final int DEFAULT_RECHUNK_BATCH_LIMIT = 100;
+    private static final int MAX_RECHUNK_BATCH_LIMIT = 500;
+    private static final String BATCH_CURSOR_VERSION = "v1";
 
     private final MaterialCatalogRepository repository;
-    private final MaterialIndexingQueueRepository indexingQueueRepository;
+    private final MaterialChunkingRepository chunkingRepository;
     private final MaterialProperties properties;
     private final MaterialFormatRegistry formatRegistry;
     private final OcrCapabilityProvider ocrCapabilityProvider;
     private final MaterialContentSupport contentSupport;
+    private final MaterialSearchSyncLifecycleService lifecycleService;
     private final MaterialIndexingService indexingService;
+    private final AfterCommitExecutor afterCommitExecutor;
+    private final RolloutProperties rolloutProperties;
 
     public MaterialQueryService(
         MaterialCatalogRepository repository,
-        MaterialIndexingQueueRepository indexingQueueRepository,
+        MaterialChunkingRepository chunkingRepository,
         MaterialProperties properties,
         MaterialFormatRegistry formatRegistry,
         OcrCapabilityProvider ocrCapabilityProvider,
         MaterialContentSupport contentSupport,
-        MaterialIndexingService indexingService
+        MaterialSearchSyncLifecycleService lifecycleService,
+        MaterialIndexingService indexingService,
+        AfterCommitExecutor afterCommitExecutor,
+        RolloutProperties rolloutProperties
     ) {
         this.repository = repository;
-        this.indexingQueueRepository = indexingQueueRepository;
+        this.chunkingRepository = chunkingRepository;
         this.properties = properties;
         this.formatRegistry = formatRegistry;
         this.ocrCapabilityProvider = ocrCapabilityProvider;
         this.contentSupport = contentSupport;
+        this.lifecycleService = lifecycleService;
         this.indexingService = indexingService;
+        this.afterCommitExecutor = afterCommitExecutor;
+        this.rolloutProperties = rolloutProperties == null ? new RolloutProperties() : rolloutProperties;
+    }
+
+    public MaterialQueryService(
+        MaterialCatalogRepository repository,
+        MaterialChunkingRepository chunkingRepository,
+        MaterialProperties properties,
+        MaterialFormatRegistry formatRegistry,
+        OcrCapabilityProvider ocrCapabilityProvider,
+        MaterialContentSupport contentSupport,
+        MaterialSearchSyncLifecycleService lifecycleService,
+        MaterialIndexingService indexingService,
+        AfterCommitExecutor afterCommitExecutor
+    ) {
+        this(
+            repository,
+            chunkingRepository,
+            properties,
+            formatRegistry,
+            ocrCapabilityProvider,
+            contentSupport,
+            lifecycleService,
+            indexingService,
+            afterCommitExecutor,
+            RolloutProperties.enabledForTests()
+        );
     }
 
     public List<MaterialSummary> listSummaries() {
@@ -107,14 +162,91 @@ public class MaterialQueryService {
 
         String preservedReasonCode = isPartialWarning(record) ? record.statusReasonCode() : null;
         String preservedReasonMessage = isPartialWarning(record) ? record.statusReasonMessage() : null;
-        StoredMaterialRecord updatedRecord = indexingQueueRepository.markIndexingPending(
+        StoredMaterialRecord updatedRecord = lifecycleService.markIndexingPending(
             record.id(),
             preservedReasonCode,
             preservedReasonMessage,
             Instant.now()
         );
-        indexingService.requestProcessing();
+        afterCommitExecutor.afterCommit(indexingService::requestProcessing);
         return contentSupport.toSummary(updatedRecord);
+    }
+
+    public RechunkActiveMaterialsResponse rechunkActiveMaterials() {
+        ensureStructuredRolloutEnabled();
+        int totalActive = repository.countActiveMaterials();
+        int scheduledCount = 0;
+        int alreadyCurrentCount = 0;
+        int legacyBestEffortCount = 0;
+        RechunkBatchCursor cursor = null;
+
+        while (true) {
+            ProcessedBatch batch = processRechunkBatch(cursor, MAX_RECHUNK_BATCH_LIMIT, false, totalActive);
+            scheduledCount += batch.scheduled();
+            alreadyCurrentCount += batch.alreadyCurrent();
+            legacyBestEffortCount += batch.legacyBestEffort();
+
+            if (batch.nextCursor() == null) {
+                break;
+            }
+            cursor = batch.nextCursor();
+        }
+
+        if (scheduledCount > 0) {
+            afterCommitExecutor.afterCommit(indexingService::requestProcessing);
+        }
+
+        logger.info(
+            "ACTIVE backfill completed: totalActive={} scheduled={} alreadyCurrent={} legacyBestEffort={}",
+            totalActive,
+            scheduledCount,
+            alreadyCurrentCount,
+            legacyBestEffortCount
+        );
+
+        return new RechunkActiveMaterialsResponse(
+            totalActive,
+            scheduledCount,
+            alreadyCurrentCount,
+            legacyBestEffortCount
+        );
+    }
+
+    public RechunkActiveMaterialsBatchResponse rechunkActiveMaterialsBatch(RechunkActiveMaterialsBatchRequest request) {
+        ensureStructuredRolloutEnabled();
+        NormalizedBatchRequest normalizedRequest = normalizeBatchRequest(request);
+        int totalActive = repository.countActiveMaterials();
+        ProcessedBatch batch = processRechunkBatch(
+            normalizedRequest.cursor(),
+            normalizedRequest.limit(),
+            normalizedRequest.dryRun(),
+            totalActive
+        );
+
+        if (!normalizedRequest.dryRun() && batch.scheduled() > 0) {
+            afterCommitExecutor.afterCommit(indexingService::requestProcessing);
+        }
+
+        logger.info(
+            "ACTIVE backfill batch: totalActive={} scanned={} scheduled={} alreadyCurrent={} legacyBestEffort={} dryRun={} nextCursor={}",
+            batch.totalActive(),
+            batch.scanned(),
+            batch.scheduled(),
+            batch.alreadyCurrent(),
+            batch.legacyBestEffort(),
+            normalizedRequest.dryRun(),
+            encodeCursor(batch.nextCursor())
+        );
+
+        return new RechunkActiveMaterialsBatchResponse(
+            batch.totalActive(),
+            batch.scanned(),
+            batch.scheduled(),
+            batch.alreadyCurrent(),
+            batch.legacyBestEffort(),
+            encodeCursor(batch.nextCursor()),
+            batch.materialIds()
+        );
     }
 
     public MaterialLineageResponse getLineage(String id) {
@@ -127,7 +259,7 @@ public class MaterialQueryService {
         List<StoredMaterialRecord> lineageRecords = repository.findAllBySourceKey(requestedRecord.sourceKey()).stream()
             .sorted(Comparator
                 .comparing((StoredMaterialRecord record) -> record.versionState() == MaterialVersionState.ACTIVE ? 0 : 1)
-                .thenComparing(StoredMaterialRecord::updatedAt, Comparator.reverseOrder())
+                .thenComparing(StoredMaterialRecord::lineageVersion, Comparator.reverseOrder())
                 .thenComparing(StoredMaterialRecord::createdAt, Comparator.reverseOrder()))
             .toList();
 
@@ -144,22 +276,42 @@ public class MaterialQueryService {
         return new MaterialLineageResponse(requestedRecord.id(), activeMaterialId, versions);
     }
 
-    @Transactional
-    public void delete(String id) {
-        StoredMaterialRecord record = repository.findById(id).orElse(null);
-        repository.delete(id);
-        if (record == null || record.versionState() != MaterialVersionState.ACTIVE) {
-            return;
-        }
+    public MaterialDetail getDetail(String id) {
+        StoredMaterialRecord record = repository.findById(id).orElseThrow(() -> new ApiException(
+            HttpStatus.NOT_FOUND,
+            "material.not_found",
+            "Material '" + id + "' does not exist"
+        ));
 
-        repository.findLatestBySourceKeyAndVersionState(record.sourceKey(), MaterialVersionState.SUPERSEDED)
-            .ifPresent(previousVersion -> repository.updateVersionState(
-                previousVersion.id(),
-                MaterialVersionState.ACTIVE,
-                null,
-                null,
-                Instant.now()
-            ));
+        List<MaterialChunkDetail> chunks = chunkingRepository.findChunks(id).stream()
+            .map(chunk -> new MaterialChunkDetail(
+                id + ":" + chunk.index(),
+                chunk.index(),
+                chunk.text(),
+                chunk.page(),
+                chunk.extractor(),
+                Boolean.TRUE.equals(chunk.ocrUsed())
+            ))
+            .toList();
+
+        return new MaterialDetail(
+            record.id(),
+            record.title(),
+            record.sourceType(),
+            record.originalFileName(),
+            record.mediaType(),
+            record.content(),
+            record.status(),
+            record.versionState(),
+            record.createdAt(),
+            record.updatedAt(),
+            record.metadata(),
+            chunks
+        );
+    }
+
+    public void delete(String id) {
+        lifecycleService.delete(id, Instant.now());
     }
 
     public String supersedeReasonForNewActiveVersion() {
@@ -170,9 +322,221 @@ public class MaterialQueryService {
         return SUPERSEDE_REASON_REACTIVATED_VERSION;
     }
 
+    private ProcessedBatch processRechunkBatch(RechunkBatchCursor cursor, int limit, boolean dryRun, int totalActive) {
+        ChunkProfile targetProfile = contentSupport.configuredChunkProfile(rolloutProperties.isStructuredV1());
+        Instant now = Instant.now();
+        List<StoredMaterialRecord> batchWindow = repository.findActivePageAfter(
+            cursor == null ? null : cursor.createdAt(),
+            cursor == null ? null : cursor.id(),
+            limit + 1
+        );
+        boolean hasMore = batchWindow.size() > limit;
+        List<StoredMaterialRecord> scannedRecords = hasMore ? batchWindow.subList(0, limit) : batchWindow;
+
+        int scheduledCount = 0;
+        int alreadyCurrentCount = 0;
+        int legacyBestEffortCount = 0;
+        List<String> materialIds = new ArrayList<>();
+
+        for (StoredMaterialRecord record : scannedRecords) {
+            RechunkPreparation preparation = prepareRechunk(record, targetProfile);
+            if (preparation.alreadyCurrent()) {
+                alreadyCurrentCount += 1;
+                continue;
+            }
+
+            scheduledCount += 1;
+            materialIds.add(record.id());
+            if (preparation.legacyBestEffort()) {
+                legacyBestEffortCount += 1;
+            }
+
+            if (!dryRun) {
+                String preservedReasonCode = isPartialWarning(record) ? record.statusReasonCode() : null;
+                String preservedReasonMessage = isPartialWarning(record) ? record.statusReasonMessage() : null;
+                lifecycleService.replaceChunkingAndMarkIndexingPending(
+                    record.id(),
+                    targetProfile.propertyValue(),
+                    preparation.chunks(),
+                    preparation.segments(),
+                    preservedReasonCode,
+                    preservedReasonMessage,
+                    now
+                );
+            }
+        }
+
+        RechunkBatchCursor nextCursor = hasMore && !scannedRecords.isEmpty()
+            ? new RechunkBatchCursor(scannedRecords.getLast().createdAt(), scannedRecords.getLast().id())
+            : null;
+
+        return new ProcessedBatch(
+            totalActive,
+            scannedRecords.size(),
+            scheduledCount,
+            alreadyCurrentCount,
+            legacyBestEffortCount,
+            nextCursor,
+            List.copyOf(materialIds)
+        );
+    }
+
+    private void ensureStructuredRolloutEnabled() {
+        if (rolloutProperties.isStructuredV1()) {
+            return;
+        }
+        throw new ApiException(
+            HttpStatus.CONFLICT,
+            "material.structured_rollout_disabled",
+            "Structured chunking rollout is disabled."
+        );
+    }
+
+    private RechunkPreparation prepareRechunk(StoredMaterialRecord record, ChunkProfile targetProfile) {
+        ChunkProfile currentProfile = contentSupport.resolveChunkProfile(chunkingRepository.findChunkProfile(record.id()));
+        if (currentProfile == targetProfile) {
+            return RechunkPreparation.forAlreadyCurrent();
+        }
+
+        List<StoredMaterialSegment> storedSegments = chunkingRepository.findSegments(record.id());
+        boolean bestEffortLegacyFile = false;
+        if (storedSegments.isEmpty()) {
+            List<StoredMaterialChunk> rawChunks = chunkingRepository.findChunks(record.id());
+            if ("file".equalsIgnoreCase(record.sourceType())) {
+                storedSegments = contentSupport.pseudoSegmentsFromChunks(
+                    rawChunks,
+                    record.extractor(),
+                    Boolean.TRUE.equals(record.ocrUsed())
+                );
+                if (storedSegments.isEmpty()) {
+                    storedSegments = contentSupport.singleSegment(
+                        record.content(),
+                        record.extractor(),
+                        Boolean.TRUE.equals(record.ocrUsed())
+                    );
+                }
+                bestEffortLegacyFile = true;
+            } else if (!rawChunks.isEmpty()) {
+                storedSegments = contentSupport.pseudoSegmentsFromChunks(
+                    rawChunks,
+                    record.extractor(),
+                    Boolean.TRUE.equals(record.ocrUsed())
+                );
+            } else {
+                storedSegments = contentSupport.singleSegment(
+                    record.content(),
+                    record.extractor(),
+                    Boolean.TRUE.equals(record.ocrUsed())
+                );
+            }
+        }
+
+        return RechunkPreparation.forRechunk(
+            contentSupport.buildChunks(storedSegments, targetProfile),
+            storedSegments,
+            bestEffortLegacyFile
+        );
+    }
+
+    private NormalizedBatchRequest normalizeBatchRequest(RechunkActiveMaterialsBatchRequest request) {
+        int limit = request == null || request.limit() == null ? DEFAULT_RECHUNK_BATCH_LIMIT : request.limit();
+        if (limit < 1 || limit > MAX_RECHUNK_BATCH_LIMIT) {
+            throw new ApiException(
+                HttpStatus.BAD_REQUEST,
+                RECHUNK_BATCH_INVALID_LIMIT,
+                "Batch limit must be between 1 and " + MAX_RECHUNK_BATCH_LIMIT
+            );
+        }
+
+        return new NormalizedBatchRequest(
+            limit,
+            decodeCursor(request == null ? null : request.cursor()),
+            request != null && Boolean.TRUE.equals(request.dryRun())
+        );
+    }
+
+    private String encodeCursor(RechunkBatchCursor cursor) {
+        if (cursor == null) {
+            return null;
+        }
+
+        String payload = BATCH_CURSOR_VERSION + "|" + cursor.createdAt() + "|" + cursor.id();
+        return Base64.getUrlEncoder()
+            .withoutPadding()
+            .encodeToString(payload.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private RechunkBatchCursor decodeCursor(String cursor) {
+        if (!StringUtils.hasText(cursor)) {
+            return null;
+        }
+
+        try {
+            String decoded = new String(Base64.getUrlDecoder().decode(cursor.trim()), StandardCharsets.UTF_8);
+            String[] parts = decoded.split("\\|", -1);
+            if (parts.length != 3 || !BATCH_CURSOR_VERSION.equals(parts[0])) {
+                throw new IllegalArgumentException("Unsupported cursor format");
+            }
+
+            Instant createdAt = Instant.parse(parts[1]);
+            String id = UUID.fromString(parts[2]).toString();
+            return new RechunkBatchCursor(createdAt, id);
+        } catch (RuntimeException exception) {
+            throw new ApiException(
+                HttpStatus.BAD_REQUEST,
+                RECHUNK_BATCH_INVALID_CURSOR,
+                "Batch cursor is invalid or unsupported",
+                exception
+            );
+        }
+    }
+
     private boolean isPartialWarning(StoredMaterialRecord record) {
         return record.status() == MaterialIndexingStatus.PARTIAL_READY
             && StringUtils.hasText(record.statusReasonCode())
             && record.statusReasonCode().startsWith("material.partial_");
+    }
+
+    private record NormalizedBatchRequest(
+        int limit,
+        RechunkBatchCursor cursor,
+        boolean dryRun
+    ) {
+    }
+
+    private record RechunkBatchCursor(
+        Instant createdAt,
+        String id
+    ) {
+    }
+
+    private record RechunkPreparation(
+        boolean alreadyCurrent,
+        List<StoredMaterialChunk> chunks,
+        List<StoredMaterialSegment> segments,
+        boolean legacyBestEffort
+    ) {
+        private static RechunkPreparation forAlreadyCurrent() {
+            return new RechunkPreparation(true, List.of(), List.of(), false);
+        }
+
+        private static RechunkPreparation forRechunk(
+            List<StoredMaterialChunk> chunks,
+            List<StoredMaterialSegment> segments,
+            boolean legacyBestEffort
+        ) {
+            return new RechunkPreparation(false, chunks, segments, legacyBestEffort);
+        }
+    }
+
+    private record ProcessedBatch(
+        int totalActive,
+        int scanned,
+        int scheduled,
+        int alreadyCurrent,
+        int legacyBestEffort,
+        RechunkBatchCursor nextCursor,
+        List<String> materialIds
+    ) {
     }
 }

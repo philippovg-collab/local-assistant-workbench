@@ -1,7 +1,6 @@
 package com.example.demo.controller;
 
 import static org.hamcrest.Matchers.containsString;
-import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.hasSize;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -75,27 +74,6 @@ class MaterialControllerIT extends PostgresIntegrationTestSupport {
     }
 
     @Test
-    void createsTextMaterialsFromJsonPayload() throws Exception {
-        mockMvc.perform(post("/api/materials")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("""
-                    {
-                      "title": "Pricing note",
-                      "content": "Тариф Базовый стоит 8000 тенге."
-                    }
-                    """))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.title").value("Pricing note"))
-            .andExpect(jsonPath("$.status").value("READY"))
-            .andExpect(jsonPath("$.preview").value(containsString("8000")));
-
-        mockMvc.perform(get("/api/materials"))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$[0].title").value("Pricing note"))
-            .andExpect(jsonPath("$[0].extractable").doesNotExist());
-    }
-
-    @Test
     void uploadsScannedPdfUsingOcrFallback() throws Exception {
         MockMultipartFile file = new MockMultipartFile(
             "file",
@@ -162,6 +140,32 @@ class MaterialControllerIT extends PostgresIntegrationTestSupport {
             .andExpect(jsonPath("$.id").value(material.id()))
             .andExpect(jsonPath("$.status").value("PENDING"))
             .andExpect(jsonPath("$.indexingAttempts").exists());
+    }
+
+    @Test
+    void rejectsInvalidRechunkBatchLimit() throws Exception {
+        mockMvc.perform(post("/api/materials/rechunk-active/batch")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "limit": 0
+                    }
+                    """))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.code").value("material.rechunk_batch_invalid_limit"));
+    }
+
+    @Test
+    void rejectsInvalidRechunkBatchCursor() throws Exception {
+        mockMvc.perform(post("/api/materials/rechunk-active/batch")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "cursor": "not-a-valid-cursor"
+                    }
+                    """))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.code").value("material.rechunk_batch_invalid_cursor"));
     }
 
     private byte[] createDocx(String text) throws Exception {

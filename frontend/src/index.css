@@ -1,33 +1,157 @@
-html {
-  font-family:
-    "Avenir Next",
-    "Segoe UI",
-    sans-serif;
-  line-height: 1.5;
-  font-weight: 400;
-  color-scheme: light;
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+@import "tailwindcss";
+
+:root {
+  --background: #e7f0f8;
+  --foreground: #0f2942;
+  --card: rgba(244, 249, 255, 0.78);
+  --card-foreground: #102f49;
+  --popover: rgba(240, 247, 253, 0.96);
+  --popover-foreground: #102f49;
+  --primary: #0b6ab8;
+  --primary-foreground: #f7fbff;
+  --secondary: #d8e6f4;
+  --secondary-foreground: #174160;
+  --muted: #deeaf5;
+  --muted-foreground: #5a7188;
+  --accent: #d1e4f6;
+  --accent-foreground: #0b4677;
+  --destructive: #b54c37;
+  --destructive-foreground: #fff7f4;
+  --success: #0f8c83;
+  --success-foreground: #effffc;
+  --warning: #c3702f;
+  --warning-foreground: #fff8f2;
+  --border: rgba(18, 69, 109, 0.15);
+  --input: rgba(32, 81, 123, 0.18);
+  --ring: rgba(11, 106, 184, 0.24);
+  --surface-subtle: rgba(230, 240, 249, 0.76);
+  --surface-subtle-strong: rgba(221, 234, 246, 0.9);
+  --field: rgba(228, 239, 248, 0.96);
+  --field-border: rgba(32, 81, 123, 0.18);
+  --field-ring: rgba(11, 106, 184, 0.22);
+  --sidebar: rgba(11, 31, 51, 0.92);
+  --sidebar-foreground: #eaf5ff;
+  --sidebar-accent: rgba(130, 193, 255, 0.14);
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-border: rgba(159, 212, 255, 0.14);
+  --radius: 1.5rem;
+  --shadow-soft: 0 18px 48px rgba(10, 42, 74, 0.1);
+  --shadow-panel: 0 30px 90px rgba(10, 42, 74, 0.16);
 }
 
-body {
-  min-width: 320px;
-  min-height: 100vh;
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-surface-subtle: var(--surface-subtle);
+  --color-surface-subtle-strong: var(--surface-subtle-strong);
+  --color-field: var(--field);
+  --color-field-border: var(--field-border);
+  --color-field-ring: var(--field-ring);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --radius-sm: calc(var(--radius) - 0.5rem);
+  --radius-md: calc(var(--radius) - 0.25rem);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 0.5rem);
+  --font-sans: "Avenir Next", "Manrope", "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", "SFMono-Regular", "Consolas", monospace;
+  --shadow-soft: var(--shadow-soft);
+  --shadow-panel: var(--shadow-panel);
 }
 
-#root {
-  min-height: 100vh;
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    @apply scroll-smooth;
+    font-synthesis: none;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    @apply min-h-screen min-w-[320px] bg-background text-foreground antialiased;
+    background-image:
+      radial-gradient(circle at top left, rgba(11, 106, 184, 0.22), transparent 28%),
+      radial-gradient(circle at 86% 12%, rgba(72, 178, 255, 0.18), transparent 20%),
+      linear-gradient(180deg, #f7fbff 0%, #edf4fb 38%, #e3edf8 100%);
+    position: relative;
+    overflow-x: hidden;
+  }
+
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    background-image:
+      linear-gradient(rgba(11, 106, 184, 0.05) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(11, 106, 184, 0.05) 1px, transparent 1px);
+    background-size: 72px 72px;
+    mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.55), transparent 92%);
+  }
+
+  #root {
+    @apply min-h-screen;
+  }
+
+  a {
+    @apply text-inherit;
+  }
+
+  button,
+  input,
+  textarea,
+  select {
+    font: inherit;
+  }
+
+  ::selection {
+    background: rgba(11, 106, 184, 0.18);
+  }
 }
 
-a {
-  color: inherit;
-}
+@layer utilities {
+  .surface-panel {
+    @apply border-border bg-card shadow-panel backdrop-blur-xl;
+  }
 
-button,
-input,
-textarea,
-select {
-  font: inherit;
+  .surface-subtle {
+    @apply border-border bg-surface-subtle backdrop-blur-lg;
+  }
+
+  .surface-sidebar {
+    @apply border-sidebar-border bg-sidebar text-sidebar-foreground shadow-panel backdrop-blur-xl;
+  }
+
+  .text-balance {
+    text-wrap: balance;
+  }
 }

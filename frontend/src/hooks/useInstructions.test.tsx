@@ -34,6 +34,7 @@ function InstructionsHookHarness() {
             title: "",
             category: "system",
             content: "Rule",
+            scopeLevel: "chat_scenario",
           }))
         }
       >
@@ -47,6 +48,7 @@ function InstructionsHookHarness() {
             title: "Debug",
             category: "system",
             content: "Rule",
+            scopeLevel: "chat_scenario",
           }))
         }
       >

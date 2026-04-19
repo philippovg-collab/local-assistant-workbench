@@ -1,14 +1,32 @@
 package com.example.demo.support;
 
 import com.example.demo.infrastructure.material.MaterialCatalogRepository;
+import com.example.demo.infrastructure.material.MaterialChunkingRepository;
 import com.example.demo.infrastructure.material.MaterialChunkSearchMatch;
 import com.example.demo.infrastructure.material.MaterialIndexingLease;
 import com.example.demo.infrastructure.material.MaterialIndexingQueueRepository;
-import com.example.demo.infrastructure.material.MaterialSearchRepository;
+import com.example.demo.infrastructure.material.MaterialLineageIdentity;
+import com.example.demo.infrastructure.material.MaterialLineageRepository;
+import com.example.demo.infrastructure.material.MaterialRetrievalScopeSnapshot;
+import com.example.demo.infrastructure.material.ChunkProfile;
+import com.example.demo.infrastructure.material.LexicalProviderType;
+import com.example.demo.infrastructure.material.LexicalSearchProvider;
+import com.example.demo.infrastructure.material.MaterialSearchSyncQueueEntry;
+import com.example.demo.infrastructure.material.MaterialSearchSyncQueueRepository;
+import com.example.demo.infrastructure.material.MaterialSearchableSnapshotRepository;
+import com.example.demo.infrastructure.material.QualityLayerCoverageSnapshot;
+import com.example.demo.infrastructure.material.QualityLayerMetricsRepository;
+import com.example.demo.infrastructure.material.SemanticSearchRepository;
+import com.example.demo.infrastructure.material.SearchSyncDeliveryState;
+import com.example.demo.infrastructure.material.SearchableMaterialChunkSnapshot;
+import com.example.demo.infrastructure.material.SearchableMaterialSnapshot;
 import com.example.demo.infrastructure.material.StoredEmbeddedMaterialChunk;
 import com.example.demo.infrastructure.material.StoredMaterialChunk;
 import com.example.demo.infrastructure.material.StoredMaterialRecord;
+import com.example.demo.infrastructure.material.StoredMaterialSegment;
+import com.example.demo.model.KnowledgeScope;
 import com.example.demo.model.MaterialIndexingStatus;
+import com.example.demo.model.RetrievalFilters;
 import com.example.demo.model.MaterialVersionState;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -22,21 +40,52 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
 
-public class InMemoryMaterialRepository implements MaterialCatalogRepository, MaterialSearchRepository, MaterialIndexingQueueRepository {
+/**
+ * Test double for pure service/domain behavior.
+ * It does not model PostgreSQL constraints, cascades, locking, or transaction ordering.
+ */
+public class InMemoryMaterialRepository implements
+    MaterialCatalogRepository,
+    MaterialLineageRepository,
+    MaterialChunkingRepository,
+    SemanticSearchRepository,
+    LexicalSearchProvider,
+    MaterialIndexingQueueRepository,
+    MaterialSearchSyncQueueRepository,
+    MaterialSearchableSnapshotRepository,
+    QualityLayerMetricsRepository {
 
     private static final Pattern NON_ALPHANUMERIC = Pattern.compile("[^\\p{L}\\p{N}]+");
 
     private final Map<String, StoredMaterialRecord> recordsById = new LinkedHashMap<>();
-    private final Map<String, String> idsByContentHash = new LinkedHashMap<>();
+    private final Map<String, String> idsBySourceKeyAndContentHash = new LinkedHashMap<>();
+    private final Map<String, String> sourceKeysByIdentity = new LinkedHashMap<>();
     private final Map<String, List<StoredMaterialChunk>> rawChunksByMaterialId = new LinkedHashMap<>();
+    private final Map<String, List<StoredMaterialSegment>> segmentsByMaterialId = new LinkedHashMap<>();
+    private final Map<String, String> chunkProfilesByMaterialId = new LinkedHashMap<>();
     private final Map<String, List<StoredEmbeddedMaterialChunk>> embeddedChunksByMaterialId = new LinkedHashMap<>();
     private final Map<String, Integer> attemptsByMaterialId = new LinkedHashMap<>();
     private final Map<String, Instant> nextRetryAtByMaterialId = new LinkedHashMap<>();
     private final Map<String, Instant> claimedAtByMaterialId = new LinkedHashMap<>();
+    private final Map<String, MaterialSearchSyncQueueEntry> searchSyncQueueByMaterialId = new LinkedHashMap<>();
 
     @Override
     public synchronized List<StoredMaterialRecord> findAll() {
         return recordsById.values().stream().toList();
+    }
+
+    @Override
+    public synchronized List<StoredMaterialRecord> findActivePageAfter(Instant createdAt, String id, int limit) {
+        if (limit <= 0) {
+            return List.of();
+        }
+
+        return recordsById.values().stream()
+            .filter(record -> record.versionState() == MaterialVersionState.ACTIVE)
+            .sorted(Comparator.comparing(StoredMaterialRecord::createdAt).thenComparing(StoredMaterialRecord::id))
+            .filter(record -> createdAt == null || id == null || isAfterCursor(record, createdAt, id))
+            .limit(limit)
+            .toList();
     }
 
     @Override
@@ -45,8 +94,13 @@ public class InMemoryMaterialRepository implements MaterialCatalogRepository, Ma
     }
 
     @Override
-    public synchronized Optional<StoredMaterialRecord> findByContentHash(String contentHash) {
-        String id = idsByContentHash.get(contentHash);
+    public synchronized Optional<String> findSourceKeyById(String id) {
+        return findById(id).map(StoredMaterialRecord::sourceKey);
+    }
+
+    @Override
+    public synchronized Optional<StoredMaterialRecord> findBySourceKeyAndContentHash(String sourceKey, String contentHash) {
+        String id = idsBySourceKeyAndContentHash.get(sourceKeyAndContentHashKey(sourceKey, contentHash));
         if (id == null) {
             return Optional.empty();
         }
@@ -54,20 +108,40 @@ public class InMemoryMaterialRepository implements MaterialCatalogRepository, Ma
     }
 
     @Override
+    public synchronized String resolveSourceKey(MaterialLineageIdentity identity) {
+        return sourceKeysByIdentity.computeIfAbsent(identityKey(identity), ignored -> identity.sourceKey());
+    }
+
+    @Override
     public synchronized StoredMaterialRecord save(StoredMaterialRecord record, List<StoredMaterialChunk> chunks) {
-        String existingId = idsByContentHash.get(record.contentHash());
+        return save(record, ChunkProfile.FIXED_V1.propertyValue(), chunks, List.of());
+    }
+
+    @Override
+    public synchronized StoredMaterialRecord save(
+        StoredMaterialRecord record,
+        String chunkProfile,
+        List<StoredMaterialChunk> chunks,
+        List<StoredMaterialSegment> segments
+    ) {
+        String contentKey = sourceKeyAndContentHashKey(record.sourceKey(), record.contentHash());
+        String existingId = idsBySourceKeyAndContentHash.get(contentKey);
         if (existingId != null) {
             return recordsById.get(existingId);
         }
 
-        recordsById.put(record.id(), record);
-        idsByContentHash.put(record.contentHash(), record.id());
-        rawChunksByMaterialId.put(record.id(), chunks == null ? List.of() : List.copyOf(chunks));
-        embeddedChunksByMaterialId.put(record.id(), List.of());
-        attemptsByMaterialId.put(record.id(), 0);
-        nextRetryAtByMaterialId.put(record.id(), record.updatedAt());
-        claimedAtByMaterialId.put(record.id(), null);
-        return record;
+        int lineageVersion = record.lineageVersion() > 0 ? record.lineageVersion() : nextLineageVersion(record.sourceKey());
+        StoredMaterialRecord persistedRecord = record.withLineageVersion(lineageVersion);
+        recordsById.put(persistedRecord.id(), persistedRecord);
+        idsBySourceKeyAndContentHash.put(contentKey, persistedRecord.id());
+        rawChunksByMaterialId.put(persistedRecord.id(), chunks == null ? List.of() : List.copyOf(chunks));
+        segmentsByMaterialId.put(persistedRecord.id(), segments == null ? List.of() : List.copyOf(segments));
+        chunkProfilesByMaterialId.put(persistedRecord.id(), chunkProfile == null ? ChunkProfile.FIXED_V1.propertyValue() : chunkProfile);
+        embeddedChunksByMaterialId.put(persistedRecord.id(), List.of());
+        attemptsByMaterialId.put(persistedRecord.id(), 0);
+        nextRetryAtByMaterialId.put(persistedRecord.id(), persistedRecord.updatedAt());
+        claimedAtByMaterialId.put(persistedRecord.id(), null);
+        return persistedRecord;
     }
 
     @Override
@@ -76,23 +150,62 @@ public class InMemoryMaterialRepository implements MaterialCatalogRepository, Ma
     }
 
     @Override
+    public synchronized List<StoredMaterialSegment> findSegments(String materialId) {
+        return segmentsByMaterialId.getOrDefault(materialId, List.of());
+    }
+
+    @Override
+    public synchronized String findChunkProfile(String materialId) {
+        return chunkProfilesByMaterialId.getOrDefault(materialId, ChunkProfile.FIXED_V1.propertyValue());
+    }
+
+    @Override
+    public synchronized void replaceChunking(
+        String materialId,
+        String chunkProfile,
+        List<StoredMaterialChunk> chunks,
+        List<StoredMaterialSegment> segments,
+        Instant updatedAt
+    ) {
+        if (!recordsById.containsKey(materialId)) {
+            return;
+        }
+
+        rawChunksByMaterialId.put(materialId, chunks == null ? List.of() : List.copyOf(chunks));
+        segmentsByMaterialId.put(materialId, segments == null ? List.of() : List.copyOf(segments));
+        chunkProfilesByMaterialId.put(materialId, chunkProfile == null ? ChunkProfile.FIXED_V1.propertyValue() : chunkProfile);
+        embeddedChunksByMaterialId.put(materialId, List.of());
+    }
+
+    @Override
     public synchronized List<StoredMaterialRecord> findAllBySourceKey(String sourceKey) {
         return recordsById.values().stream()
             .filter(record -> record.sourceKey().equals(sourceKey))
-            .sorted(Comparator.comparing(StoredMaterialRecord::updatedAt).reversed())
+            .sorted(Comparator
+                .comparingInt(StoredMaterialRecord::lineageVersion)
+                .reversed()
+                .thenComparing(StoredMaterialRecord::createdAt, Comparator.reverseOrder())
+                .thenComparing(StoredMaterialRecord::id, Comparator.reverseOrder()))
             .toList();
+    }
+
+    @Override
+    public synchronized void lockLineage(String sourceKey) {
+        // synchronized repository methods already serialize the in-memory test double.
     }
 
     @Override
     public synchronized void delete(String id) {
         StoredMaterialRecord removed = recordsById.remove(id);
         rawChunksByMaterialId.remove(id);
+        segmentsByMaterialId.remove(id);
+        chunkProfilesByMaterialId.remove(id);
         embeddedChunksByMaterialId.remove(id);
         attemptsByMaterialId.remove(id);
         nextRetryAtByMaterialId.remove(id);
         claimedAtByMaterialId.remove(id);
         if (removed != null) {
-            idsByContentHash.remove(removed.contentHash());
+            idsBySourceKeyAndContentHash.remove(sourceKeyAndContentHashKey(removed.sourceKey(), removed.contentHash()));
         }
     }
 
@@ -117,13 +230,90 @@ public class InMemoryMaterialRepository implements MaterialCatalogRepository, Ma
     }
 
     @Override
-    public synchronized void supersedeActiveVersions(
+    public synchronized QualityLayerCoverageSnapshot qualityLayerCoverageSnapshot() {
+        int activeTotal = 0;
+        int activeWithEffectiveMetadata = 0;
+        int documentTypeCovered = 0;
+        int sourceTrustCovered = 0;
+        int authorOrDepartmentCovered = 0;
+        int structuredProfileActive = 0;
+        int partialReadyActive = 0;
+
+        for (StoredMaterialRecord record : recordsById.values()) {
+            if (record.versionState() != MaterialVersionState.ACTIVE) {
+                continue;
+            }
+            activeTotal += 1;
+
+            if (hasMeaningfulMetadata(record)) {
+                activeWithEffectiveMetadata += 1;
+            }
+            if (record.metadata().documentType() != null && record.metadata().documentType() != com.example.demo.model.DocumentType.OTHER) {
+                documentTypeCovered += 1;
+            }
+            if (record.metadata().sourceTrust() != null && record.metadata().sourceTrust() != com.example.demo.model.SourceTrustLevel.UNKNOWN) {
+                sourceTrustCovered += 1;
+            }
+            if (hasText(record.metadata().author()) || hasText(record.metadata().department())) {
+                authorOrDepartmentCovered += 1;
+            }
+            if (ChunkProfile.STRUCTURED_V1.propertyValue().equals(chunkProfilesByMaterialId.get(record.id()))) {
+                structuredProfileActive += 1;
+            }
+            if (record.status() == MaterialIndexingStatus.PARTIAL_READY) {
+                partialReadyActive += 1;
+            }
+        }
+
+        return new QualityLayerCoverageSnapshot(
+            activeTotal,
+            activeWithEffectiveMetadata,
+            documentTypeCovered,
+            sourceTrustCovered,
+            authorOrDepartmentCovered,
+            structuredProfileActive,
+            partialReadyActive
+        );
+    }
+
+    @Override
+    public synchronized MaterialRetrievalScopeSnapshot describeRetrievalScope(
+        KnowledgeScope knowledgeScope,
+        RetrievalFilters retrievalFilters,
+        Instant uploadedAfterInclusive,
+        Instant uploadedBeforeExclusive
+    ) {
+        List<StoredMaterialRecord> allRecords = new ArrayList<>(recordsById.values());
+        KnowledgeScope effectiveScope = knowledgeScope == null ? KnowledgeScope.empty() : knowledgeScope;
+        RetrievalFilters effectiveFilters = retrievalFilters == null ? RetrievalFilters.empty() : retrievalFilters;
+        List<StoredMaterialRecord> scopedRecords = allRecords.stream()
+            .filter(record -> matchesKnowledgeScope(record, effectiveScope, uploadedAfterInclusive, uploadedBeforeExclusive))
+            .filter(record -> matchesRetrievalFilters(record, effectiveFilters))
+            .toList();
+        Set<String> scopedReadyMaterialIds = scopedRecords.stream()
+            .filter(this::isSearchable)
+            .map(StoredMaterialRecord::id)
+            .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
+        return new MaterialRetrievalScopeSnapshot(
+            allRecords.size(),
+            (int) allRecords.stream().filter(record -> record.versionState() == MaterialVersionState.ACTIVE).count(),
+            (int) allRecords.stream().filter(this::isSearchable).count(),
+            scopedRecords.size(),
+            (int) scopedRecords.stream().filter(record -> record.versionState() == MaterialVersionState.ACTIVE).count(),
+            scopedReadyMaterialIds.size(),
+            scopedReadyMaterialIds
+        );
+    }
+
+    @Override
+    public synchronized List<StoredMaterialRecord> supersedeActiveVersions(
         String sourceKey,
-        String activeMaterialId,
-        String excludeContentHash,
+        String supersededByMaterialId,
+        String excludeMaterialId,
         String supersedeReason,
         Instant updatedAt
     ) {
+        List<StoredMaterialRecord> affectedRecords = new ArrayList<>();
         for (Map.Entry<String, StoredMaterialRecord> entry : recordsById.entrySet()) {
             StoredMaterialRecord record = entry.getValue();
             if (!record.sourceKey().equals(sourceKey)) {
@@ -132,17 +322,19 @@ public class InMemoryMaterialRepository implements MaterialCatalogRepository, Ma
             if (record.versionState() != MaterialVersionState.ACTIVE) {
                 continue;
             }
-            if (record.contentHash().equals(excludeContentHash)) {
+            if (record.id().equals(excludeMaterialId)) {
                 continue;
             }
+            affectedRecords.add(record);
             entry.setValue(copyWithVersionState(
                 record,
                 MaterialVersionState.SUPERSEDED,
-                activeMaterialId,
+                supersededByMaterialId,
                 supersedeReason,
                 updatedAt
             ));
         }
+        return List.copyOf(affectedRecords);
     }
 
     @Override
@@ -154,8 +346,9 @@ public class InMemoryMaterialRepository implements MaterialCatalogRepository, Ma
             .filter(record -> record.sourceKey().equals(sourceKey))
             .filter(record -> record.versionState() == versionState)
             .max(Comparator
-                .comparing(StoredMaterialRecord::updatedAt)
-                .thenComparing(StoredMaterialRecord::createdAt));
+                .comparingInt(StoredMaterialRecord::lineageVersion)
+                .thenComparing(StoredMaterialRecord::createdAt)
+                .thenComparing(StoredMaterialRecord::id));
     }
 
     @Override
@@ -184,11 +377,32 @@ public class InMemoryMaterialRepository implements MaterialCatalogRepository, Ma
 
     @Override
     public synchronized List<MaterialChunkSearchMatch> searchSemantic(float[] queryEmbedding, int limit) {
+        return searchSemantic(queryEmbedding, limit, null, RetrievalFilters.empty());
+    }
+
+    @Override
+    public synchronized List<MaterialChunkSearchMatch> searchSemantic(
+        float[] queryEmbedding,
+        int limit,
+        Set<String> allowedMaterialIds
+    ) {
+        return searchSemantic(queryEmbedding, limit, allowedMaterialIds, RetrievalFilters.empty());
+    }
+
+    @Override
+    public synchronized List<MaterialChunkSearchMatch> searchSemantic(
+        float[] queryEmbedding,
+        int limit,
+        Set<String> allowedMaterialIds,
+        RetrievalFilters filters
+    ) {
         if (queryEmbedding == null || queryEmbedding.length == 0 || limit <= 0) {
             return List.of();
         }
 
         return readyRecords().stream()
+            .filter(record -> allowedMaterialIds == null || allowedMaterialIds.contains(record.id()))
+            .filter(record -> matchesRetrievalFilters(record, filters))
             .flatMap(record -> embeddedChunksByMaterialId.getOrDefault(record.id(), List.of()).stream()
                 .map(chunk -> new SemanticCandidate(record, chunk, cosineDistance(queryEmbedding, chunk.embedding()))))
             .sorted(Comparator
@@ -204,6 +418,7 @@ public class InMemoryMaterialRepository implements MaterialCatalogRepository, Ma
                 candidate.chunk().page(),
                 candidate.chunk().extractor(),
                 candidate.chunk().ocrUsed(),
+                candidate.chunk().chunkType(),
                 candidate.distance(),
                 null
             ))
@@ -211,7 +426,27 @@ public class InMemoryMaterialRepository implements MaterialCatalogRepository, Ma
     }
 
     @Override
-    public synchronized List<MaterialChunkSearchMatch> searchLexical(String query, int limit) {
+    public LexicalProviderType type() {
+        return LexicalProviderType.POSTGRES;
+    }
+
+    @Override
+    public synchronized List<MaterialChunkSearchMatch> search(String query, int limit) {
+        return search(query, limit, null, RetrievalFilters.empty());
+    }
+
+    @Override
+    public synchronized List<MaterialChunkSearchMatch> search(String query, int limit, Set<String> allowedMaterialIds) {
+        return search(query, limit, allowedMaterialIds, RetrievalFilters.empty());
+    }
+
+    @Override
+    public synchronized List<MaterialChunkSearchMatch> search(
+        String query,
+        int limit,
+        Set<String> allowedMaterialIds,
+        RetrievalFilters filters
+    ) {
         if (query == null || query.isBlank() || limit <= 0) {
             return List.of();
         }
@@ -220,6 +455,8 @@ public class InMemoryMaterialRepository implements MaterialCatalogRepository, Ma
         String normalizedPrompt = normalize(query);
 
         return readyRecords().stream()
+            .filter(record -> allowedMaterialIds == null || allowedMaterialIds.contains(record.id()))
+            .filter(record -> matchesRetrievalFilters(record, filters))
             .flatMap(record -> embeddedChunksByMaterialId.getOrDefault(record.id(), List.of()).stream()
                 .map(chunk -> new LexicalCandidate(record, chunk, lexicalScore(record.title(), chunk.text(), normalizedPrompt, queryTokens))))
             .filter(candidate -> candidate.score() > 0)
@@ -237,6 +474,7 @@ public class InMemoryMaterialRepository implements MaterialCatalogRepository, Ma
                 candidate.chunk().page(),
                 candidate.chunk().extractor(),
                 candidate.chunk().ocrUsed(),
+                candidate.chunk().chunkType(),
                 null,
                 (double) candidate.score()
             ))
@@ -390,11 +628,403 @@ public class InMemoryMaterialRepository implements MaterialCatalogRepository, Ma
         return new IndexingQueueSnapshot(pendingCount, inProgressCount, failedCount, nextRetryAt);
     }
 
+    @Override
+    public synchronized void enqueueMaterialsForSync(java.util.Collection<String> materialIds, Instant requestedAt) {
+        if (materialIds == null || materialIds.isEmpty()) {
+            return;
+        }
+
+        Instant effectiveRequestedAt = requestedAt == null ? Instant.now() : requestedAt;
+        for (String materialId : materialIds) {
+            if (materialId == null || materialId.isBlank()) {
+                continue;
+            }
+            MaterialSearchSyncQueueEntry current = searchSyncQueueByMaterialId.get(materialId);
+            if (current == null) {
+                searchSyncQueueByMaterialId.put(materialId, new MaterialSearchSyncQueueEntry(
+                    materialId,
+                    SearchSyncDeliveryState.PENDING,
+                    0,
+                    null,
+                    null,
+                    null,
+                    null,
+                    effectiveRequestedAt,
+                    effectiveRequestedAt,
+                    effectiveRequestedAt
+                ));
+                continue;
+            }
+
+            Instant nextRequestedAt = current.requestedAt().isAfter(effectiveRequestedAt)
+                ? current.requestedAt()
+                : effectiveRequestedAt;
+            if (current.deliveryState() == SearchSyncDeliveryState.IN_PROGRESS) {
+                searchSyncQueueByMaterialId.put(materialId, new MaterialSearchSyncQueueEntry(
+                    current.materialId(),
+                    current.deliveryState(),
+                    current.attemptCount(),
+                    current.nextAttemptAt(),
+                    current.claimedAt(),
+                    current.lastErrorCode(),
+                    current.lastErrorMessage(),
+                    nextRequestedAt,
+                    current.createdAt(),
+                    effectiveRequestedAt
+                ));
+                continue;
+            }
+
+            searchSyncQueueByMaterialId.put(materialId, new MaterialSearchSyncQueueEntry(
+                current.materialId(),
+                SearchSyncDeliveryState.PENDING,
+                0,
+                null,
+                null,
+                null,
+                null,
+                nextRequestedAt,
+                current.createdAt(),
+                effectiveRequestedAt
+            ));
+        }
+    }
+
+    @Override
+    public synchronized List<MaterialSearchSyncQueueEntry> findAllSearchSyncEntries() {
+        return searchSyncQueueByMaterialId.values().stream()
+            .sorted(Comparator
+                .comparing(MaterialSearchSyncQueueEntry::requestedAt)
+                .thenComparing(MaterialSearchSyncQueueEntry::materialId))
+            .toList();
+    }
+
+    public synchronized void clearSearchSyncQueue() {
+        searchSyncQueueByMaterialId.clear();
+    }
+
+    @Override
+    public synchronized int requeueFailedSearchSyncEntries(Instant now) {
+        int requeued = 0;
+        for (MaterialSearchSyncQueueEntry entry : new ArrayList<>(searchSyncQueueByMaterialId.values())) {
+            if (entry.deliveryState() != SearchSyncDeliveryState.FAILED) {
+                continue;
+            }
+            searchSyncQueueByMaterialId.put(entry.materialId(), new MaterialSearchSyncQueueEntry(
+                entry.materialId(),
+                SearchSyncDeliveryState.PENDING,
+                0,
+                null,
+                null,
+                null,
+                null,
+                entry.requestedAt(),
+                entry.createdAt(),
+                now
+            ));
+            requeued += 1;
+        }
+        return requeued;
+    }
+
+    @Override
+    public synchronized void resetExpiredSearchSyncClaims(Instant staleBefore, Instant now) {
+        for (MaterialSearchSyncQueueEntry entry : new ArrayList<>(searchSyncQueueByMaterialId.values())) {
+            if (entry.deliveryState() != SearchSyncDeliveryState.IN_PROGRESS) {
+                continue;
+            }
+            if (entry.claimedAt() == null || !entry.claimedAt().isBefore(staleBefore)) {
+                continue;
+            }
+            searchSyncQueueByMaterialId.put(entry.materialId(), new MaterialSearchSyncQueueEntry(
+                entry.materialId(),
+                SearchSyncDeliveryState.PENDING,
+                entry.attemptCount(),
+                null,
+                null,
+                entry.lastErrorCode(),
+                entry.lastErrorMessage(),
+                entry.requestedAt(),
+                entry.createdAt(),
+                now
+            ));
+        }
+    }
+
+    @Override
+    public synchronized List<MaterialSearchSyncQueueEntry> claimNextSearchSyncBatch(Instant now, int limit) {
+        if (limit <= 0) {
+            return List.of();
+        }
+
+        List<MaterialSearchSyncQueueEntry> claimed = searchSyncQueueByMaterialId.values().stream()
+            .filter(entry -> entry.deliveryState() == SearchSyncDeliveryState.PENDING)
+            .filter(entry -> entry.nextAttemptAt() == null || !entry.nextAttemptAt().isAfter(now))
+            .sorted(Comparator
+                .comparing((MaterialSearchSyncQueueEntry entry) ->
+                    entry.nextAttemptAt() == null ? entry.requestedAt() : entry.nextAttemptAt())
+                .thenComparing(MaterialSearchSyncQueueEntry::requestedAt)
+                .thenComparing(MaterialSearchSyncQueueEntry::materialId))
+            .limit(limit)
+            .toList();
+
+        for (MaterialSearchSyncQueueEntry entry : claimed) {
+            searchSyncQueueByMaterialId.put(entry.materialId(), new MaterialSearchSyncQueueEntry(
+                entry.materialId(),
+                SearchSyncDeliveryState.IN_PROGRESS,
+                entry.attemptCount() + 1,
+                entry.nextAttemptAt(),
+                now,
+                entry.lastErrorCode(),
+                entry.lastErrorMessage(),
+                entry.requestedAt(),
+                entry.createdAt(),
+                now
+            ));
+        }
+
+        return claimed.stream()
+            .map(entry -> searchSyncQueueByMaterialId.get(entry.materialId()))
+            .toList();
+    }
+
+    @Override
+    public synchronized boolean hasPendingSearchSyncEvents(Instant now) {
+        return searchSyncQueueByMaterialId.values().stream()
+            .filter(entry -> entry.deliveryState() == SearchSyncDeliveryState.PENDING)
+            .anyMatch(entry -> entry.nextAttemptAt() == null || !entry.nextAttemptAt().isAfter(now));
+    }
+
+    @Override
+    public synchronized void completeSearchSyncEntry(String materialId, Instant claimedAt, Instant now) {
+        MaterialSearchSyncQueueEntry current = searchSyncQueueByMaterialId.get(materialId);
+        if (current == null
+            || current.deliveryState() != SearchSyncDeliveryState.IN_PROGRESS
+            || current.claimedAt() == null
+            || !current.claimedAt().equals(claimedAt)) {
+            return;
+        }
+
+        if (current.requestedAt().isAfter(claimedAt)) {
+            searchSyncQueueByMaterialId.put(materialId, new MaterialSearchSyncQueueEntry(
+                current.materialId(),
+                SearchSyncDeliveryState.PENDING,
+                0,
+                null,
+                null,
+                null,
+                null,
+                current.requestedAt(),
+                current.createdAt(),
+                now
+            ));
+            return;
+        }
+
+        searchSyncQueueByMaterialId.remove(materialId);
+    }
+
+    @Override
+    public synchronized void markSearchSyncEntryForRetry(
+        String materialId,
+        Instant claimedAt,
+        String errorCode,
+        String errorMessage,
+        Instant now,
+        Instant nextAttemptAt
+    ) {
+        updateClaimedSearchSyncQueueEntry(
+            materialId,
+            claimedAt,
+            SearchSyncDeliveryState.PENDING,
+            nextAttemptAt,
+            now,
+            errorCode,
+            errorMessage
+        );
+    }
+
+    @Override
+    public synchronized void markSearchSyncEntryFailed(
+        String materialId,
+        Instant claimedAt,
+        String errorCode,
+        String errorMessage,
+        Instant now
+    ) {
+        updateClaimedSearchSyncQueueEntry(
+            materialId,
+            claimedAt,
+            SearchSyncDeliveryState.FAILED,
+            null,
+            now,
+            errorCode,
+            errorMessage
+        );
+    }
+
+    @Override
+    public synchronized MaterialSearchSyncQueueRepository.SearchSyncQueueSnapshot getSearchSyncQueueSnapshot() {
+        int pendingCount = 0;
+        int inProgressCount = 0;
+        int failedCount = 0;
+        Instant nextRetryAt = null;
+        Instant oldestOutstandingAt = null;
+
+        for (MaterialSearchSyncQueueEntry entry : searchSyncQueueByMaterialId.values()) {
+            if (entry.deliveryState() == SearchSyncDeliveryState.PENDING) {
+                pendingCount += 1;
+                if (entry.nextAttemptAt() != null && (nextRetryAt == null || entry.nextAttemptAt().isBefore(nextRetryAt))) {
+                    nextRetryAt = entry.nextAttemptAt();
+                }
+                if (oldestOutstandingAt == null || entry.requestedAt().isBefore(oldestOutstandingAt)) {
+                    oldestOutstandingAt = entry.requestedAt();
+                }
+            } else if (entry.deliveryState() == SearchSyncDeliveryState.IN_PROGRESS) {
+                inProgressCount += 1;
+                if (oldestOutstandingAt == null || entry.requestedAt().isBefore(oldestOutstandingAt)) {
+                    oldestOutstandingAt = entry.requestedAt();
+                }
+            } else if (entry.deliveryState() == SearchSyncDeliveryState.FAILED) {
+                failedCount += 1;
+            }
+        }
+
+        return new MaterialSearchSyncQueueRepository.SearchSyncQueueSnapshot(
+            pendingCount,
+            inProgressCount,
+            failedCount,
+            nextRetryAt,
+            oldestOutstandingAt
+        );
+    }
+
+    @Override
+    public synchronized SearchableMaterialSnapshot resolveSearchableSnapshot(String materialId) {
+        StoredMaterialRecord record = recordsById.get(materialId);
+        if (record == null || !isSearchable(record)) {
+            return SearchableMaterialSnapshot.notSearchable(materialId);
+        }
+
+        List<SearchableMaterialChunkSnapshot> chunks = embeddedChunksByMaterialId.getOrDefault(materialId, List.of()).stream()
+            .sorted(Comparator.comparingInt(StoredEmbeddedMaterialChunk::index))
+            .map(chunk -> new SearchableMaterialChunkSnapshot(
+                chunk.index(),
+                chunk.text(),
+                chunk.page(),
+                chunk.extractor(),
+                chunk.ocrUsed(),
+                chunk.chunkType(),
+                chunk.sectionPath(),
+                chunk.headingTrail(),
+                chunk.tableId(),
+                chunk.slideId(),
+                chunk.parserConfidence()
+            ))
+            .toList();
+        return new SearchableMaterialSnapshot(
+            record.id(),
+            true,
+            record.sourceKey(),
+            record.title(),
+            record.sourceType(),
+            record.originalFileName(),
+            record.mediaType(),
+            record.updatedAt(),
+            record.metadata(),
+            chunks
+        );
+    }
+
+    @Override
+    public synchronized List<String> findAllSearchableMaterialIds() {
+        return recordsById.values().stream()
+            .filter(this::isSearchable)
+            .sorted(Comparator.comparing(StoredMaterialRecord::updatedAt).thenComparing(StoredMaterialRecord::id))
+            .map(StoredMaterialRecord::id)
+            .toList();
+    }
+
     private List<StoredMaterialRecord> readyRecords() {
         return new ArrayList<>(recordsById.values().stream()
-            .filter(record -> record.versionState() == MaterialVersionState.ACTIVE)
-            .filter(record -> record.status() == MaterialIndexingStatus.READY || record.status() == MaterialIndexingStatus.PARTIAL_READY)
+            .filter(this::isSearchable)
             .toList());
+    }
+
+    private boolean isAfterCursor(StoredMaterialRecord record, Instant createdAt, String id) {
+        return record.createdAt().isAfter(createdAt)
+            || (record.createdAt().equals(createdAt) && record.id().compareTo(id) > 0);
+    }
+
+    private boolean isSearchable(StoredMaterialRecord record) {
+        return record.versionState() == MaterialVersionState.ACTIVE
+            && (record.status() == MaterialIndexingStatus.READY || record.status() == MaterialIndexingStatus.PARTIAL_READY);
+    }
+
+    private boolean matchesKnowledgeScope(
+        StoredMaterialRecord record,
+        KnowledgeScope scope,
+        Instant uploadedAfterInclusive,
+        Instant uploadedBeforeExclusive
+    ) {
+        if (scope == null) {
+            return true;
+        }
+        if (!scope.documentClasses().isEmpty() && !scope.documentClasses().contains(record.metadata().knowledgeDocumentClass())) {
+            return false;
+        }
+        if (!scope.tags().isEmpty()) {
+            Set<String> recordTags = record.metadata().tags().stream()
+                .map(tag -> tag.toLowerCase(Locale.ROOT))
+                .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
+            boolean matchesAnyTag = scope.tags().stream()
+                .map(tag -> tag.toLowerCase(Locale.ROOT))
+                .anyMatch(recordTags::contains);
+            if (!matchesAnyTag) {
+                return false;
+            }
+        }
+        if (scope.workspaceKey() != null) {
+            String workspaceKey = record.metadata().workspaceKey();
+            if (workspaceKey == null || !scope.workspaceKey().equalsIgnoreCase(workspaceKey)) {
+                return false;
+            }
+        }
+        if (scope.uploadedTodayOnly()) {
+            if (uploadedAfterInclusive != null && record.createdAt().isBefore(uploadedAfterInclusive)) {
+                return false;
+            }
+            if (uploadedBeforeExclusive != null && !record.createdAt().isBefore(uploadedBeforeExclusive)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean matchesRetrievalFilters(StoredMaterialRecord record, RetrievalFilters filters) {
+        RetrievalFilters safeFilters = filters == null ? RetrievalFilters.empty() : filters;
+        return safeFilters.isEmpty() || safeFilters.matches(record.metadata());
+    }
+
+    private boolean hasMeaningfulMetadata(StoredMaterialRecord record) {
+        return record.metadata().documentType() != null && record.metadata().documentType() != com.example.demo.model.DocumentType.OTHER
+            || record.metadata().sourceTrust() != null && record.metadata().sourceTrust() != com.example.demo.model.SourceTrustLevel.UNKNOWN
+            || hasText(record.metadata().author())
+            || hasText(record.metadata().department())
+            || record.metadata().documentDate() != null
+            || hasText(record.metadata().documentNumber())
+            || hasText(record.metadata().versionLabel())
+            || hasText(record.metadata().language())
+            || !record.metadata().tags().isEmpty()
+            || hasText(record.metadata().project())
+            || hasText(record.metadata().counterparty())
+            || hasText(record.metadata().businessStatus())
+            || record.metadata().periodStart() != null
+            || record.metadata().periodEnd() != null;
+    }
+
+    private boolean hasText(String value) {
+        return value != null && !value.isBlank();
     }
 
     private int lexicalScore(String title, String chunkText, String normalizedPrompt, Set<String> queryTokens) {
@@ -440,6 +1070,41 @@ public class InMemoryMaterialRepository implements MaterialCatalogRepository, Ma
             from += token.length();
         }
         return count;
+    }
+
+    private void updateClaimedSearchSyncQueueEntry(
+        String materialId,
+        Instant claimedAt,
+        SearchSyncDeliveryState deliveryState,
+        Instant nextAttemptAt,
+        Instant now,
+        String errorCode,
+        String errorMessage
+    ) {
+        if (materialId == null || materialId.isBlank() || claimedAt == null) {
+            return;
+        }
+
+        MaterialSearchSyncQueueEntry current = searchSyncQueueByMaterialId.get(materialId);
+        if (current == null
+            || current.deliveryState() != SearchSyncDeliveryState.IN_PROGRESS
+            || current.claimedAt() == null
+            || !current.claimedAt().equals(claimedAt)) {
+            return;
+        }
+
+        searchSyncQueueByMaterialId.put(materialId, new MaterialSearchSyncQueueEntry(
+            current.materialId(),
+            deliveryState,
+            current.attemptCount(),
+            nextAttemptAt,
+            null,
+            errorCode,
+            errorMessage,
+            current.requestedAt(),
+            current.createdAt(),
+            now
+        ));
     }
 
     private double cosineDistance(float[] left, float[] right) {
@@ -491,7 +1156,9 @@ public class InMemoryMaterialRepository implements MaterialCatalogRepository, Ma
             attemptsByMaterialId.getOrDefault(record.id(), 0),
             nextRetryAtByMaterialId.get(record.id()),
             record.supersededByMaterialId(),
-            record.supersedeReason()
+            record.supersedeReason(),
+            record.lineageVersion(),
+            record.metadata()
         );
     }
 
@@ -525,8 +1192,26 @@ public class InMemoryMaterialRepository implements MaterialCatalogRepository, Ma
             attemptsByMaterialId.getOrDefault(record.id(), 0),
             nextRetryAtByMaterialId.get(record.id()),
             supersededByMaterialId,
-            supersedeReason
+            supersedeReason,
+            record.lineageVersion(),
+            record.metadata()
         );
+    }
+
+    private String sourceKeyAndContentHashKey(String sourceKey, String contentHash) {
+        return sourceKey + "|" + contentHash;
+    }
+
+    private String identityKey(MaterialLineageIdentity identity) {
+        return identity.sourceType() + "|" + identity.identityKind().name() + "|" + identity.identityKey();
+    }
+
+    private int nextLineageVersion(String sourceKey) {
+        return recordsById.values().stream()
+            .filter(record -> record.sourceKey().equals(sourceKey))
+            .mapToInt(StoredMaterialRecord::lineageVersion)
+            .max()
+            .orElse(0) + 1;
     }
 
     private record SemanticCandidate(
