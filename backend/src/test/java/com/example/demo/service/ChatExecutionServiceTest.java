@@ -171,11 +171,36 @@ class ChatExecutionServiceTest {
         assertTrue(llmClient.lastRequest.messages().getFirst().content().contains("Базовый системный промпт"));
         assertTrue(llmClient.lastRequest.messages().getFirst().content().contains("System instructions"));
         assertTrue(llmClient.lastRequest.messages().getFirst().content().contains("Safety restrictions"));
+        assertFalse(llmClient.lastRequest.messages().getFirst().content().contains("Context instructions"));
+        assertFalse(llmClient.lastRequest.messages().getFirst().content().contains("User instructions"));
         String userMessage = llmClient.lastRequest.messages().getLast().content();
         assertTrue(userMessage.contains("Context instructions"));
         assertTrue(userMessage.contains("User instructions"));
         assertTrue(userMessage.indexOf("Context instructions") < userMessage.indexOf("Retrieved context"));
         assertTrue(userMessage.indexOf("User instructions") < userMessage.indexOf("User request"));
+
+        fixture.chatExecutionService().execute(new ChatExecutionRequest(
+            ChatMode.DIRECT,
+            null,
+            "Сформулируй краткий ответ",
+            "Базовый системный промпт",
+            List.of(system.id(), safety.id(), context.id(), user.id())
+        ));
+
+        String directSystemMessage = llmClient.lastRequest.messages().getFirst().content();
+        assertTrue(directSystemMessage.contains("Базовый системный промпт"));
+        assertTrue(directSystemMessage.contains("System instructions"));
+        assertTrue(directSystemMessage.contains("Safety restrictions"));
+        assertFalse(directSystemMessage.contains("Context instructions"));
+        assertFalse(directSystemMessage.contains("User instructions"));
+
+        String directUserMessage = llmClient.lastRequest.messages().getLast().content();
+        assertTrue(directUserMessage.contains("Context instructions"));
+        assertTrue(directUserMessage.contains("Учитывай только внутренние регламенты."));
+        assertTrue(directUserMessage.contains("User instructions"));
+        assertTrue(directUserMessage.contains("Ответ начни с короткого вывода."));
+        assertTrue(directUserMessage.indexOf("Context instructions") < directUserMessage.indexOf("User instructions"));
+        assertTrue(directUserMessage.indexOf("User instructions") < directUserMessage.indexOf("User request"));
     }
 
     @Test

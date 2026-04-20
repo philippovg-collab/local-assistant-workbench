@@ -438,6 +438,7 @@ public class ChatExecutionService {
         List<LlmClient.Message> messages = buildDirectMessages(
             promptPolicy.systemPrompt(),
             request.prompt(),
+            promptPolicy.contextInstructions(),
             promptPolicy.userInstructions()
         );
         traceStage(traceContext, () -> chatRunTraceService.savePromptMessages(traceContext, messages));
@@ -695,6 +696,7 @@ public class ChatExecutionService {
     private List<LlmClient.Message> buildDirectMessages(
         String systemPrompt,
         String prompt,
+        String contextInstructions,
         String userInstructions
     ) {
         List<LlmClient.Message> messages = new ArrayList<>();
@@ -702,7 +704,7 @@ public class ChatExecutionService {
             messages.add(new LlmClient.Message("system", systemPrompt));
         }
 
-        messages.add(new LlmClient.Message("user", composeUserMessage(userInstructions, prompt)));
+        messages.add(new LlmClient.Message("user", composeUserMessage(contextInstructions, userInstructions, prompt)));
         return messages;
     }
 
@@ -757,11 +759,18 @@ public class ChatExecutionService {
         }
     }
 
-    private String composeUserMessage(String userInstructions, String prompt) {
-        if (!StringUtils.hasText(userInstructions)) {
+    private String composeUserMessage(String contextInstructions, String userInstructions, String prompt) {
+        StringBuilder userMessage = new StringBuilder();
+        if (StringUtils.hasText(contextInstructions)) {
+            userMessage.append(contextInstructions.trim()).append("\n\n");
+        }
+        if (StringUtils.hasText(userInstructions)) {
+            userMessage.append(userInstructions.trim()).append("\n\n");
+        }
+        if (userMessage.isEmpty()) {
             return prompt.trim();
         }
-        return userInstructions.trim() + "\n\nUser request:\n" + prompt.trim();
+        return userMessage.append("User request:\n").append(prompt.trim()).toString();
     }
 
     private ChatExecutionResponse withAudit(ChatExecutionResponse response) {

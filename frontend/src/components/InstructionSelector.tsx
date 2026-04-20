@@ -92,10 +92,14 @@ export function InstructionSelector({
               <ListOrdered className="h-4 w-4 text-primary" />
               Порядок применения
             </div>
+            <p className="mb-3 text-sm leading-6 text-muted-foreground">
+              Выбранные инструкции добавляются в runtime prompt в указанном порядке.
+            </p>
 
             {orderedSelectedInstructions.length === 0 ? (
               <p className="text-sm leading-6 text-muted-foreground">
-                Если ничего не выбрать, backend выполнит запрос только с базовым system prompt.
+                Если ничего не выбрать, запрос всё равно пройдёт через базовую prompt policy и автоматические
+                assistant/workspace-инструкции.
               </p>
             ) : (
               <ol className="space-y-2">

@@ -6,7 +6,7 @@
 
 - единый backend-контракт для чата через `POST /api/chat`
 - два режима исполнения: `RAG` и `DIRECT`
-- одна prompt policy для модели, system prompt и выбранных инструкций
+- одна prompt policy для модели, system prompt, automatic scopes и выбранных инструкций
 - `PostgreSQL + pgvector` для материалов, инструкций и гибридного vector RAG
 - legacy JSON-хранилище осталось только для миграционного импорта и quarantine битых записей
 
@@ -16,7 +16,7 @@
 - веб-интерфейс на `React + Vite`
 - backend на `Spring Boot`
 - единый chat execution pipeline для direct и RAG сценариев
-- библиотека инструкций, которая участвует в runtime только если пользователь явно её выбрал
+- библиотека инструкций с automatic assistant/workspace scopes и выбираемыми chat scenario инструкциями
 - ingestion материалов при записи: нормализация, дедупликация, chunking, embeddings и индексирование
 
 ## Продуктовая модель
@@ -28,16 +28,34 @@
 
 Оба режима идут через один API и один LLM client.
 
+## Runtime architecture
+
+```mermaid
+flowchart LR
+  UI["React workspace"] --> API["Spring Boot API"]
+  API --> Chat["ChatExecutionService"]
+  Chat --> Instructions["InstructionService"]
+  Chat --> Presets["KnowledgePresetService"]
+  Instructions --> Policy["PromptPolicyResolver"]
+  Presets --> Retrieval["RAG retrieval scope"]
+  Policy --> Messages["LLM messages"]
+  Retrieval --> Messages
+  Messages --> Ollama["Ollama LLM"]
+```
+
+Инструкции и knowledge presets не являются тупиковыми библиотеками: chat execution резолвит их перед вызовом модели. Инструкции входят в runtime prompt policy, а presets задают effective knowledge scope для RAG retrieval и trace.
+
 ## Prompt Policy
 
 Правила сборки runtime prompt фиксированы и одинаковы для всех клиентов:
 
 1. `request.model` переопределяет модель по умолчанию из backend-конфига.
-2. `request.systemPrompt` переопределяет системный prompt по умолчанию из backend-конфига.
-3. `instructionIds` подтягиваются из библиотеки инструкций и добавляются в system prompt в указанном порядке.
-4. Для `RAG` backend всегда добавляет grounding rules: отвечать только по найденному контексту, явно признавать неполноту контекста и не галлюцинировать.
+2. `request.systemPrompt` остаётся legacy alias для временной request-инструкции.
+3. Runtime-инструкции собираются из assistant/workspace scopes, выбранных `instructionIds`/`scenarioInstructionIds` и `temporaryInstruction`.
+4. `SYSTEM` и `SAFETY` инструкции входят в system message; `CONTEXT` и `USER` инструкции входят в user message перед запросом пользователя.
+5. Для `RAG` backend всегда добавляет grounding rules: отвечать только по найденному контексту, явно признавать неполноту контекста и не галлюцинировать.
 
-Если инструкция не выбрана, она не влияет на выполнение запроса.
+Если scenario-инструкция не выбрана, она не влияет на выполнение запроса; assistant/workspace scopes применяются автоматически по своему target.
 
 ## Быстрый старт
 
