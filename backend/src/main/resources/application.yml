@@ -87,6 +87,7 @@ app:
     threads: 2
     queue-capacity: 32
     poll-interval-millis: 1000
+    claim-lease-seconds: 300
   search-sync:
     enabled: false
     index-prefix: rag-chunks

@@ -10,6 +10,7 @@ public class ChatExecutionProperties {
     private int threads = 2;
     private int queueCapacity = 32;
     private int pollIntervalMillis = 1000;
+    private int claimLeaseSeconds = 300;
 
     public int getThreads() {
         return threads;
@@ -33,5 +34,13 @@ public class ChatExecutionProperties {
 
     public void setPollIntervalMillis(int pollIntervalMillis) {
         this.pollIntervalMillis = pollIntervalMillis;
+    }
+
+    public int getClaimLeaseSeconds() {
+        return claimLeaseSeconds;
+    }
+
+    public void setClaimLeaseSeconds(int claimLeaseSeconds) {
+        this.claimLeaseSeconds = claimLeaseSeconds;
     }
 }

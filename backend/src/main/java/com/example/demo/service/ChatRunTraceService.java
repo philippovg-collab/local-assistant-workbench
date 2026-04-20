@@ -60,7 +60,7 @@ public class ChatRunTraceService {
     ) {
         write(() -> {
             repository.saveRequestSnapshot(context.id(), request, normalizedRequest);
-            repository.insertEvent(context.id(), "REQUEST_SNAPSHOT_SAVED", Map.of(), Instant.now());
+            repository.insertEventIfRunMutable(context.id(), "REQUEST_SNAPSHOT_SAVED", Map.of(), Instant.now());
             return null;
         });
     }
@@ -76,7 +76,7 @@ public class ChatRunTraceService {
                 ? null
                 : snapshot.withTrace(instructionTrace, knowledgeScopeResolved);
             repository.savePromptSnapshot(context.id(), enrichedSnapshot);
-            repository.insertEvent(context.id(), "PROMPT_RESOLVED", Map.of(), Instant.now());
+            repository.insertEventIfRunMutable(context.id(), "PROMPT_RESOLVED", Map.of(), Instant.now());
             return null;
         });
     }
@@ -84,7 +84,7 @@ public class ChatRunTraceService {
     public void savePromptMessages(RunTraceContext context, List<LlmClient.Message> messages) {
         write(() -> {
             repository.savePromptMessages(context.id(), toChatRunMessages(messages));
-            repository.insertEvent(context.id(), "PROMPT_MESSAGES_SAVED", Map.of(
+            repository.insertEventIfRunMutable(context.id(), "PROMPT_MESSAGES_SAVED", Map.of(
                 "messageCount",
                 messages == null ? 0 : messages.size()
             ), Instant.now());
@@ -100,7 +100,7 @@ public class ChatRunTraceService {
     ) {
         write(() -> {
             repository.saveRetrievalSummary(context.id(), retrievalStatus, trace, debug);
-            repository.insertEvent(context.id(), "RETRIEVAL_" + retrievalStatus, Map.of(), Instant.now());
+            repository.insertEventIfRunMutable(context.id(), "RETRIEVAL_" + retrievalStatus, Map.of(), Instant.now());
             return null;
         });
     }
@@ -130,7 +130,7 @@ public class ChatRunTraceService {
                 null,
                 Instant.now()
             ));
-            repository.insertEvent(context.id(), "LLM_DONE", Map.of(), Instant.now());
+            repository.insertEventIfRunMutable(context.id(), "LLM_DONE", Map.of(), Instant.now());
             return null;
         });
     }
@@ -161,7 +161,7 @@ public class ChatRunTraceService {
                 rootMessage(throwable),
                 Instant.now()
             ));
-            repository.insertEvent(context.id(), "LLM_FAILED", Map.of(
+            repository.insertEventIfRunMutable(context.id(), "LLM_FAILED", Map.of(
                 "code",
                 reasonCode(throwable),
                 "message",
@@ -189,20 +189,20 @@ public class ChatRunTraceService {
                 abstained,
                 strictSourcesBlockedAnswer
             ));
-            repository.insertEvent(context.id(), "OUTPUT_SAVED", Map.of(), Instant.now());
+            repository.insertEventIfRunMutable(context.id(), "OUTPUT_SAVED", Map.of(), Instant.now());
             return null;
         });
     }
 
-    public void completeRun(
+    public boolean completeRun(
         RunTraceContext context,
         String resolvedModel,
         AnswerMode appliedAnswerMode,
         String contextStatus
     ) {
-        write(() -> {
+        return write(() -> {
             Instant completedAt = Instant.now();
-            repository.completeRun(
+            boolean completed = repository.completeRun(
                 context.id(),
                 resolvedModel,
                 appliedAnswerMode,
@@ -210,15 +210,17 @@ public class ChatRunTraceService {
                 completedAt,
                 Duration.between(context.createdAt(), completedAt).toMillis()
             );
-            repository.insertEvent(context.id(), "COMPLETED", Map.of(), completedAt);
-            return null;
+            if (completed) {
+                repository.insertEvent(context.id(), "COMPLETED", Map.of(), completedAt);
+            }
+            return completed;
         });
     }
 
-    public void failRun(RunTraceContext context, String failureStage, Throwable throwable) {
-        write(() -> {
+    public boolean failRun(RunTraceContext context, String failureStage, Throwable throwable) {
+        return write(() -> {
             Instant failedAt = Instant.now();
-            repository.failRun(
+            boolean failed = repository.failRun(
                 context.id(),
                 failureStage,
                 reasonCode(throwable),
@@ -226,15 +228,17 @@ public class ChatRunTraceService {
                 failedAt,
                 Duration.between(context.createdAt(), failedAt).toMillis()
             );
-            repository.insertEvent(context.id(), "FAILED", Map.of(
-                "stage",
-                failureStage,
-                "code",
-                reasonCode(throwable),
-                "message",
-                rootMessage(throwable)
-            ), failedAt);
-            return null;
+            if (failed) {
+                repository.insertEvent(context.id(), "FAILED", Map.of(
+                    "stage",
+                    failureStage,
+                    "code",
+                    reasonCode(throwable),
+                    "message",
+                    rootMessage(throwable)
+                ), failedAt);
+            }
+            return failed;
         });
     }
 

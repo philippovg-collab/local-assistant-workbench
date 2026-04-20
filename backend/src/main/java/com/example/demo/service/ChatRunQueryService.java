@@ -113,6 +113,13 @@ public class ChatRunQueryService {
         }
 
         ChatRunOutputTrace output = trace.output();
+        if (output == null || trace.requestSnapshot() == null || output.finalUserAnswer() == null) {
+            throw new ApiException(
+                HttpStatus.CONFLICT,
+                "chat_run.result_unavailable",
+                "Chat run completed but result output is unavailable"
+            );
+        }
         RetrievalSummaryTrace retrieval = trace.retrievalSummary();
         LlmCallTrace latestLlmCall = trace.llmCalls().isEmpty()
             ? null
@@ -127,8 +134,8 @@ public class ChatRunQueryService {
         return new ChatExecutionResponse(
             trace.mode(),
             firstNonBlank(trace.resolvedModel(), trace.requestedModel(), latestLlmCall == null ? "" : latestLlmCall.model()),
-            trace.requestSnapshot() == null ? "" : trace.requestSnapshot().prompt(),
-            output == null ? "" : nullToEmpty(output.finalUserAnswer()),
+            trace.requestSnapshot().prompt(),
+            output.finalUserAnswer(),
             trace.contextStatus(),
             (trace.completedAt() == null ? trace.createdAt() : trace.completedAt()).toString(),
             latestLlmCall == null ? null : latestLlmCall.promptTokens(),
@@ -150,7 +157,7 @@ public class ChatRunQueryService {
             knowledgeScopeResolved,
             retrieval == null || retrieval.trace() == null ? new RetrievalTrace(0, 0, 0, 0, 0, 0, 0, 0, 0) : retrieval.trace(),
             retrieval == null ? null : retrieval.debug(),
-            output == null ? List.of() : output.sources(),
+            output.sources(),
             trace.id()
         );
     }
@@ -191,7 +198,4 @@ public class ChatRunQueryService {
         return "";
     }
 
-    private String nullToEmpty(String value) {
-        return value == null ? "" : value;
-    }
 }

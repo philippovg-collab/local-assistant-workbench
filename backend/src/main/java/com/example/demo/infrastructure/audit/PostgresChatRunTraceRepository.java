@@ -327,7 +327,7 @@ public class PostgresChatRunTraceRepository {
         markStatus(runId, "POSTPROCESSED");
     }
 
-    public void completeRun(
+    public boolean completeRun(
         String runId,
         String resolvedModel,
         AnswerMode appliedAnswerMode,
@@ -335,7 +335,8 @@ public class PostgresChatRunTraceRepository {
         Instant completedAt,
         long latencyMsTotal
     ) {
-        write(() -> jdbcTemplate.update(
+        int[] updatedCount = {0};
+        write(() -> updatedCount[0] = jdbcTemplate.update(
             """
                 UPDATE chat_run_headers
                 SET status = 'COMPLETED',
@@ -356,9 +357,10 @@ public class PostgresChatRunTraceRepository {
             latencyMsTotal,
             UUID.fromString(runId)
         ));
+        return updatedCount[0] > 0;
     }
 
-    public void failRun(
+    public boolean failRun(
         String runId,
         String failureStage,
         String failureCode,
@@ -366,7 +368,8 @@ public class PostgresChatRunTraceRepository {
         Instant failedAt,
         long latencyMsTotal
     ) {
-        write(() -> jdbcTemplate.update(
+        int[] updatedCount = {0};
+        write(() -> updatedCount[0] = jdbcTemplate.update(
             """
                 UPDATE chat_run_headers
                 SET status = 'FAILED',
@@ -387,6 +390,7 @@ public class PostgresChatRunTraceRepository {
             failureMessage,
             UUID.fromString(runId)
         ));
+        return updatedCount[0] > 0;
     }
 
     public boolean cancelRun(String runId, Instant cancelledAt, long latencyMsTotal) {
@@ -429,6 +433,38 @@ public class PostgresChatRunTraceRepository {
             writeJson(payload),
             Timestamp.from(createdAt)
         ));
+    }
+
+    public boolean insertEventIfRunMutable(String runId, String eventType, Object payload, Instant createdAt) {
+        int[] insertedCount = {0};
+        write(() -> insertedCount[0] = jdbcTemplate.update(
+            """
+                WITH mutable_run AS (
+                    SELECT id
+                    FROM chat_run_headers
+                    WHERE id = ?
+                      AND status <> 'FAILED'
+                      AND status <> 'COMPLETED'
+                      AND status <> 'CANCELLED'
+                    FOR UPDATE
+                )
+                INSERT INTO chat_run_events (
+                    id,
+                    run_id,
+                    event_type,
+                    event_payload_jsonb,
+                    created_at
+                )
+                SELECT ?, mutable_run.id, ?, ?::jsonb, ?
+                FROM mutable_run
+                """,
+            UUID.fromString(runId),
+            UUID.randomUUID(),
+            eventType,
+            writeJson(payload),
+            Timestamp.from(createdAt)
+        ));
+        return insertedCount[0] > 0;
     }
 
     public List<ChatAuditRunSummary> findRunSummaries(int limit) {
