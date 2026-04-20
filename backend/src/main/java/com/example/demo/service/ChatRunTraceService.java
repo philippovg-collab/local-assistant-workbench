@@ -4,6 +4,7 @@ import com.example.demo.api.ApiException;
 import com.example.demo.infrastructure.audit.PostgresChatRunTraceRepository;
 import com.example.demo.llm.LlmClient;
 import com.example.demo.model.AnswerMode;
+import com.example.demo.model.ChatExecutionResponse;
 import com.example.demo.model.ChatExecutionRequest;
 import com.example.demo.model.ChatMode;
 import com.example.demo.model.ChatRunMessage;
@@ -214,6 +215,21 @@ public class ChatRunTraceService {
                 repository.insertEvent(context.id(), "COMPLETED", Map.of(), completedAt);
             }
             return completed;
+        });
+    }
+
+    public boolean completeRunWithResult(RunTraceContext context, ChatExecutionResponse response) {
+        return write(() -> {
+            Instant completedAt = Instant.now();
+            return repository.completeRunWithResult(
+                context.id(),
+                response == null ? null : response.model(),
+                response == null ? null : response.answerModeApplied(),
+                response == null ? null : response.contextStatus(),
+                completedAt,
+                Duration.between(context.createdAt(), completedAt).toMillis(),
+                response
+            );
         });
     }
 

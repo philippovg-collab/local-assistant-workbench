@@ -553,6 +553,7 @@ public class ChatExecutionService {
         if (traceContext == null) {
             return withAudit(response);
         }
+        ChatExecutionResponse responseWithTraceId = withAuditRunId(response, traceContext.id());
         traceStage(traceContext, () -> chatRunTraceService.saveOutput(
             traceContext,
             rawModelAnswer,
@@ -562,13 +563,8 @@ public class ChatExecutionService {
             abstained(finalUserAnswer),
             strictSourcesBlockedAnswer
         ));
-        traceStage(traceContext, () -> chatRunTraceService.completeRun(
-            traceContext,
-            response.model(),
-            response.answerModeApplied(),
-            response.contextStatus()
-        ));
-        return withAuditRunId(response, traceContext.id());
+        traceStage(traceContext, () -> chatRunTraceService.completeRunWithResult(traceContext, responseWithTraceId));
+        return responseWithTraceId;
     }
 
     private ChatExecutionResponse withAuditRunId(ChatExecutionResponse response, String auditRunId) {

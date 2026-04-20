@@ -1260,18 +1260,15 @@ class PostgresMaterialJdbcSupport {
                         attempt_count,
                         next_attempt_at,
                         claimed_at,
+                        claimed_intent_version,
                         last_error_code,
                         last_error_message,
                         requested_at,
                         created_at,
                         updated_at
-                    ) VALUES (?, ?, 'PENDING', 0, NULL, NULL, NULL, NULL, ?, ?, ?)
+                    ) VALUES (?, ?, 'PENDING', 0, NULL, NULL, NULL, NULL, NULL, ?, ?, ?)
                     ON CONFLICT (material_id) DO UPDATE
-                    SET operation_type = CASE
-                            WHEN material_search_sync_queue.delivery_state = 'IN_PROGRESS'
-                                THEN material_search_sync_queue.operation_type
-                            ELSE EXCLUDED.operation_type
-                        END,
+                    SET operation_type = EXCLUDED.operation_type,
                         delivery_state = CASE
                             WHEN material_search_sync_queue.delivery_state = 'IN_PROGRESS'
                                 THEN material_search_sync_queue.delivery_state
@@ -1292,6 +1289,11 @@ class PostgresMaterialJdbcSupport {
                                 THEN material_search_sync_queue.claimed_at
                             ELSE NULL
                         END,
+                        claimed_intent_version = CASE
+                            WHEN material_search_sync_queue.delivery_state = 'IN_PROGRESS'
+                                THEN material_search_sync_queue.claimed_intent_version
+                            ELSE NULL
+                        END,
                         last_error_code = CASE
                             WHEN material_search_sync_queue.delivery_state = 'IN_PROGRESS'
                                 THEN material_search_sync_queue.last_error_code
@@ -1302,6 +1304,7 @@ class PostgresMaterialJdbcSupport {
                                 THEN material_search_sync_queue.last_error_message
                             ELSE NULL
                         END,
+                        intent_version = material_search_sync_queue.intent_version + 1,
                         requested_at = GREATEST(material_search_sync_queue.requested_at, EXCLUDED.requested_at),
                         updated_at = EXCLUDED.updated_at
                     """,
@@ -1372,6 +1375,7 @@ class PostgresMaterialJdbcSupport {
                         attempt_count = 0,
                         next_attempt_at = NULL,
                         claimed_at = NULL,
+                        claimed_intent_version = NULL,
                         last_error_code = NULL,
                         last_error_message = NULL,
                         updated_at = ?
@@ -1395,8 +1399,24 @@ class PostgresMaterialJdbcSupport {
                 """
                     UPDATE material_search_sync_queue
                     SET delivery_state = 'PENDING',
+                        attempt_count = CASE
+                            WHEN intent_version > COALESCE(claimed_intent_version, intent_version)
+                                THEN 0
+                            ELSE attempt_count
+                        END,
                         next_attempt_at = NULL,
                         claimed_at = NULL,
+                        claimed_intent_version = NULL,
+                        last_error_code = CASE
+                            WHEN intent_version > COALESCE(claimed_intent_version, intent_version)
+                                THEN NULL
+                            ELSE last_error_code
+                        END,
+                        last_error_message = CASE
+                            WHEN intent_version > COALESCE(claimed_intent_version, intent_version)
+                                THEN NULL
+                            ELSE last_error_message
+                        END,
                         updated_at = ?
                     WHERE delivery_state = 'IN_PROGRESS'
                       AND claimed_at IS NOT NULL
@@ -1446,6 +1466,7 @@ class PostgresMaterialJdbcSupport {
                         SET delivery_state = 'IN_PROGRESS',
                             attempt_count = attempt_count + 1,
                             claimed_at = ?,
+                            claimed_intent_version = intent_version,
                             updated_at = ?
                         WHERE material_id = ?
                         """,
@@ -1512,17 +1533,17 @@ class PostgresMaterialJdbcSupport {
                         attempt_count = 0,
                         next_attempt_at = NULL,
                         claimed_at = NULL,
+                        claimed_intent_version = NULL,
                         last_error_code = NULL,
                         last_error_message = NULL,
                         updated_at = ?
                     WHERE material_id = ?
                       AND delivery_state = 'IN_PROGRESS'
                       AND claimed_at = ?
-                      AND requested_at > ?
+                      AND intent_version > COALESCE(claimed_intent_version, intent_version)
                     """,
                 Timestamp.from(now),
                 UUID.fromString(materialId),
-                Timestamp.from(claimedAt),
                 Timestamp.from(claimedAt)
             );
             if (requeued > 0) {
@@ -1885,11 +1906,33 @@ class PostgresMaterialJdbcSupport {
             jdbcTemplate.update(
                 """
                     UPDATE material_search_sync_queue
-                    SET delivery_state = ?,
-                        next_attempt_at = ?,
+                    SET delivery_state = CASE
+                            WHEN intent_version > COALESCE(claimed_intent_version, intent_version)
+                                THEN 'PENDING'
+                            ELSE ?
+                        END,
+                        attempt_count = CASE
+                            WHEN intent_version > COALESCE(claimed_intent_version, intent_version)
+                                THEN 0
+                            ELSE attempt_count
+                        END,
+                        next_attempt_at = CASE
+                            WHEN intent_version > COALESCE(claimed_intent_version, intent_version)
+                                THEN NULL
+                            ELSE ?
+                        END,
                         claimed_at = NULL,
-                        last_error_code = ?,
-                        last_error_message = ?,
+                        claimed_intent_version = NULL,
+                        last_error_code = CASE
+                            WHEN intent_version > COALESCE(claimed_intent_version, intent_version)
+                                THEN NULL
+                            ELSE ?
+                        END,
+                        last_error_message = CASE
+                            WHEN intent_version > COALESCE(claimed_intent_version, intent_version)
+                                THEN NULL
+                            ELSE ?
+                        END,
                         updated_at = ?
                     WHERE material_id = ?
                       AND delivery_state = 'IN_PROGRESS'

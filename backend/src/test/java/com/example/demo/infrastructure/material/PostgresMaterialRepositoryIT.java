@@ -916,6 +916,159 @@ class PostgresMaterialRepositoryIT extends PostgresIntegrationTestSupport {
     }
 
     @Test
+    void deleteIntentDuringInProgressUpsertIsPreservedAfterOldClaimCompletes() {
+        StoredMaterialRecord record = searchSyncReadyRecord("Delete After Upsert", "hash-search-sync-delete-after-upsert");
+        Instant createdAt = Instant.parse("2026-04-17T11:05:00Z");
+        repository.enqueueMaterialsForSync(List.of(record.id()), SearchSyncOperationType.UPSERT, createdAt);
+        MaterialSearchSyncQueueEntry claimedEntry = repository.claimNextSearchSyncBatch(createdAt.plusSeconds(5), 1).getFirst();
+
+        Instant deleteRequestedAt = createdAt.plusSeconds(20);
+        repository.enqueueMaterialsForSync(List.of(record.id()), SearchSyncOperationType.DELETE, deleteRequestedAt);
+        repository.completeSearchSyncEntry(record.id(), claimedEntry.claimedAt(), deleteRequestedAt.plusSeconds(1));
+
+        MaterialSearchSyncQueueEntry requeuedEntry = repository.findAllSearchSyncEntries().getFirst();
+        assertEquals(SearchSyncOperationType.DELETE, requeuedEntry.operationType());
+        assertEquals(SearchSyncDeliveryState.PENDING, requeuedEntry.deliveryState());
+        assertEquals(0, requeuedEntry.attemptCount());
+        assertEquals(deleteRequestedAt, requeuedEntry.requestedAt());
+        assertEquals(null, requeuedEntry.nextAttemptAt());
+        assertEquals(null, requeuedEntry.claimedAt());
+        assertEquals(null, requeuedEntry.lastErrorCode());
+        assertEquals(null, requeuedEntry.lastErrorMessage());
+    }
+
+    @Test
+    void upsertIntentDuringInProgressDeleteIsPreservedAfterOldClaimCompletes() {
+        StoredMaterialRecord record = searchSyncReadyRecord("Upsert After Delete", "hash-search-sync-upsert-after-delete");
+        Instant createdAt = Instant.parse("2026-04-17T11:06:00Z");
+        repository.enqueueMaterialsForSync(List.of(record.id()), SearchSyncOperationType.DELETE, createdAt);
+        MaterialSearchSyncQueueEntry claimedEntry = repository.claimNextSearchSyncBatch(createdAt.plusSeconds(5), 1).getFirst();
+
+        Instant upsertRequestedAt = createdAt.plusSeconds(20);
+        repository.enqueueMaterialsForSync(List.of(record.id()), SearchSyncOperationType.UPSERT, upsertRequestedAt);
+        repository.completeSearchSyncEntry(record.id(), claimedEntry.claimedAt(), upsertRequestedAt.plusSeconds(1));
+
+        MaterialSearchSyncQueueEntry requeuedEntry = repository.findAllSearchSyncEntries().getFirst();
+        assertEquals(SearchSyncOperationType.UPSERT, requeuedEntry.operationType());
+        assertEquals(SearchSyncDeliveryState.PENDING, requeuedEntry.deliveryState());
+        assertEquals(0, requeuedEntry.attemptCount());
+        assertEquals(upsertRequestedAt, requeuedEntry.requestedAt());
+        assertEquals(null, requeuedEntry.nextAttemptAt());
+        assertEquals(null, requeuedEntry.claimedAt());
+    }
+
+    @Test
+    void equalRequestedAtStillPreservesNewIntentDuringInProgressClaim() {
+        StoredMaterialRecord record = searchSyncReadyRecord("Equal Timestamp", "hash-search-sync-equal-timestamp");
+        Instant createdAt = Instant.parse("2026-04-17T11:07:00Z");
+        Instant claimAt = createdAt.plusSeconds(5);
+        repository.enqueueMaterialsForSync(List.of(record.id()), SearchSyncOperationType.UPSERT, createdAt);
+        MaterialSearchSyncQueueEntry claimedEntry = repository.claimNextSearchSyncBatch(claimAt, 1).getFirst();
+
+        repository.enqueueMaterialsForSync(List.of(record.id()), SearchSyncOperationType.DELETE, claimAt);
+        repository.completeSearchSyncEntry(record.id(), claimedEntry.claimedAt(), claimAt.plusSeconds(1));
+
+        MaterialSearchSyncQueueEntry requeuedEntry = repository.findAllSearchSyncEntries().getFirst();
+        assertEquals(SearchSyncOperationType.DELETE, requeuedEntry.operationType());
+        assertEquals(SearchSyncDeliveryState.PENDING, requeuedEntry.deliveryState());
+        assertEquals(0, requeuedEntry.attemptCount());
+        assertEquals(claimAt, requeuedEntry.requestedAt());
+    }
+
+    @Test
+    void multipleIntentsDuringInProgressClaimKeepLatestOperation() {
+        StoredMaterialRecord record = searchSyncReadyRecord("Latest Intent", "hash-search-sync-latest-intent");
+        Instant createdAt = Instant.parse("2026-04-17T11:08:00Z");
+        repository.enqueueMaterialsForSync(List.of(record.id()), SearchSyncOperationType.UPSERT, createdAt);
+        MaterialSearchSyncQueueEntry claimedEntry = repository.claimNextSearchSyncBatch(createdAt.plusSeconds(5), 1).getFirst();
+
+        repository.enqueueMaterialsForSync(List.of(record.id()), SearchSyncOperationType.DELETE, createdAt.plusSeconds(20));
+        repository.enqueueMaterialsForSync(List.of(record.id()), SearchSyncOperationType.UPSERT, createdAt.plusSeconds(21));
+        repository.completeSearchSyncEntry(record.id(), claimedEntry.claimedAt(), createdAt.plusSeconds(22));
+
+        MaterialSearchSyncQueueEntry requeuedEntry = repository.findAllSearchSyncEntries().getFirst();
+        assertEquals(SearchSyncOperationType.UPSERT, requeuedEntry.operationType());
+        assertEquals(SearchSyncDeliveryState.PENDING, requeuedEntry.deliveryState());
+        assertEquals(0, requeuedEntry.attemptCount());
+        assertEquals(createdAt.plusSeconds(21), requeuedEntry.requestedAt());
+    }
+
+    @Test
+    void failedOldClaimDoesNotFailNewerIntent() {
+        StoredMaterialRecord record = searchSyncReadyRecord("Fail Old Claim", "hash-search-sync-fail-old-claim");
+        Instant createdAt = Instant.parse("2026-04-17T11:09:00Z");
+        repository.enqueueMaterialsForSync(List.of(record.id()), SearchSyncOperationType.UPSERT, createdAt);
+        MaterialSearchSyncQueueEntry claimedEntry = repository.claimNextSearchSyncBatch(createdAt.plusSeconds(5), 1).getFirst();
+
+        Instant deleteRequestedAt = createdAt.plusSeconds(20);
+        repository.enqueueMaterialsForSync(List.of(record.id()), SearchSyncOperationType.DELETE, deleteRequestedAt);
+        repository.markSearchSyncEntryFailed(
+            record.id(),
+            claimedEntry.claimedAt(),
+            "search.sync_failed",
+            "Old claim failed",
+            deleteRequestedAt.plusSeconds(1)
+        );
+
+        MaterialSearchSyncQueueEntry requeuedEntry = repository.findAllSearchSyncEntries().getFirst();
+        assertEquals(SearchSyncOperationType.DELETE, requeuedEntry.operationType());
+        assertEquals(SearchSyncDeliveryState.PENDING, requeuedEntry.deliveryState());
+        assertEquals(0, requeuedEntry.attemptCount());
+        assertEquals(null, requeuedEntry.nextAttemptAt());
+        assertEquals(null, requeuedEntry.claimedAt());
+        assertEquals(null, requeuedEntry.lastErrorCode());
+        assertEquals(null, requeuedEntry.lastErrorMessage());
+    }
+
+    @Test
+    void retryOldClaimDoesNotBackoffNewerIntent() {
+        StoredMaterialRecord record = searchSyncReadyRecord("Retry Old Claim", "hash-search-sync-retry-old-claim");
+        Instant createdAt = Instant.parse("2026-04-17T11:10:00Z");
+        repository.enqueueMaterialsForSync(List.of(record.id()), SearchSyncOperationType.UPSERT, createdAt);
+        MaterialSearchSyncQueueEntry claimedEntry = repository.claimNextSearchSyncBatch(createdAt.plusSeconds(5), 1).getFirst();
+
+        Instant deleteRequestedAt = createdAt.plusSeconds(20);
+        repository.enqueueMaterialsForSync(List.of(record.id()), SearchSyncOperationType.DELETE, deleteRequestedAt);
+        repository.markSearchSyncEntryForRetry(
+            record.id(),
+            claimedEntry.claimedAt(),
+            "search.sync_failed",
+            "Old claim failed",
+            deleteRequestedAt.plusSeconds(1),
+            deleteRequestedAt.plusSeconds(120)
+        );
+
+        MaterialSearchSyncQueueEntry requeuedEntry = repository.findAllSearchSyncEntries().getFirst();
+        assertEquals(SearchSyncOperationType.DELETE, requeuedEntry.operationType());
+        assertEquals(SearchSyncDeliveryState.PENDING, requeuedEntry.deliveryState());
+        assertEquals(0, requeuedEntry.attemptCount());
+        assertEquals(null, requeuedEntry.nextAttemptAt());
+        assertEquals(null, requeuedEntry.claimedAt());
+        assertTrue(repository.hasPendingSearchSyncEvents(deleteRequestedAt.plusSeconds(1)));
+    }
+
+    @Test
+    void staleOldClaimCleanlyRequeuesNewerIntent() {
+        StoredMaterialRecord record = searchSyncReadyRecord("Stale Old Claim", "hash-search-sync-stale-old-claim");
+        Instant createdAt = Instant.parse("2026-04-17T11:11:00Z");
+        repository.enqueueMaterialsForSync(List.of(record.id()), SearchSyncOperationType.UPSERT, createdAt);
+        MaterialSearchSyncQueueEntry claimedEntry = repository.claimNextSearchSyncBatch(createdAt.plusSeconds(5), 1).getFirst();
+
+        Instant deleteRequestedAt = createdAt.plusSeconds(20);
+        repository.enqueueMaterialsForSync(List.of(record.id()), SearchSyncOperationType.DELETE, deleteRequestedAt);
+        repository.resetExpiredSearchSyncClaims(claimedEntry.claimedAt().plusSeconds(1), deleteRequestedAt.plusSeconds(1));
+
+        MaterialSearchSyncQueueEntry requeuedEntry = repository.findAllSearchSyncEntries().getFirst();
+        assertEquals(SearchSyncOperationType.DELETE, requeuedEntry.operationType());
+        assertEquals(SearchSyncDeliveryState.PENDING, requeuedEntry.deliveryState());
+        assertEquals(0, requeuedEntry.attemptCount());
+        assertEquals(null, requeuedEntry.nextAttemptAt());
+        assertEquals(null, requeuedEntry.claimedAt());
+        assertEquals(null, requeuedEntry.lastErrorCode());
+        assertEquals(null, requeuedEntry.lastErrorMessage());
+    }
+
+    @Test
     void requeuesFailedSearchSyncEntriesIntoPendingDelivery() {
         StoredMaterialRecord record = materialRecord(
             UUID.randomUUID().toString(),
@@ -1227,6 +1380,18 @@ class PostgresMaterialRepositoryIT extends PostgresIntegrationTestSupport {
             timestamp,
             timestamp
         );
+    }
+
+    private StoredMaterialRecord searchSyncReadyRecord(String title, String contentHash) {
+        StoredMaterialRecord record = materialRecord(
+            UUID.randomUUID().toString(),
+            title,
+            title + " searchable content.",
+            contentHash,
+            MaterialIndexingStatus.READY
+        );
+        saveReadyMaterial(record, record.content());
+        return record;
     }
 
     private StoredMaterialChunk rawChunk(int index, String text, Integer page) {

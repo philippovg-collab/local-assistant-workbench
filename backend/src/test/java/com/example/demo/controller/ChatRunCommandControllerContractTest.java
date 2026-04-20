@@ -5,7 +5,6 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -16,7 +15,6 @@ import com.example.demo.model.ChatExecutionRequest;
 import com.example.demo.model.ChatMode;
 import com.example.demo.model.ChatRunSubmissionResponse;
 import com.example.demo.model.ChatRunTraceDetail;
-import com.example.demo.service.ChatAuditService;
 import com.example.demo.service.ChatRunExecutionService;
 import java.time.Instant;
 import java.util.List;
@@ -29,18 +27,16 @@ import org.springframework.http.converter.json.MappingJackson2HttpMessageConvert
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
-class ChatAuditControllerContractTest {
+class ChatRunCommandControllerContractTest {
 
     private MockMvc mockMvc;
-    private ChatAuditService chatAuditService;
     private ChatRunExecutionService chatRunExecutionService;
 
     @BeforeEach
     void setUp() {
-        chatAuditService = mock(ChatAuditService.class);
         chatRunExecutionService = mock(ChatRunExecutionService.class);
         mockMvc = MockMvcBuilders
-            .standaloneSetup(new ChatAuditController(chatAuditService, chatRunExecutionService))
+            .standaloneSetup(new ChatRunCommandController(chatRunExecutionService))
             .setControllerAdvice(new ApiExceptionHandler(new MaterialProperties()))
             .setMessageConverters(new MappingJackson2HttpMessageConverter())
             .build();
@@ -81,12 +77,23 @@ class ChatAuditControllerContractTest {
     }
 
     @Test
-    void returnsP0TraceSectionsForChatRun() throws Exception {
+    void cancelsChatRunThroughCommandService() throws Exception {
         String runId = UUID.randomUUID().toString();
-        when(chatAuditService.getTrace(runId)).thenReturn(new ChatRunTraceDetail(
+        when(chatRunExecutionService.cancel(runId)).thenReturn(trace(runId, "CANCELLED"));
+
+        mockMvc.perform(post("/api/chat-runs/{id}/cancel", runId))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.id").value(runId))
+            .andExpect(jsonPath("$.status").value("CANCELLED"));
+
+        verify(chatRunExecutionService).cancel(runId);
+    }
+
+    private ChatRunTraceDetail trace(String runId, String status) {
+        return new ChatRunTraceDetail(
             runId,
             ChatMode.DIRECT,
-            "COMPLETED",
+            status,
             "qwen2.5:7b",
             "qwen2.5:7b",
             null,
@@ -105,16 +112,6 @@ class ChatAuditControllerContractTest {
             List.of(),
             null,
             List.of()
-        ));
-
-        mockMvc.perform(get("/api/chat-runs/{id}/trace", runId))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.id").value(runId))
-            .andExpect(jsonPath("$.mode").value("direct"))
-            .andExpect(jsonPath("$.status").value("COMPLETED"))
-            .andExpect(jsonPath("$.llmCalls").isArray())
-            .andExpect(jsonPath("$.events").isArray());
-
-        verify(chatAuditService).getTrace(runId);
+        );
     }
 }

@@ -2,7 +2,9 @@ package com.example.demo.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -63,6 +65,7 @@ class ChatRunQueryServiceTest {
     @Test
     void getResultRejectsCompletedTraceWithoutOutput() {
         String runId = UUID.randomUUID().toString();
+        when(traceRepository.findResult(runId)).thenReturn(Optional.empty());
         when(traceRepository.findTrace(runId)).thenReturn(Optional.of(trace(
             runId,
             "COMPLETED",
@@ -81,6 +84,7 @@ class ChatRunQueryServiceTest {
     @Test
     void getResultRejectsCompletedTraceWithoutRequestSnapshot() {
         String runId = UUID.randomUUID().toString();
+        when(traceRepository.findResult(runId)).thenReturn(Optional.empty());
         when(traceRepository.findTrace(runId)).thenReturn(Optional.of(trace(
             runId,
             "COMPLETED",
@@ -99,6 +103,7 @@ class ChatRunQueryServiceTest {
     @Test
     void getResultRejectsCompletedTraceWithoutFinalAnswer() {
         String runId = UUID.randomUUID().toString();
+        when(traceRepository.findResult(runId)).thenReturn(Optional.empty());
         when(traceRepository.findTrace(runId)).thenReturn(Optional.of(trace(
             runId,
             "COMPLETED",
@@ -115,8 +120,28 @@ class ChatRunQueryServiceTest {
     }
 
     @Test
-    void getResultReturnsReconstructedResponseForCompleteTrace() {
+    void getResultReturnsStoredResultForCompletedTrace() {
         String runId = UUID.randomUUID().toString();
+        ChatExecutionResponse storedResponse = response(runId, "Stored answer");
+        when(traceRepository.findTrace(runId)).thenReturn(Optional.of(trace(
+            runId,
+            "COMPLETED",
+            null,
+            null,
+            null
+        )));
+        when(traceRepository.findResult(runId)).thenReturn(Optional.of(storedResponse));
+
+        ChatExecutionResponse response = service.getResult(runId);
+
+        assertEquals(storedResponse, response);
+        verify(traceRepository, never()).insertResultIfAbsent(any(), any(), any(), any());
+    }
+
+    @Test
+    void getResultReturnsReconstructedResponseAndBackfillsWhenStoredResultIsAbsent() {
+        String runId = UUID.randomUUID().toString();
+        when(traceRepository.findResult(runId)).thenReturn(Optional.empty());
         when(traceRepository.findTrace(runId)).thenReturn(Optional.of(trace(
             runId,
             "COMPLETED",
@@ -132,6 +157,12 @@ class ChatRunQueryServiceTest {
         assertEquals("What happened?", response.prompt());
         assertEquals("Answer", response.answer());
         assertEquals(runId, response.auditRunId());
+        verify(traceRepository).insertResultIfAbsent(
+            runId,
+            response,
+            Instant.parse("2026-04-19T00:00:01Z"),
+            "TRACE_BACKFILL"
+        );
     }
 
     @Test
@@ -172,6 +203,8 @@ class ChatRunQueryServiceTest {
         ApiException running = assertThrows(ApiException.class, () -> service.getResult(runningRunId));
         assertEquals(HttpStatus.CONFLICT, running.getStatus());
         assertEquals("chat_run.not_completed", running.getCode());
+        verify(traceRepository, never()).findResult(any());
+        verify(traceRepository, never()).insertResultIfAbsent(any(), any(), any(), any());
     }
 
     private ChatAuditRunSummary summary(String id, String promptPreview, Instant createdAt) {
@@ -250,5 +283,27 @@ class ChatRunQueryServiceTest {
 
     private ChatRunOutputTrace output(String finalAnswer) {
         return new ChatRunOutputTrace(null, finalAnswer, List.of(), null, false, false);
+    }
+
+    private ChatExecutionResponse response(String runId, String answer) {
+        return new ChatExecutionResponse(
+            ChatMode.DIRECT,
+            "qwen2.5:7b",
+            "What happened?",
+            answer,
+            "ready",
+            "2026-04-19T00:00:01Z",
+            1,
+            2,
+            3,
+            null,
+            List.of(),
+            List.of(),
+            com.example.demo.model.KnowledgeScopeResolved.empty(),
+            new com.example.demo.model.RetrievalTrace(0, 0, 0, 0, 0, 0, 0, 0, 0),
+            null,
+            List.of(),
+            runId
+        );
     }
 }

@@ -72,6 +72,8 @@ public class InMemoryMaterialRepository implements
     private final Map<String, Instant> nextRetryAtByMaterialId = new LinkedHashMap<>();
     private final Map<String, Instant> claimedAtByMaterialId = new LinkedHashMap<>();
     private final Map<String, MaterialSearchSyncQueueEntry> searchSyncQueueByMaterialId = new LinkedHashMap<>();
+    private final Map<String, Long> searchSyncIntentVersionByMaterialId = new LinkedHashMap<>();
+    private final Map<String, Long> claimedSearchSyncIntentVersionByMaterialId = new LinkedHashMap<>();
 
     @Override
     public synchronized List<StoredMaterialRecord> findAll() {
@@ -683,6 +685,8 @@ public class InMemoryMaterialRepository implements
             }
             MaterialSearchSyncQueueEntry current = searchSyncQueueByMaterialId.get(materialId);
             if (current == null) {
+                searchSyncIntentVersionByMaterialId.put(materialId, 1L);
+                claimedSearchSyncIntentVersionByMaterialId.remove(materialId);
                 searchSyncQueueByMaterialId.put(materialId, new MaterialSearchSyncQueueEntry(
                     materialId,
                     effectiveOperationType,
@@ -702,10 +706,14 @@ public class InMemoryMaterialRepository implements
             Instant nextRequestedAt = current.requestedAt().isAfter(effectiveRequestedAt)
                 ? current.requestedAt()
                 : effectiveRequestedAt;
+            searchSyncIntentVersionByMaterialId.put(
+                materialId,
+                searchSyncIntentVersionByMaterialId.getOrDefault(materialId, 1L) + 1
+            );
             if (current.deliveryState() == SearchSyncDeliveryState.IN_PROGRESS) {
                 searchSyncQueueByMaterialId.put(materialId, new MaterialSearchSyncQueueEntry(
                     current.materialId(),
-                    current.operationType(),
+                    effectiveOperationType,
                     current.deliveryState(),
                     current.attemptCount(),
                     current.nextAttemptAt(),
@@ -719,6 +727,7 @@ public class InMemoryMaterialRepository implements
                 continue;
             }
 
+            claimedSearchSyncIntentVersionByMaterialId.remove(materialId);
             searchSyncQueueByMaterialId.put(materialId, new MaterialSearchSyncQueueEntry(
                 current.materialId(),
                 effectiveOperationType,
@@ -746,6 +755,8 @@ public class InMemoryMaterialRepository implements
 
     public synchronized void clearSearchSyncQueue() {
         searchSyncQueueByMaterialId.clear();
+        searchSyncIntentVersionByMaterialId.clear();
+        claimedSearchSyncIntentVersionByMaterialId.clear();
     }
 
     @Override
@@ -755,6 +766,7 @@ public class InMemoryMaterialRepository implements
             if (entry.deliveryState() != SearchSyncDeliveryState.FAILED) {
                 continue;
             }
+            claimedSearchSyncIntentVersionByMaterialId.remove(entry.materialId());
             searchSyncQueueByMaterialId.put(entry.materialId(), new MaterialSearchSyncQueueEntry(
                 entry.materialId(),
                 entry.operationType(),
@@ -782,15 +794,17 @@ public class InMemoryMaterialRepository implements
             if (entry.claimedAt() == null || !entry.claimedAt().isBefore(staleBefore)) {
                 continue;
             }
+            boolean newerIntent = hasNewerSearchSyncIntent(entry.materialId());
+            claimedSearchSyncIntentVersionByMaterialId.remove(entry.materialId());
             searchSyncQueueByMaterialId.put(entry.materialId(), new MaterialSearchSyncQueueEntry(
                 entry.materialId(),
                 entry.operationType(),
                 SearchSyncDeliveryState.PENDING,
-                entry.attemptCount(),
+                newerIntent ? 0 : entry.attemptCount(),
                 null,
                 null,
-                entry.lastErrorCode(),
-                entry.lastErrorMessage(),
+                newerIntent ? null : entry.lastErrorCode(),
+                newerIntent ? null : entry.lastErrorMessage(),
                 entry.requestedAt(),
                 entry.createdAt(),
                 now
@@ -816,6 +830,10 @@ public class InMemoryMaterialRepository implements
             .toList();
 
         for (MaterialSearchSyncQueueEntry entry : claimed) {
+            claimedSearchSyncIntentVersionByMaterialId.put(
+                entry.materialId(),
+                searchSyncIntentVersionByMaterialId.getOrDefault(entry.materialId(), 1L)
+            );
             searchSyncQueueByMaterialId.put(entry.materialId(), new MaterialSearchSyncQueueEntry(
                 entry.materialId(),
                 entry.operationType(),
@@ -853,7 +871,8 @@ public class InMemoryMaterialRepository implements
             return;
         }
 
-        if (current.requestedAt().isAfter(claimedAt)) {
+        if (hasNewerSearchSyncIntent(materialId)) {
+            claimedSearchSyncIntentVersionByMaterialId.remove(materialId);
             searchSyncQueueByMaterialId.put(materialId, new MaterialSearchSyncQueueEntry(
                 current.materialId(),
                 current.operationType(),
@@ -871,6 +890,8 @@ public class InMemoryMaterialRepository implements
         }
 
         searchSyncQueueByMaterialId.remove(materialId);
+        searchSyncIntentVersionByMaterialId.remove(materialId);
+        claimedSearchSyncIntentVersionByMaterialId.remove(materialId);
     }
 
     @Override
@@ -1164,19 +1185,27 @@ public class InMemoryMaterialRepository implements
             return;
         }
 
+        boolean newerIntent = hasNewerSearchSyncIntent(materialId);
+        claimedSearchSyncIntentVersionByMaterialId.remove(materialId);
         searchSyncQueueByMaterialId.put(materialId, new MaterialSearchSyncQueueEntry(
             current.materialId(),
             current.operationType(),
-            deliveryState,
-            current.attemptCount(),
-            nextAttemptAt,
+            newerIntent ? SearchSyncDeliveryState.PENDING : deliveryState,
+            newerIntent ? 0 : current.attemptCount(),
+            newerIntent ? null : nextAttemptAt,
             null,
-            errorCode,
-            errorMessage,
+            newerIntent ? null : errorCode,
+            newerIntent ? null : errorMessage,
             current.requestedAt(),
             current.createdAt(),
             now
         ));
+    }
+
+    private boolean hasNewerSearchSyncIntent(String materialId) {
+        long intentVersion = searchSyncIntentVersionByMaterialId.getOrDefault(materialId, 1L);
+        long claimedIntentVersion = claimedSearchSyncIntentVersionByMaterialId.getOrDefault(materialId, intentVersion);
+        return intentVersion > claimedIntentVersion;
     }
 
     private double cosineDistance(float[] left, float[] right) {

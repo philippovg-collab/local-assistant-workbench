@@ -12,6 +12,7 @@ import static org.mockito.Mockito.when;
 
 import com.example.demo.infrastructure.audit.PostgresChatRunTraceRepository;
 import com.example.demo.model.AnswerMode;
+import com.example.demo.model.ChatExecutionResponse;
 import com.example.demo.model.ChatExecutionRequest;
 import com.example.demo.model.ChatMode;
 import java.time.Instant;
@@ -57,6 +58,59 @@ class ChatRunTraceServiceTest {
         )).thenReturn(false);
 
         boolean completed = service.completeRun(context, "qwen2.5:7b", AnswerMode.BRIEF, "ready");
+
+        assertFalse(completed);
+        verify(repository, never()).insertEvent(eq(context.id()), eq("COMPLETED"), any(), any(Instant.class));
+    }
+
+    @Test
+    void completeRunWithResultDelegatesAtomicTerminalResultWrite() {
+        PostgresChatRunTraceRepository repository = mock(PostgresChatRunTraceRepository.class);
+        ChatRunTraceService service = new ChatRunTraceService(repository);
+        ChatRunTraceService.RunTraceContext context = context();
+        ChatExecutionResponse response = response(context.id());
+        when(repository.completeRunWithResult(
+            eq(context.id()),
+            eq("qwen2.5:7b"),
+            eq(AnswerMode.BRIEF),
+            eq("ready"),
+            any(Instant.class),
+            anyLong(),
+            eq(response)
+        )).thenReturn(true);
+
+        boolean completed = service.completeRunWithResult(context, response);
+
+        assertTrue(completed);
+        verify(repository).completeRunWithResult(
+            eq(context.id()),
+            eq("qwen2.5:7b"),
+            eq(AnswerMode.BRIEF),
+            eq("ready"),
+            any(Instant.class),
+            anyLong(),
+            eq(response)
+        );
+        verify(repository, never()).insertEvent(eq(context.id()), eq("COMPLETED"), any(), any(Instant.class));
+    }
+
+    @Test
+    void completeRunWithResultReturnsFalseWhenAtomicTransitionIsRejected() {
+        PostgresChatRunTraceRepository repository = mock(PostgresChatRunTraceRepository.class);
+        ChatRunTraceService service = new ChatRunTraceService(repository);
+        ChatRunTraceService.RunTraceContext context = context();
+        ChatExecutionResponse response = response(context.id());
+        when(repository.completeRunWithResult(
+            eq(context.id()),
+            eq("qwen2.5:7b"),
+            eq(AnswerMode.BRIEF),
+            eq("ready"),
+            any(Instant.class),
+            anyLong(),
+            eq(response)
+        )).thenReturn(false);
+
+        boolean completed = service.completeRunWithResult(context, response);
 
         assertFalse(completed);
         verify(repository, never()).insertEvent(eq(context.id()), eq("COMPLETED"), any(), any(Instant.class));
@@ -145,6 +199,28 @@ class ChatRunTraceServiceTest {
         return new ChatRunTraceService.RunTraceContext(
             UUID.randomUUID().toString(),
             Instant.parse("2026-04-19T00:00:00Z")
+        );
+    }
+
+    private ChatExecutionResponse response(String runId) {
+        return new ChatExecutionResponse(
+            ChatMode.DIRECT,
+            "qwen2.5:7b",
+            "prompt",
+            "answer",
+            "ready",
+            "2026-04-19T00:00:01Z",
+            1,
+            2,
+            3,
+            AnswerMode.BRIEF,
+            List.of(),
+            List.of(),
+            com.example.demo.model.KnowledgeScopeResolved.empty(),
+            new com.example.demo.model.RetrievalTrace(0, 0, 0, 0, 0, 0, 0, 0, 0),
+            null,
+            List.of(),
+            runId
         );
     }
 }

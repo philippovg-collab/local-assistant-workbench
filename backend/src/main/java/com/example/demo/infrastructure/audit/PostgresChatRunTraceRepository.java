@@ -4,6 +4,7 @@ import com.example.demo.api.ApiException;
 import com.example.demo.model.AnswerMode;
 import com.example.demo.model.ChatAuditRunDetail;
 import com.example.demo.model.ChatAuditRunSummary;
+import com.example.demo.model.ChatExecutionResponse;
 import com.example.demo.model.ChatExecutionRequest;
 import com.example.demo.model.ChatMode;
 import com.example.demo.model.ChatRunEventTrace;
@@ -27,13 +28,17 @@ import com.fasterxml.jackson.databind.json.JsonMapper;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataAccessException;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @Repository
 public class PostgresChatRunTraceRepository {
@@ -65,9 +70,20 @@ public class PostgresChatRunTraceRepository {
     );
 
     private final JdbcTemplate jdbcTemplate;
+    private final TransactionTemplate transactionTemplate;
+
+    @Autowired
+    public PostgresChatRunTraceRepository(
+        JdbcTemplate jdbcTemplate,
+        PlatformTransactionManager transactionManager
+    ) {
+        this.jdbcTemplate = jdbcTemplate;
+        this.transactionTemplate = new TransactionTemplate(transactionManager);
+    }
 
     public PostgresChatRunTraceRepository(JdbcTemplate jdbcTemplate) {
         this.jdbcTemplate = jdbcTemplate;
+        this.transactionTemplate = null;
     }
 
     public void insertHeader(
@@ -358,6 +374,78 @@ public class PostgresChatRunTraceRepository {
             UUID.fromString(runId)
         ));
         return updatedCount[0] > 0;
+    }
+
+    public boolean completeRunWithResult(
+        String runId,
+        String resolvedModel,
+        AnswerMode appliedAnswerMode,
+        String contextStatus,
+        Instant completedAt,
+        long latencyMsTotal,
+        ChatExecutionResponse response
+    ) {
+        Instant effectiveCompletedAt = completedAt == null ? Instant.now() : completedAt;
+        int[] updatedCount = {0};
+        writeTransaction(() -> {
+            UUID runUuid = UUID.fromString(runId);
+            updatedCount[0] = jdbcTemplate.update(
+                """
+                    UPDATE chat_run_headers
+                    SET status = 'COMPLETED',
+                        resolved_model = ?,
+                        applied_answer_mode = ?,
+                        context_status = ?,
+                        completed_at = ?,
+                        latency_ms_total = ?
+                    WHERE id = ?
+                      AND status <> 'FAILED'
+                      AND status <> 'COMPLETED'
+                      AND status <> 'CANCELLED'
+                    """,
+                resolvedModel,
+                appliedAnswerMode == null ? null : appliedAnswerMode.value(),
+                contextStatus,
+                Timestamp.from(effectiveCompletedAt),
+                latencyMsTotal,
+                runUuid
+            );
+            if (updatedCount[0] > 0) {
+                insertResultIfAbsent(runUuid, response, effectiveCompletedAt, "LIVE_EXECUTION");
+                insertEvent(runUuid, "COMPLETED", Map.of(), effectiveCompletedAt);
+            }
+        });
+        return updatedCount[0] > 0;
+    }
+
+    public Optional<ChatExecutionResponse> findResult(String runId) {
+        return queryOptional(
+            """
+                SELECT response_jsonb
+                FROM chat_run_results
+                WHERE run_id = ?
+                LIMIT 1
+                """,
+            (resultSet, rowNum) -> readJson(resultSet.getString("response_jsonb"), ChatExecutionResponse.class),
+            UUID.fromString(runId)
+        );
+    }
+
+    public boolean insertResultIfAbsent(
+        String runId,
+        ChatExecutionResponse response,
+        Instant completedAt,
+        String source
+    ) {
+        Instant effectiveCompletedAt = completedAt == null ? Instant.now() : completedAt;
+        int[] insertedCount = {0};
+        write(() -> insertedCount[0] = insertResultIfAbsent(
+            UUID.fromString(runId),
+            response,
+            effectiveCompletedAt,
+            source
+        ));
+        return insertedCount[0] > 0;
     }
 
     public boolean failRun(
@@ -765,8 +853,71 @@ public class PostgresChatRunTraceRepository {
         ));
     }
 
+    private int insertResultIfAbsent(
+        UUID runId,
+        ChatExecutionResponse response,
+        Instant completedAt,
+        String source
+    ) {
+        return jdbcTemplate.update(
+            """
+                INSERT INTO chat_run_results (
+                    run_id,
+                    response_jsonb,
+                    response_schema_version,
+                    source,
+                    completed_at
+                ) VALUES (?, ?::jsonb, 'chat_execution_response.v1', ?, ?)
+                ON CONFLICT (run_id) DO NOTHING
+                """,
+            runId,
+            writeJson(response),
+            source,
+            Timestamp.from(completedAt)
+        );
+    }
+
+    private void insertEvent(UUID runId, String eventType, Object payload, Instant createdAt) {
+        jdbcTemplate.update(
+            """
+                INSERT INTO chat_run_events (
+                    id,
+                    run_id,
+                    event_type,
+                    event_payload_jsonb,
+                    created_at
+                ) VALUES (?, ?, ?, ?::jsonb, ?)
+                """,
+            UUID.randomUUID(),
+            runId,
+            eventType,
+            writeJson(payload),
+            Timestamp.from(createdAt)
+        );
+    }
+
     private <T> Optional<T> queryOptional(String sql, RowMapper<T> mapper, Object... args) {
         return read(() -> jdbcTemplate.query(sql, mapper, args).stream().findFirst());
+    }
+
+    private void writeTransaction(WriteOperation operation) {
+        try {
+            if (transactionTemplate == null) {
+                operation.execute();
+                return;
+            }
+            transactionTemplate.execute(status -> {
+                operation.execute();
+                return null;
+            });
+        } catch (DataAccessException exception) {
+            throw new ApiException(
+                HttpStatus.INTERNAL_SERVER_ERROR,
+                "chat_trace.storage_write_failed",
+                "Unable to persist chat run trace in PostgreSQL",
+                exception
+            );
+        }
     }
 
     private void write(WriteOperation operation) {

@@ -112,6 +112,20 @@ public class ChatRunQueryService {
             );
         }
 
+        return traceRepository.findResult(trace.id())
+            .orElseGet(() -> {
+                ChatExecutionResponse reconstructed = reconstructResult(trace);
+                traceRepository.insertResultIfAbsent(
+                    trace.id(),
+                    reconstructed,
+                    trace.completedAt() == null ? trace.createdAt() : trace.completedAt(),
+                    "TRACE_BACKFILL"
+                );
+                return reconstructed;
+            });
+    }
+
+    private ChatExecutionResponse reconstructResult(ChatRunTraceDetail trace) {
         ChatRunOutputTrace output = trace.output();
         if (output == null || trace.requestSnapshot() == null || output.finalUserAnswer() == null) {
             throw new ApiException(

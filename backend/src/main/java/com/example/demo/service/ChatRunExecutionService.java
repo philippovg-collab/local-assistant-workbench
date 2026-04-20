@@ -6,7 +6,6 @@ import com.example.demo.infrastructure.audit.ChatRunQueueLease;
 import com.example.demo.infrastructure.audit.EnqueuedChatRun;
 import com.example.demo.infrastructure.audit.PostgresChatRunQueueRepository;
 import com.example.demo.model.ChatExecutionRequest;
-import com.example.demo.model.ChatExecutionResponse;
 import com.example.demo.model.ChatMode;
 import com.example.demo.model.ChatRunSubmissionResponse;
 import com.example.demo.model.ChatRunTraceDetail;
@@ -73,10 +72,6 @@ public class ChatRunExecutionService {
             "/api/chat-runs/" + run.runId() + "/trace",
             "/api/chat-runs/" + run.runId() + "/result"
         );
-    }
-
-    public ChatExecutionResponse getResult(String runId) {
-        return chatRunQueryService.getResult(runId);
     }
 
     public ChatRunTraceDetail cancel(String runId) {

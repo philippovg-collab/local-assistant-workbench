@@ -44,6 +44,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 
 class ChatExecutionServiceTest {
@@ -527,7 +528,10 @@ class ChatExecutionServiceTest {
             Mockito.eq(false),
             Mockito.eq(false)
         );
-        Mockito.verify(traceService).completeRun(Mockito.eq(traceContext), Mockito.eq("qwen2.5:7b"), Mockito.any(), Mockito.isNull());
+        ArgumentCaptor<ChatExecutionResponse> resultCaptor = ArgumentCaptor.forClass(ChatExecutionResponse.class);
+        Mockito.verify(traceService).completeRunWithResult(Mockito.eq(traceContext), resultCaptor.capture());
+        assertEquals(traceContext.id(), resultCaptor.getValue().auditRunId());
+        assertEquals("ok", resultCaptor.getValue().answer());
     }
 
     @Test
