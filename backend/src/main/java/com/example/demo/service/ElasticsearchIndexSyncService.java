@@ -1,17 +1,18 @@
 package com.example.demo.service;
 
+import com.example.demo.service.material.MaterialSearchSyncQueueEntry;
+import com.example.demo.service.material.SearchSyncOperationType;
+import com.example.demo.service.material.SearchableChunkDocument;
+import com.example.demo.service.material.SearchableMaterialSnapshot;
+import com.example.demo.service.material.port.MaterialSearchSyncQueueRepository;
+import com.example.demo.service.material.port.MaterialSearchableSnapshotRepository;
+
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import co.elastic.clients.elasticsearch._types.FieldValue;
 import co.elastic.clients.elasticsearch.core.BulkRequest;
 import co.elastic.clients.elasticsearch.core.BulkResponse;
 import co.elastic.clients.elasticsearch.core.DeleteByQueryRequest;
 import com.example.demo.config.SearchSyncProperties;
-import com.example.demo.infrastructure.material.MaterialSearchSyncQueueEntry;
-import com.example.demo.infrastructure.material.MaterialSearchSyncQueueRepository;
-import com.example.demo.infrastructure.material.SearchableMaterialSnapshot;
-import com.example.demo.infrastructure.material.MaterialSearchableSnapshotRepository;
-import com.example.demo.infrastructure.material.SearchableChunkDocument;
-import com.example.demo.infrastructure.material.SearchSyncOperationType;
 import java.io.IOException;
 import java.time.Instant;
 import java.util.ArrayList;

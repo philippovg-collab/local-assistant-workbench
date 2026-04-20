@@ -1,5 +1,10 @@
 package com.example.demo.infrastructure.material;
 
+import com.example.demo.service.material.DocumentBlockType;
+import com.example.demo.service.material.DocumentParseResult;
+import com.example.demo.service.material.DocumentParserProfile;
+import com.example.demo.service.material.MaterialFormatRegistry;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 

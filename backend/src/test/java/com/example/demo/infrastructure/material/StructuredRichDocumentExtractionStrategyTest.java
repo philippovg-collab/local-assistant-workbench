@@ -1,8 +1,15 @@
 package com.example.demo.infrastructure.material;
 
+import com.example.demo.service.material.DocumentBlockType;
+import com.example.demo.service.material.DocumentParseResult;
+import com.example.demo.service.material.DocumentParserProfile;
+import com.example.demo.service.material.MaterialFormatRegistry;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.example.demo.api.ApiException;
 import com.example.demo.config.MaterialProperties;
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
@@ -57,6 +64,25 @@ class StructuredRichDocumentExtractionStrategyTest {
         assertTrue(result.blocks().stream().anyMatch(block -> block.type() == DocumentBlockType.TITLE));
         assertTrue(result.blocks().stream().anyMatch(block -> block.type() == DocumentBlockType.LIST));
         assertTrue(result.blocks().stream().anyMatch(block -> block.type() == DocumentBlockType.TABLE));
+    }
+
+    @Test
+    void rejectsDocumentsWhenTikaOutputExceedsWriteLimit() {
+        MaterialProperties properties = new MaterialProperties();
+        properties.setTikaWriteLimitChars(64);
+        TikaDocumentTextExtractor boundedExtractor = new TikaDocumentTextExtractor(
+            properties,
+            new MaterialFormatRegistry()
+        );
+
+        ApiException exception = assertThrows(ApiException.class, () -> boundedExtractor.extract(
+            "large.html",
+            "text/html",
+            ("<html><body><p>" + "long content ".repeat(100) + "</p></body></html>")
+                .getBytes(StandardCharsets.UTF_8)
+        ));
+
+        assertEquals("material.extraction_too_large", exception.getCode());
     }
 
     private byte[] createDocx() throws Exception {

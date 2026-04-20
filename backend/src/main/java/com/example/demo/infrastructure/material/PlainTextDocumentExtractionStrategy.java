@@ -1,5 +1,13 @@
 package com.example.demo.infrastructure.material;
 
+import com.example.demo.service.material.DocumentBlock;
+import com.example.demo.service.material.DocumentBlockBuilder;
+import com.example.demo.service.material.DocumentBlockType;
+import com.example.demo.service.material.DocumentParseResult;
+import com.example.demo.service.material.DocumentParserProfile;
+import com.example.demo.service.material.MaterialFormatRegistry;
+import com.example.demo.service.material.MaterialMetadataHints;
+
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Locale;
@@ -19,11 +27,7 @@ public class PlainTextDocumentExtractionStrategy implements DocumentTextExtracti
     public boolean supports(String originalFileName, String mediaType) {
         String extension = formatRegistry.extensionOf(originalFileName);
         return formatRegistry.isPlainTextExtension(extension)
-            || (!StringUtils.hasText(extension)
-                && StringUtils.hasText(mediaType)
-                && mediaType.toLowerCase(Locale.ROOT).startsWith("text/")
-                && !mediaType.toLowerCase(Locale.ROOT).contains("html")
-                && !mediaType.toLowerCase(Locale.ROOT).contains("csv"));
+            || (!StringUtils.hasText(extension) && isPlainTextMediaType(mediaType));
     }
 
     @Override
@@ -46,5 +50,15 @@ public class PlainTextDocumentExtractionStrategy implements DocumentTextExtracti
             false,
             DocumentParserProfile.RICH_TEXT
         );
+    }
+
+    private boolean isPlainTextMediaType(String mediaType) {
+        if (!StringUtils.hasText(mediaType)) {
+            return false;
+        }
+        String normalized = mediaType.toLowerCase(Locale.ROOT);
+        return formatRegistry.isPlainTextMediaType(normalized)
+            && !normalized.contains("html")
+            && !normalized.contains("csv");
     }
 }

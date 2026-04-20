@@ -1,5 +1,11 @@
 package com.example.demo.service;
 
+import com.example.demo.service.material.MaterialSearchSyncQueueEntry;
+import com.example.demo.service.material.SearchableChunkDocument;
+import com.example.demo.service.material.StoredEmbeddedMaterialChunk;
+import com.example.demo.service.material.StoredMaterialChunk;
+import com.example.demo.service.material.StoredMaterialRecord;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -8,11 +14,6 @@ import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import co.elastic.clients.elasticsearch.core.SearchResponse;
 import com.example.demo.embedding.EmbeddingClient;
 import com.example.demo.infrastructure.material.PostgresMaterialRepository;
-import com.example.demo.infrastructure.material.MaterialSearchSyncQueueEntry;
-import com.example.demo.infrastructure.material.SearchableChunkDocument;
-import com.example.demo.infrastructure.material.StoredEmbeddedMaterialChunk;
-import com.example.demo.infrastructure.material.StoredMaterialChunk;
-import com.example.demo.infrastructure.material.StoredMaterialRecord;
 import com.example.demo.model.MaterialIndexingStatus;
 import com.example.demo.model.MaterialVersionState;
 import com.example.demo.support.IntegrationTestOverrides;

@@ -3,6 +3,7 @@ package com.example.demo.service;
 import com.example.demo.api.ApiException;
 import com.example.demo.infrastructure.audit.PostgresChatAuditRepository;
 import com.example.demo.infrastructure.audit.PostgresChatRunTraceRepository;
+import com.example.demo.infrastructure.audit.PostgresChatRunTraceRepository.ChatRunHeaderStatus;
 import com.example.demo.model.ChatAuditRunDetail;
 import com.example.demo.model.ChatAuditRunSummary;
 import com.example.demo.model.ChatExecutionResponse;
@@ -21,11 +22,14 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 @Service
 public class ChatRunQueryService {
 
+    private static final Logger logger = LoggerFactory.getLogger(ChatRunQueryService.class);
     private static final int DEFAULT_LIST_LIMIT = 20;
 
     private final PostgresChatRunTraceRepository traceRepository;
@@ -88,14 +92,20 @@ public class ChatRunQueryService {
     }
 
     public ChatExecutionResponse getResult(String id) {
-        ChatRunTraceDetail trace = getTrace(id);
-        String status = trace.status();
+        String runId = requireValidId(id);
+        ChatRunHeaderStatus header = traceRepository.findHeaderStatus(runId)
+            .orElseThrow(() -> new ApiException(
+                HttpStatus.NOT_FOUND,
+                "chat_trace.not_found",
+                "Chat run trace '" + id + "' does not exist"
+            ));
+        String status = header.status();
         if (!"COMPLETED".equals(status)) {
             if ("FAILED".equals(status)) {
                 throw new ApiException(
                     HttpStatus.CONFLICT,
                     "chat_run.failed",
-                    trace.failureMessage() == null ? "Chat run failed" : trace.failureMessage()
+                    header.failureMessage() == null ? "Chat run failed" : header.failureMessage()
                 );
             }
             if ("CANCELLED".equals(status)) {
@@ -112,17 +122,31 @@ public class ChatRunQueryService {
             );
         }
 
-        return traceRepository.findResult(trace.id())
+        return traceRepository.findResult(runId)
             .orElseGet(() -> {
+                ChatRunTraceDetail trace = traceRepository.findTrace(runId)
+                    .orElseThrow(() -> new ApiException(
+                        HttpStatus.NOT_FOUND,
+                        "chat_trace.not_found",
+                        "Chat run trace '" + id + "' does not exist"
+                    ));
                 ChatExecutionResponse reconstructed = reconstructResult(trace);
-                traceRepository.insertResultIfAbsent(
-                    trace.id(),
-                    reconstructed,
-                    trace.completedAt() == null ? trace.createdAt() : trace.completedAt(),
-                    "TRACE_BACKFILL"
-                );
+                backfillResultBestEffort(trace, reconstructed);
                 return reconstructed;
             });
+    }
+
+    private void backfillResultBestEffort(ChatRunTraceDetail trace, ChatExecutionResponse response) {
+        try {
+            traceRepository.insertResultIfAbsent(
+                trace.id(),
+                response,
+                trace.completedAt() == null ? trace.createdAt() : trace.completedAt(),
+                "TRACE_BACKFILL"
+            );
+        } catch (RuntimeException exception) {
+            logger.warn("Unable to lazy-backfill immutable chat run result: runId={}", trace.id(), exception);
+        }
     }
 
     private ChatExecutionResponse reconstructResult(ChatRunTraceDetail trace) {

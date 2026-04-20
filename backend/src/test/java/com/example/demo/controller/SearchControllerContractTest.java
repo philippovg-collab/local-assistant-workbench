@@ -1,5 +1,7 @@
 package com.example.demo.controller;
 
+import com.example.demo.service.material.DocumentBlockType;
+
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -11,7 +13,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.example.demo.api.ApiExceptionHandler;
 import com.example.demo.config.MaterialProperties;
-import com.example.demo.infrastructure.material.DocumentBlockType;
 import com.example.demo.model.ChunkScoreBreakdown;
 import com.example.demo.model.DocumentType;
 import com.example.demo.model.MaterialMetadataInput;

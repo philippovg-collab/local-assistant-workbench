@@ -1,6 +1,7 @@
 package com.example.demo.service;
 
 import com.example.demo.api.ApiException;
+import com.example.demo.api.InputLimits;
 import com.example.demo.infrastructure.instruction.InstructionRepository;
 import com.example.demo.infrastructure.instruction.StoredInstructionRecord;
 import com.example.demo.infrastructure.instruction.StoredInstructionRevisionRecord;
@@ -159,6 +160,7 @@ public class InstructionService {
     }
 
     public InstructionDetail createInstruction(CreateInstructionRequest request) {
+        InputLimits.validateInstructionRequest(request);
         String title = sanitize(request == null ? null : request.title(), "title");
         InstructionCategory category = parseCategory(request == null ? null : request.category());
         String content = sanitize(request == null ? null : request.content(), "content");
@@ -187,6 +189,7 @@ public class InstructionService {
     }
 
     public InstructionDetail updateInstruction(String id, CreateInstructionRequest request) {
+        InputLimits.validateInstructionRequest(request);
         String instructionId = requireValidInstructionId(sanitize(id, "id"));
         StoredInstructionRecord existingRecord = repository.findById(instructionId)
             .orElseThrow(() -> new ApiException(

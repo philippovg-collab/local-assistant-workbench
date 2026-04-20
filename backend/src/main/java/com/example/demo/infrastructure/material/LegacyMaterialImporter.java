@@ -1,5 +1,7 @@
 package com.example.demo.infrastructure.material;
 
+import com.example.demo.service.material.StoredMaterialRecord;
+
 import com.example.demo.service.MaterialService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

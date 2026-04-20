@@ -1,7 +1,8 @@
 package com.example.demo.service;
 
+import com.example.demo.service.material.LexicalProviderMode;
+
 import com.example.demo.config.RagProperties;
-import com.example.demo.infrastructure.material.LexicalProviderMode;
 import org.springframework.stereotype.Service;
 
 @Service

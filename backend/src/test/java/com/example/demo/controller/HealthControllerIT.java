@@ -1,11 +1,12 @@
 package com.example.demo.controller;
 
+import com.example.demo.service.material.OcrCapability;
+import com.example.demo.service.material.port.OcrCapabilityProvider;
+
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.example.demo.infrastructure.material.OcrCapability;
-import com.example.demo.infrastructure.material.OcrCapabilityProvider;
 import com.example.demo.llm.LlmClient;
 import com.example.demo.model.OllamaModelInfo;
 import com.example.demo.support.IntegrationTestOverrides;

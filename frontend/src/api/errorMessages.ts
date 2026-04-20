@@ -35,6 +35,16 @@ export const translateCommonApiError = (error: unknown, fallback: string) => {
       case "chat.invalid_prompt":
       case "request.invalid_payload":
         return "Запрос заполнен некорректно. Обнови форму и попробуй ещё раз.";
+      case "request.field_too_large":
+      case "request.too_many_items":
+      case "request.payload_too_large":
+        return "Запрос слишком большой. Сократи текст или количество выбранных значений.";
+      case "auth.unauthenticated":
+        return "Сессия не активна. Войди и повтори действие.";
+      case "auth.invalid_credentials":
+        return "Логин или пароль не подходят.";
+      case "auth.forbidden":
+        return "Для этого действия недостаточно прав.";
       case "instruction.inactive":
         return "Выбранная инструкция сейчас неактивна и не может участвовать в запросе.";
       case "knowledge_preset.inactive":

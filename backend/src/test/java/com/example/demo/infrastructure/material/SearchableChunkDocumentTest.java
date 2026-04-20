@@ -1,5 +1,11 @@
 package com.example.demo.infrastructure.material;
 
+import com.example.demo.service.material.DocumentBlockConfidence;
+import com.example.demo.service.material.DocumentBlockType;
+import com.example.demo.service.material.SearchableChunkDocument;
+import com.example.demo.service.material.SearchableMaterialChunkSnapshot;
+import com.example.demo.service.material.SearchableMaterialSnapshot;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;

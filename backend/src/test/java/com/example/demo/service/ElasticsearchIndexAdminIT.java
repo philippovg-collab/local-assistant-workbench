@@ -1,5 +1,8 @@
 package com.example.demo.service;
 
+import com.example.demo.service.material.MaterialChunkSearchMatch;
+import com.example.demo.service.material.SearchableChunkDocument;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -7,8 +10,6 @@ import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import co.elastic.clients.elasticsearch.indices.GetAliasResponse;
 import com.example.demo.config.SearchSyncProperties;
 import com.example.demo.infrastructure.material.ElasticsearchLexicalSearchProvider;
-import com.example.demo.infrastructure.material.MaterialChunkSearchMatch;
-import com.example.demo.infrastructure.material.SearchableChunkDocument;
 import com.example.demo.support.IntegrationTestOverrides;
 import com.example.demo.support.PostgresIntegrationTestSupport;
 import java.io.IOException;

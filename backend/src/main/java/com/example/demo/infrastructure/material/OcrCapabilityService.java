@@ -1,5 +1,8 @@
 package com.example.demo.infrastructure.material;
 
+import com.example.demo.service.material.OcrCapability;
+import com.example.demo.service.material.port.OcrCapabilityProvider;
+
 import com.example.demo.config.OcrProperties;
 import java.io.IOException;
 import java.util.List;

@@ -1,11 +1,19 @@
 package com.example.demo.infrastructure.material;
 
+import com.example.demo.service.material.DocumentBlockConfidence;
+import com.example.demo.service.material.DocumentParseResult;
+import com.example.demo.service.material.DocumentParserProfile;
+import com.example.demo.service.material.MaterialFormatRegistry;
+import com.example.demo.service.material.OcrCapability;
+import com.example.demo.service.material.port.OcrCapabilityProvider;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.example.demo.api.ApiException;
+import com.example.demo.config.MaterialProperties;
 import com.example.demo.config.OcrProperties;
 import java.awt.Color;
 import java.awt.Graphics2D;
@@ -162,6 +170,26 @@ class PdfDocumentExtractionStrategyTest {
             strategy.extract("scan.pdf", "application/pdf", createScannedPdf()));
 
         assertEquals("material.ocr_render_budget_exceeded", exception.getCode());
+        assertEquals(0, ocrClient.calls);
+    }
+
+    @Test
+    void rejectsPdfBeforeTextExtractionWhenPageCountExceedsBudget() throws Exception {
+        MaterialProperties materialProperties = new MaterialProperties();
+        materialProperties.setMaxPdfPages(1);
+        CountingOcrClient ocrClient = new CountingOcrClient();
+        PdfDocumentExtractionStrategy strategy = new PdfDocumentExtractionStrategy(
+            new MaterialFormatRegistry(),
+            materialProperties,
+            new OcrProperties(),
+            ocrClient,
+            FULL_OCR_CAPABILITY
+        );
+
+        ApiException exception = assertThrows(ApiException.class, () ->
+            strategy.extract("mixed.pdf", "application/pdf", createMixedPdf()));
+
+        assertEquals("material.extraction_too_large", exception.getCode());
         assertEquals(0, ocrClient.calls);
     }
 

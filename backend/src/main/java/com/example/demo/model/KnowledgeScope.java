@@ -1,12 +1,17 @@
 package com.example.demo.model;
 
+import jakarta.validation.constraints.Size;
 import java.util.LinkedHashSet;
 import java.util.List;
 
 public record KnowledgeScope(
+    @Size(max = 32)
     List<String> presetIds,
+    @Size(max = 32)
     List<KnowledgeDocumentClass> documentClasses,
+    @Size(max = 32)
     List<String> tags,
+    @Size(max = 128)
     String workspaceKey,
     boolean uploadedTodayOnly
 ) {

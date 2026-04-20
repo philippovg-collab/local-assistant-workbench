@@ -1,7 +1,9 @@
 package com.example.demo.api;
 
 import com.example.demo.config.MaterialProperties;
+import com.example.demo.config.JsonRequestSizeLimitFilter.RequestPayloadTooLargeException;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.ConstraintViolationException;
 import java.time.Instant;
 import java.util.UUID;
 import org.slf4j.Logger;
@@ -9,6 +11,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
@@ -69,6 +72,14 @@ public class ApiExceptionHandler {
         HttpServletRequest request
     ) {
         Throwable rootCause = rootCauseOf(exception);
+        if (rootCause instanceof RequestPayloadTooLargeException) {
+            return buildErrorResponse(
+                HttpStatus.PAYLOAD_TOO_LARGE,
+                "request.payload_too_large",
+                "JSON request body exceeds the configured size limit",
+                null
+            );
+        }
         logger.warn(
             "Rejected unreadable request payload on {} rootCause={}: {}",
             request.getRequestURI(),
@@ -79,6 +90,30 @@ public class ApiExceptionHandler {
             HttpStatus.BAD_REQUEST,
             "request.invalid_payload",
             "Request payload is malformed or contains invalid values",
+            null
+        );
+    }
+
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public ResponseEntity<ErrorResponse> handleMethodArgumentNotValid(MethodArgumentNotValidException exception) {
+        String field = exception.getBindingResult().getFieldErrors().stream()
+            .findFirst()
+            .map(error -> error.getField())
+            .orElse("request");
+        return buildErrorResponse(
+            HttpStatus.BAD_REQUEST,
+            "request.validation_failed",
+            "Request field '" + field + "' is invalid",
+            null
+        );
+    }
+
+    @ExceptionHandler({ConstraintViolationException.class, IllegalArgumentException.class})
+    public ResponseEntity<ErrorResponse> handleValidationException(Exception exception) {
+        return buildErrorResponse(
+            HttpStatus.BAD_REQUEST,
+            "request.validation_failed",
+            exception.getMessage() == null ? "Request payload contains invalid values" : exception.getMessage(),
             null
         );
     }

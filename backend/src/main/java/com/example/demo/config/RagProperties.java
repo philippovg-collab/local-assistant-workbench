@@ -1,6 +1,7 @@
 package com.example.demo.config;
 
-import com.example.demo.infrastructure.material.LexicalProviderMode;
+import com.example.demo.service.material.LexicalProviderMode;
+
 import com.example.demo.service.RelevanceProfile;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;

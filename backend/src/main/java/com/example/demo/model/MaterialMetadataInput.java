@@ -1,5 +1,6 @@
 package com.example.demo.model;
 
+import jakarta.validation.constraints.Size;
 import java.time.LocalDate;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -8,16 +9,26 @@ public record MaterialMetadataInput(
     DocumentType documentType,
     KnowledgeDocumentClass knowledgeDocumentClass,
     LocalDate documentDate,
+    @Size(max = 128)
     String documentNumber,
+    @Size(max = 128)
     String author,
+    @Size(max = 128)
     String department,
+    @Size(max = 128)
     String versionLabel,
+    @Size(max = 128)
     String language,
+    @Size(max = 32)
     List<String> tags,
     SourceTrustLevel sourceTrust,
+    @Size(max = 128)
     String project,
+    @Size(max = 128)
     String workspaceKey,
+    @Size(max = 128)
     String counterparty,
+    @Size(max = 128)
     String businessStatus,
     LocalDate periodStart,
     LocalDate periodEnd

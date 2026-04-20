@@ -1,6 +1,7 @@
 package com.example.demo.service;
 
-import com.example.demo.infrastructure.material.MaterialChunkSearchMatch;
+import com.example.demo.service.material.MaterialChunkSearchMatch;
+
 import com.example.demo.model.ChunkScoreBreakdown;
 import java.util.Comparator;
 import java.util.LinkedHashMap;

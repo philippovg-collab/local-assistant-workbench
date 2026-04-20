@@ -7,6 +7,7 @@ import com.example.demo.model.InstructionRevisionDiff;
 import com.example.demo.model.InstructionRevisionDetail;
 import com.example.demo.model.InstructionSummary;
 import com.example.demo.service.InstructionService;
+import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -41,12 +42,12 @@ public class InstructionController {
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    public InstructionDetail createInstruction(@RequestBody CreateInstructionRequest request) {
+    public InstructionDetail createInstruction(@Valid @RequestBody CreateInstructionRequest request) {
         return instructionService.createInstruction(request);
     }
 
     @PutMapping("/{id}")
-    public InstructionDetail updateInstruction(@PathVariable String id, @RequestBody CreateInstructionRequest request) {
+    public InstructionDetail updateInstruction(@PathVariable String id, @Valid @RequestBody CreateInstructionRequest request) {
         return instructionService.updateInstruction(id, request);
     }
 

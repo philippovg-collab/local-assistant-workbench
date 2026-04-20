@@ -1,10 +1,11 @@
 package com.example.demo.service;
 
+import com.example.demo.service.material.ChunkProfile;
+import com.example.demo.service.material.DocumentBlock;
+import com.example.demo.service.material.StoredMaterialChunk;
+import com.example.demo.service.material.StoredMaterialSegment;
+
 import com.example.demo.config.MaterialProperties;
-import com.example.demo.infrastructure.material.ChunkProfile;
-import com.example.demo.infrastructure.material.DocumentBlock;
-import com.example.demo.infrastructure.material.StoredMaterialChunk;
-import com.example.demo.infrastructure.material.StoredMaterialSegment;
 import java.util.List;
 
 public interface ChunkingStrategy {

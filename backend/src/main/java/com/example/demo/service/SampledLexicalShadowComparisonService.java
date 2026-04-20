@@ -1,9 +1,10 @@
 package com.example.demo.service;
 
+import com.example.demo.service.material.LexicalProviderType;
+import com.example.demo.service.material.MaterialChunkSearchMatch;
+import com.example.demo.service.material.port.LexicalSearchProvider;
+
 import com.example.demo.config.RagProperties;
-import com.example.demo.infrastructure.material.LexicalProviderType;
-import com.example.demo.infrastructure.material.LexicalSearchProvider;
-import com.example.demo.infrastructure.material.MaterialChunkSearchMatch;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;

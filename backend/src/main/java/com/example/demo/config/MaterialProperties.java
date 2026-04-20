@@ -1,6 +1,7 @@
 package com.example.demo.config;
 
-import com.example.demo.infrastructure.material.ChunkProfile;
+import com.example.demo.service.material.ChunkProfile;
+
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
@@ -11,6 +12,9 @@ public class MaterialProperties {
     private int maxUploadBytes = 8_388_608;
     private int maxUploadRequestBytes = 9_437_184;
     private int maxTextChars = 200_000;
+    private int maxPdfPages = 200;
+    private int tikaWriteLimitChars = 250_000;
+    private boolean tikaEmbeddedResourcesEnabled = false;
     private int chunkSize = 900;
     private int chunkOverlap = 180;
     private int maxChunks = 24;
@@ -45,6 +49,30 @@ public class MaterialProperties {
 
     public void setMaxTextChars(int maxTextChars) {
         this.maxTextChars = maxTextChars;
+    }
+
+    public int getMaxPdfPages() {
+        return maxPdfPages;
+    }
+
+    public void setMaxPdfPages(int maxPdfPages) {
+        this.maxPdfPages = maxPdfPages;
+    }
+
+    public int getTikaWriteLimitChars() {
+        return tikaWriteLimitChars;
+    }
+
+    public void setTikaWriteLimitChars(int tikaWriteLimitChars) {
+        this.tikaWriteLimitChars = tikaWriteLimitChars;
+    }
+
+    public boolean isTikaEmbeddedResourcesEnabled() {
+        return tikaEmbeddedResourcesEnabled;
+    }
+
+    public void setTikaEmbeddedResourcesEnabled(boolean tikaEmbeddedResourcesEnabled) {
+        this.tikaEmbeddedResourcesEnabled = tikaEmbeddedResourcesEnabled;
     }
 
     public int getChunkSize() {

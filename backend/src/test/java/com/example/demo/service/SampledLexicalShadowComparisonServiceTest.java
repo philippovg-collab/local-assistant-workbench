@@ -1,13 +1,14 @@
 package com.example.demo.service;
 
+import com.example.demo.service.material.LexicalProviderType;
+import com.example.demo.service.material.MaterialChunkSearchMatch;
+import com.example.demo.service.material.port.LexicalSearchProvider;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.example.demo.config.RagProperties;
-import com.example.demo.infrastructure.material.LexicalProviderType;
-import com.example.demo.infrastructure.material.LexicalSearchProvider;
-import com.example.demo.infrastructure.material.MaterialChunkSearchMatch;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 

@@ -117,6 +117,22 @@ public class PostgresChatAuditRepository {
         }
     }
 
+    public int deleteRunsOlderThan(Instant cutoff) {
+        try {
+            return jdbcTemplate.update(
+                "DELETE FROM chat_audit_runs WHERE created_at < ?",
+                Timestamp.from(cutoff)
+            );
+        } catch (DataAccessException exception) {
+            throw new ApiException(
+                HttpStatus.INTERNAL_SERVER_ERROR,
+                "chat_audit.storage_write_failed",
+                "Unable to delete expired chat audit runs from PostgreSQL",
+                exception
+            );
+        }
+    }
+
     private static Instant toInstant(Timestamp timestamp) {
         return timestamp == null ? Instant.now() : timestamp.toInstant();
     }

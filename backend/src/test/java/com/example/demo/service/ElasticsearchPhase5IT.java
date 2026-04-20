@@ -1,18 +1,19 @@
 package com.example.demo.service;
 
+import com.example.demo.service.material.OcrCapability;
+import com.example.demo.service.material.SearchableChunkDocument;
+import com.example.demo.service.material.StoredEmbeddedMaterialChunk;
+import com.example.demo.service.material.StoredMaterialChunk;
+import com.example.demo.service.material.StoredMaterialRecord;
+import com.example.demo.service.material.port.OcrCapabilityProvider;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import com.example.demo.embedding.EmbeddingClient;
-import com.example.demo.infrastructure.material.OcrCapability;
-import com.example.demo.infrastructure.material.OcrCapabilityProvider;
 import com.example.demo.infrastructure.material.PostgresMaterialRepository;
-import com.example.demo.infrastructure.material.SearchableChunkDocument;
-import com.example.demo.infrastructure.material.StoredEmbeddedMaterialChunk;
-import com.example.demo.infrastructure.material.StoredMaterialChunk;
-import com.example.demo.infrastructure.material.StoredMaterialRecord;
 import com.example.demo.llm.LlmClient;
 import com.example.demo.model.MaterialIndexingStatus;
 import com.example.demo.model.MaterialVersionState;

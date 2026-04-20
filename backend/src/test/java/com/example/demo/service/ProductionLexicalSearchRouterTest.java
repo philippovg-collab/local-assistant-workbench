@@ -1,5 +1,10 @@
 package com.example.demo.service;
 
+import com.example.demo.service.material.LexicalProviderType;
+import com.example.demo.service.material.MaterialChunkSearchMatch;
+import com.example.demo.service.material.port.LexicalSearchProvider;
+import com.example.demo.service.material.port.MaterialSearchSyncQueueRepository;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -9,10 +14,6 @@ import static org.mockito.Mockito.when;
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import com.example.demo.config.RagProperties;
 import com.example.demo.config.SearchSyncProperties;
-import com.example.demo.infrastructure.material.LexicalProviderType;
-import com.example.demo.infrastructure.material.LexicalSearchProvider;
-import com.example.demo.infrastructure.material.MaterialChunkSearchMatch;
-import com.example.demo.infrastructure.material.MaterialSearchSyncQueueRepository;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;

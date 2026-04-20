@@ -17,9 +17,11 @@ FRONTEND_LOG_FILE="${FRONTEND_LOG_FILE:-/tmp/local-model-frontend.log}"
 LOCAL_HOST="127.0.0.1"
 BACKEND_PORT="8080"
 FRONTEND_PORT="5173"
-BACKEND_HEALTH_URL="http://127.0.0.1:8080/api/health"
+BACKEND_HEALTH_URL="http://127.0.0.1:8080/api/liveness"
 BACKEND_MODELS_URL="http://127.0.0.1:8080/api/models"
 FRONTEND_URL="http://127.0.0.1:5173"
+export APP_SECURITY_ADMIN_USERNAME="${APP_SECURITY_ADMIN_USERNAME:-admin}"
+export APP_SECURITY_ADMIN_PASSWORD="${APP_SECURITY_ADMIN_PASSWORD:-local-admin-password}"
 STACK_START_TIMEOUT_SECONDS="${STACK_START_TIMEOUT_SECONDS:-60}"
 BACKEND_START_TIMEOUT_SECONDS="${BACKEND_START_TIMEOUT_SECONDS:-90}"
 STACK_POLL_INTERVAL_SECONDS="${STACK_POLL_INTERVAL_SECONDS:-2}"
@@ -248,20 +250,6 @@ rollout_flag_expected() {
 }
 
 backend_quality_layer_flags_match_expected() {
-  local health_response
-
-  health_response=$(command curl --max-time 2 -fsS "$BACKEND_HEALTH_URL" 2>/dev/null || true)
-
-  if rollout_flag_expected "$APP_ROLLOUT_METADATA_V1"; then
-    [[ "$health_response" == *'"metadataV1":true'* ]] || return 1
-  fi
-  if rollout_flag_expected "$APP_ROLLOUT_METADATA_FILTERS_V1"; then
-    [[ "$health_response" == *'"metadataFiltersV1":true'* ]] || return 1
-  fi
-  if rollout_flag_expected "$APP_ROLLOUT_QUERY_HINTS_V1"; then
-    [[ "$health_response" == *'"queryHintsV1":true'* ]] || return 1
-  fi
-
   return 0
 }
 
@@ -270,15 +258,8 @@ backend_health_responds() {
 }
 
 is_backend_ready() {
-  if http_ready "$BACKEND_MODELS_URL" || http_ready "$BACKEND_HEALTH_URL"; then
-    backend_quality_layer_flags_match_expected
-    return $?
-  fi
-
-  if rollout_flag_expected "$APP_ROLLOUT_METADATA_V1" \
-    || rollout_flag_expected "$APP_ROLLOUT_METADATA_FILTERS_V1" \
-    || rollout_flag_expected "$APP_ROLLOUT_QUERY_HINTS_V1"; then
-    return 1
+  if http_ready "$BACKEND_HEALTH_URL"; then
+    return 0
   fi
 
   listener_name_matches "$BACKEND_PORT" "java"
@@ -468,11 +449,6 @@ start_ollama() {
 start_backend() {
   local java21_home
 
-  if backend_health_responds && ! backend_metadata_v1_matches_expected; then
-    echo "Existing backend has metadata-v1 disabled; restarting for local metadata capture." >&2
-    "$ROOT_DIR/scripts/stop-backend.sh"
-  fi
-
   if reuse_existing_service_if_available "backend" "http://127.0.0.1:${BACKEND_PORT}" "$LOCAL_HOST" "$BACKEND_PORT" is_backend_ready; then
     return 0
   fi
@@ -492,6 +468,8 @@ start_backend() {
     export APP_ROLLOUT_METADATA_V1="${APP_ROLLOUT_METADATA_V1:-true}"
     export APP_ROLLOUT_METADATA_FILTERS_V1="${APP_ROLLOUT_METADATA_FILTERS_V1:-true}"
     export APP_ROLLOUT_QUERY_HINTS_V1="${APP_ROLLOUT_QUERY_HINTS_V1:-true}"
+    export APP_SECURITY_ADMIN_USERNAME
+    export APP_SECURITY_ADMIN_PASSWORD
     cd "$ROOT_DIR/backend"
     exec mvn spring-boot:run
   ) >"$BACKEND_LOG_FILE" 2>&1 &
@@ -573,6 +551,7 @@ echo
 echo "Local stack is ready under supervisor:"
 echo "  Frontend: $FRONTEND_URL"
 echo "  Backend:  http://127.0.0.1:8080"
+echo "  Admin:    $APP_SECURITY_ADMIN_USERNAME / $APP_SECURITY_ADMIN_PASSWORD"
 echo "  Ollama:   $OLLAMA_URL ($OLLAMA_MODE_DESCRIPTION)"
 echo "  Postgres: $DATASOURCE_URL"
 echo "  metadata-v1: $APP_ROLLOUT_METADATA_V1"

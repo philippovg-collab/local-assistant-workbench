@@ -1,13 +1,14 @@
 package com.example.demo.service;
 
+import com.example.demo.service.material.ChunkProfile;
+import com.example.demo.service.material.QualityLayerCoverageSnapshot;
+import com.example.demo.service.material.StoredMaterialRecord;
+import com.example.demo.service.material.port.QualityLayerMetricsRepository;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 
 import com.example.demo.config.RolloutProperties;
-import com.example.demo.infrastructure.material.ChunkProfile;
-import com.example.demo.infrastructure.material.QualityLayerCoverageSnapshot;
-import com.example.demo.infrastructure.material.QualityLayerMetricsRepository;
-import com.example.demo.infrastructure.material.StoredMaterialRecord;
 import com.example.demo.model.DocumentType;
 import com.example.demo.model.MaterialIndexingStatus;
 import com.example.demo.model.MaterialMetadataInput;

@@ -1,7 +1,8 @@
 package com.example.demo.service;
 
-import com.example.demo.infrastructure.material.MaterialSearchSyncQueueRepository;
-import com.example.demo.infrastructure.material.MaterialSearchableSnapshotRepository;
+import com.example.demo.service.material.port.MaterialSearchSyncQueueRepository;
+import com.example.demo.service.material.port.MaterialSearchableSnapshotRepository;
+
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;

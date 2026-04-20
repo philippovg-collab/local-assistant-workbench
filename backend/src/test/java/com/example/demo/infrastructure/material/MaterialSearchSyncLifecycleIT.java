@@ -1,10 +1,14 @@
 package com.example.demo.infrastructure.material;
 
+import com.example.demo.service.material.MaterialSearchSyncQueueEntry;
+import com.example.demo.service.material.StoredEmbeddedMaterialChunk;
+import com.example.demo.service.material.StoredMaterialChunk;
+import com.example.demo.service.material.StoredMaterialRecord;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.example.demo.embedding.EmbeddingClient;
-import com.example.demo.infrastructure.material.MaterialSearchSyncQueueEntry;
 import com.example.demo.model.MaterialIndexingStatus;
 import com.example.demo.model.MaterialVersionState;
 import com.example.demo.service.MaterialSearchSyncLifecycleService;

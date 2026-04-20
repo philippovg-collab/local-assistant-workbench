@@ -3,6 +3,7 @@ package com.example.demo.service;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -65,6 +66,7 @@ class ChatRunQueryServiceTest {
     @Test
     void getResultRejectsCompletedTraceWithoutOutput() {
         String runId = UUID.randomUUID().toString();
+        when(traceRepository.findHeaderStatus(runId)).thenReturn(Optional.of(header(runId, "COMPLETED", null)));
         when(traceRepository.findResult(runId)).thenReturn(Optional.empty());
         when(traceRepository.findTrace(runId)).thenReturn(Optional.of(trace(
             runId,
@@ -84,6 +86,7 @@ class ChatRunQueryServiceTest {
     @Test
     void getResultRejectsCompletedTraceWithoutRequestSnapshot() {
         String runId = UUID.randomUUID().toString();
+        when(traceRepository.findHeaderStatus(runId)).thenReturn(Optional.of(header(runId, "COMPLETED", null)));
         when(traceRepository.findResult(runId)).thenReturn(Optional.empty());
         when(traceRepository.findTrace(runId)).thenReturn(Optional.of(trace(
             runId,
@@ -103,6 +106,7 @@ class ChatRunQueryServiceTest {
     @Test
     void getResultRejectsCompletedTraceWithoutFinalAnswer() {
         String runId = UUID.randomUUID().toString();
+        when(traceRepository.findHeaderStatus(runId)).thenReturn(Optional.of(header(runId, "COMPLETED", null)));
         when(traceRepository.findResult(runId)).thenReturn(Optional.empty());
         when(traceRepository.findTrace(runId)).thenReturn(Optional.of(trace(
             runId,
@@ -123,24 +127,20 @@ class ChatRunQueryServiceTest {
     void getResultReturnsStoredResultForCompletedTrace() {
         String runId = UUID.randomUUID().toString();
         ChatExecutionResponse storedResponse = response(runId, "Stored answer");
-        when(traceRepository.findTrace(runId)).thenReturn(Optional.of(trace(
-            runId,
-            "COMPLETED",
-            null,
-            null,
-            null
-        )));
+        when(traceRepository.findHeaderStatus(runId)).thenReturn(Optional.of(header(runId, "COMPLETED", null)));
         when(traceRepository.findResult(runId)).thenReturn(Optional.of(storedResponse));
 
         ChatExecutionResponse response = service.getResult(runId);
 
         assertEquals(storedResponse, response);
+        verify(traceRepository, never()).findTrace(any());
         verify(traceRepository, never()).insertResultIfAbsent(any(), any(), any(), any());
     }
 
     @Test
     void getResultReturnsReconstructedResponseAndBackfillsWhenStoredResultIsAbsent() {
         String runId = UUID.randomUUID().toString();
+        when(traceRepository.findHeaderStatus(runId)).thenReturn(Optional.of(header(runId, "COMPLETED", null)));
         when(traceRepository.findResult(runId)).thenReturn(Optional.empty());
         when(traceRepository.findTrace(runId)).thenReturn(Optional.of(trace(
             runId,
@@ -166,13 +166,36 @@ class ChatRunQueryServiceTest {
     }
 
     @Test
+    void getResultReturnsReconstructedResponseWhenLazyBackfillFails() {
+        String runId = UUID.randomUUID().toString();
+        when(traceRepository.findHeaderStatus(runId)).thenReturn(Optional.of(header(runId, "COMPLETED", null)));
+        when(traceRepository.findResult(runId)).thenReturn(Optional.empty());
+        when(traceRepository.findTrace(runId)).thenReturn(Optional.of(trace(
+            runId,
+            "COMPLETED",
+            requestSnapshot("What happened?"),
+            output("Answer"),
+            null
+        )));
+        doThrow(new IllegalStateException("storage down")).when(traceRepository).insertResultIfAbsent(
+            any(),
+            any(),
+            any(),
+            any()
+        );
+
+        ChatExecutionResponse response = service.getResult(runId);
+
+        assertEquals("Answer", response.answer());
+        assertEquals(runId, response.auditRunId());
+    }
+
+    @Test
     void getResultKeepsExistingFailureAndInProgressErrors() {
         String failedRunId = UUID.randomUUID().toString();
-        when(traceRepository.findTrace(failedRunId)).thenReturn(Optional.of(trace(
+        when(traceRepository.findHeaderStatus(failedRunId)).thenReturn(Optional.of(header(
             failedRunId,
             "FAILED",
-            null,
-            null,
             "model exploded"
         )));
         ApiException failed = assertThrows(ApiException.class, () -> service.getResult(failedRunId));
@@ -181,11 +204,9 @@ class ChatRunQueryServiceTest {
         assertEquals("model exploded", failed.getMessage());
 
         String cancelledRunId = UUID.randomUUID().toString();
-        when(traceRepository.findTrace(cancelledRunId)).thenReturn(Optional.of(trace(
+        when(traceRepository.findHeaderStatus(cancelledRunId)).thenReturn(Optional.of(header(
             cancelledRunId,
             "CANCELLED",
-            null,
-            null,
             null
         )));
         ApiException cancelled = assertThrows(ApiException.class, () -> service.getResult(cancelledRunId));
@@ -193,18 +214,35 @@ class ChatRunQueryServiceTest {
         assertEquals("chat_run.cancelled", cancelled.getCode());
 
         String runningRunId = UUID.randomUUID().toString();
-        when(traceRepository.findTrace(runningRunId)).thenReturn(Optional.of(trace(
+        when(traceRepository.findHeaderStatus(runningRunId)).thenReturn(Optional.of(header(
             runningRunId,
             "LLM_DONE",
-            null,
-            null,
             null
         )));
         ApiException running = assertThrows(ApiException.class, () -> service.getResult(runningRunId));
         assertEquals(HttpStatus.CONFLICT, running.getStatus());
         assertEquals("chat_run.not_completed", running.getCode());
         verify(traceRepository, never()).findResult(any());
+        verify(traceRepository, never()).findTrace(any());
         verify(traceRepository, never()).insertResultIfAbsent(any(), any(), any(), any());
+    }
+
+    private PostgresChatRunTraceRepository.ChatRunHeaderStatus header(
+        String id,
+        String status,
+        String failureMessage
+    ) {
+        Instant createdAt = Instant.parse("2026-04-19T00:00:00Z");
+        Instant completedAt = "COMPLETED".equals(status)
+            ? Instant.parse("2026-04-19T00:00:01Z")
+            : null;
+        return new PostgresChatRunTraceRepository.ChatRunHeaderStatus(
+            id,
+            status,
+            createdAt,
+            completedAt,
+            failureMessage
+        );
     }
 
     private ChatAuditRunSummary summary(String id, String promptPreview, Instant createdAt) {

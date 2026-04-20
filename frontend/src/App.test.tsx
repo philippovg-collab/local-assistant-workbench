@@ -278,6 +278,16 @@ describe("App", () => {
       const url = getUrl(input);
       const pathname = new URL(url).pathname;
 
+      if (url.endsWith("/api/auth/session")) {
+        return jsonResponse({
+          authenticated: true,
+          username: "admin",
+          roles: ["ROLE_ADMIN"],
+          csrfHeaderName: "X-CSRF-TOKEN",
+          csrfToken: "csrf-test-token",
+        });
+      }
+
       if (url.endsWith("/api/health")) {
         return jsonResponse(currentHealthResponse);
       }

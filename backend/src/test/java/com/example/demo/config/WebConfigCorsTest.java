@@ -6,6 +6,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.example.demo.controller.HealthController;
 import com.example.demo.service.HealthStatusService;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -17,6 +18,7 @@ import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 @WebMvcTest(controllers = HealthController.class)
+@AutoConfigureMockMvc(addFilters = false)
 @Import({ WebConfig.class, WebConfigCorsTest.TestConfig.class })
 class WebConfigCorsTest {
 
@@ -45,6 +47,11 @@ class WebConfigCorsTest {
         @Bean
         MaterialProperties materialProperties() {
             return new MaterialProperties();
+        }
+
+        @Bean
+        RequestLimitProperties requestLimitProperties() {
+            return new RequestLimitProperties();
         }
     }
 }

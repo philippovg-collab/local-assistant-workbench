@@ -1,5 +1,11 @@
 package com.example.demo.infrastructure.material;
 
+import com.example.demo.service.material.DocumentBlockType;
+import com.example.demo.service.material.LexicalProviderType;
+import com.example.demo.service.material.MaterialChunkSearchMatch;
+import com.example.demo.service.material.SearchableChunkDocument;
+import com.example.demo.service.material.port.LexicalSearchProvider;
+
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import co.elastic.clients.elasticsearch._types.FieldValue;
 import co.elastic.clients.elasticsearch._types.query_dsl.Operator;

@@ -1,6 +1,7 @@
 package com.example.demo.service;
 
-import com.example.demo.infrastructure.material.MaterialMetadataHints;
+import com.example.demo.service.material.MaterialMetadataHints;
+
 import com.example.demo.model.DocumentType;
 import com.example.demo.model.KnowledgeDocumentClass;
 import com.example.demo.model.MaterialMetadataInput;

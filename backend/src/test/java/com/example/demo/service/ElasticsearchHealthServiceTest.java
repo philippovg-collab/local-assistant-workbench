@@ -1,5 +1,7 @@
 package com.example.demo.service;
 
+import com.example.demo.service.material.port.MaterialSearchSyncQueueRepository;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.never;
@@ -8,7 +10,6 @@ import static org.mockito.Mockito.when;
 
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import com.example.demo.config.SearchSyncProperties;
-import com.example.demo.infrastructure.material.MaterialSearchSyncQueueRepository;
 import java.io.IOException;
 import java.time.Clock;
 import java.time.Instant;

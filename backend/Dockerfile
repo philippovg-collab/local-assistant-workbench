@@ -36,7 +36,7 @@ EXPOSE 8080
 VOLUME ["/app/storage"]
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=5 \
-    CMD curl -fsS http://127.0.0.1:8080/api/health >/dev/null || exit 1
+    CMD curl -fsS http://127.0.0.1:8080/api/liveness >/dev/null || exit 1
 
 USER app
 ENTRYPOINT ["java", "-jar", "/app/app.jar"]

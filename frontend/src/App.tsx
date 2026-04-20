@@ -1,16 +1,24 @@
-import { useEffect, useState, type Dispatch, type SetStateAction } from "react";
+import { useCallback, useEffect, useState, type Dispatch, type FormEvent, type SetStateAction } from "react";
 import {
   BookOpenText,
   BrainCircuit,
   Files,
   LayoutDashboard,
+  Loader2,
+  LockKeyhole,
+  LogOut,
   Menu,
   MessageCircleCode,
   NotebookPen,
   Radar,
 } from "lucide-react";
+import { apiClient } from "@/api/client";
+import { translateCommonApiError } from "@/api/errorMessages";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import {
   Sheet,
@@ -34,6 +42,7 @@ import { useInstructions } from "@/hooks/useInstructions";
 import { useKnowledgePresets } from "@/hooks/useKnowledgePresets";
 import { useMaterials } from "@/hooks/useMaterials";
 import { useModels } from "@/hooks/useModels";
+import type { AuthSession } from "@/types";
 import {
   buildDirectReadinessPresentation,
   buildRagReadinessPresentation,
@@ -45,6 +54,13 @@ import { DEFAULT_KNOWLEDGE_SCOPE } from "@/utils/workbenchPresentation";
 const kegocLogo = "https://ai.kegoc.kz/assets/kegoc-logo-new-nY5PHfMg.svg";
 
 type WorkspaceTab = "overview" | "materials" | "instructions" | "rag" | "direct";
+type AuthStatus = "loading" | "authenticated" | "unauthenticated";
+
+type WorkbenchAppProps = {
+  session: AuthSession;
+  isLoggingOut: boolean;
+  onLogout: () => Promise<void>;
+};
 
 const tabs: Array<{
   id: WorkspaceTab;
@@ -84,7 +100,7 @@ const tabs: Array<{
   },
 ];
 
-function App() {
+function WorkbenchApp({ session, isLoggingOut, onLogout }: WorkbenchAppProps) {
   const [activeTab, setActiveTab] = useState<WorkspaceTab>("overview");
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [ragInstructionIds, setRagInstructionIds] = useState<string[]>([]);
@@ -261,6 +277,25 @@ function App() {
         {renderNavigation("flex-1")}
         <Separator className="my-5 bg-white/10" />
 
+        <div className="mb-4 rounded-[22px] border border-white/8 bg-white/6 px-4 py-3">
+          <p className="truncate text-sm font-semibold text-sidebar-foreground">
+            {session.username ?? "admin"}
+          </p>
+          <Button
+            className="mt-3 w-full justify-center"
+            disabled={isLoggingOut}
+            size="sm"
+            type="button"
+            variant="secondary"
+            onClick={() => {
+              void onLogout();
+            }}
+          >
+            <LogOut className="h-4 w-4" />
+            Выйти
+          </Button>
+        </div>
+
         <div className="grid gap-3">
           {navMetrics.map((metric) => (
             <div
@@ -298,13 +333,26 @@ function App() {
               </strong>
             </div>
 
-            <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
-              <SheetTrigger asChild>
-                <Button size="icon" variant="secondary">
-                  <Menu className="h-5 w-5" />
-                  <span className="sr-only">Открыть навигацию</span>
-                </Button>
-              </SheetTrigger>
+            <div className="flex items-center gap-2">
+              <Button
+                disabled={isLoggingOut}
+                size="icon"
+                type="button"
+                variant="secondary"
+                onClick={() => {
+                  void onLogout();
+                }}
+              >
+                <LogOut className="h-5 w-5" />
+                <span className="sr-only">Выйти</span>
+              </Button>
+              <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
+                <SheetTrigger asChild>
+                  <Button size="icon" variant="secondary">
+                    <Menu className="h-5 w-5" />
+                    <span className="sr-only">Открыть навигацию</span>
+                  </Button>
+                </SheetTrigger>
               <SheetContent side="left">
                 <SheetHeader className="mb-6">
                   <SheetTitle>KEGOC RAG</SheetTitle>
@@ -314,7 +362,8 @@ function App() {
                 </SheetHeader>
                 {renderNavigation()}
               </SheetContent>
-            </Sheet>
+              </Sheet>
+            </div>
           </div>
 
           {activeTab === "overview" && (
@@ -607,6 +656,182 @@ function App() {
       </div>
     </div>
   );
+}
+
+function App() {
+  const auth = useAuthSession();
+
+  if (auth.status === "loading") {
+    return (
+      <div className="flex min-h-screen items-center justify-center px-6">
+        <div className="flex items-center gap-3 rounded-[24px] border border-border bg-surface-subtle px-5 py-4 text-sm font-semibold text-foreground shadow-soft">
+          <Loader2 className="h-5 w-5 animate-spin text-primary" />
+          Проверяем сессию
+        </div>
+      </div>
+    );
+  }
+
+  if (auth.status !== "authenticated" || auth.session === null) {
+    return (
+      <LoginScreen
+        error={auth.error}
+        isSubmitting={auth.isSubmitting}
+        onLogin={auth.login}
+      />
+    );
+  }
+
+  return (
+    <WorkbenchApp
+      isLoggingOut={auth.isLoggingOut}
+      session={auth.session}
+      onLogout={auth.logout}
+    />
+  );
+}
+
+function LoginScreen({
+  error,
+  isSubmitting,
+  onLogin,
+}: {
+  error: string | null;
+  isSubmitting: boolean;
+  onLogin: (username: string, password: string) => Promise<void>;
+}) {
+  const [username, setUsername] = useState("admin");
+  const [password, setPassword] = useState("");
+
+  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    void onLogin(username, password);
+  };
+
+  return (
+    <div className="flex min-h-screen items-center justify-center px-4 py-10">
+      <main className="w-full max-w-[420px] rounded-[30px] border border-border bg-card p-6 shadow-panel">
+        <div className="mb-6 flex items-center gap-3">
+          <div className="flex h-12 w-12 items-center justify-center rounded-[18px] bg-primary/10 text-primary">
+            <LockKeyhole className="h-5 w-5" />
+          </div>
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-primary">
+              KEGOC RAG
+            </p>
+            <h1 className="text-2xl font-semibold tracking-[-0.04em] text-foreground">
+              Вход администратора
+            </h1>
+          </div>
+        </div>
+
+        {error && (
+          <Alert className="mb-5" variant="destructive">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+
+        <form className="space-y-4" onSubmit={handleSubmit}>
+          <div className="space-y-2">
+            <Label htmlFor="auth-username">Логин</Label>
+            <Input
+              autoComplete="username"
+              id="auth-username"
+              value={username}
+              onChange={(event) => setUsername(event.target.value)}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="auth-password">Пароль</Label>
+            <Input
+              autoComplete="current-password"
+              id="auth-password"
+              type="password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+            />
+          </div>
+
+          <Button className="w-full" disabled={isSubmitting} type="submit">
+            {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <LockKeyhole className="h-4 w-4" />}
+            Войти
+          </Button>
+        </form>
+      </main>
+    </div>
+  );
+}
+
+function useAuthSession() {
+  const [status, setStatus] = useState<AuthStatus>("loading");
+  const [session, setSession] = useState<AuthSession | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void apiClient.fetchSession(controller.signal)
+      .then((payload) => {
+        setSession(payload.authenticated ? payload : null);
+        setStatus(payload.authenticated ? "authenticated" : "unauthenticated");
+        setError(null);
+      })
+      .catch((loadError) => {
+        if (controller.signal.aborted) {
+          return;
+        }
+        setSession(null);
+        setStatus("unauthenticated");
+        setError(translateCommonApiError(loadError, "Не удалось проверить сессию"));
+      });
+
+    return () => controller.abort();
+  }, []);
+
+  const login = useCallback(async (username: string, password: string) => {
+    setIsSubmitting(true);
+    setError(null);
+    try {
+      const payload = await apiClient.login({ username, password });
+      if (!payload.authenticated) {
+        setSession(null);
+        setStatus("unauthenticated");
+        setError("Не удалось открыть сессию.");
+        return;
+      }
+      setSession(payload);
+      setStatus("authenticated");
+    } catch (loginError) {
+      setSession(null);
+      setStatus("unauthenticated");
+      setError(translateCommonApiError(loginError, "Не удалось войти"));
+    } finally {
+      setIsSubmitting(false);
+    }
+  }, []);
+
+  const logout = useCallback(async () => {
+    setIsLoggingOut(true);
+    try {
+      await apiClient.logout();
+    } finally {
+      setSession(null);
+      setStatus("unauthenticated");
+      setIsLoggingOut(false);
+    }
+  }, []);
+
+  return {
+    status,
+    session,
+    error,
+    isSubmitting,
+    isLoggingOut,
+    login,
+    logout,
+  };
 }
 
 export default App;

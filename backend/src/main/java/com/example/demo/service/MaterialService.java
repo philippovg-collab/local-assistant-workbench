@@ -1,13 +1,10 @@
 package com.example.demo.service;
 
+import com.example.demo.service.material.StoredMaterialRecord;
+
 import com.example.demo.config.MaterialProperties;
 import com.example.demo.config.RagProperties;
 import com.example.demo.embedding.EmbeddingClient;
-import com.example.demo.infrastructure.material.DocumentTextExtractor;
-import com.example.demo.infrastructure.material.MaterialCatalogRepository;
-import com.example.demo.infrastructure.material.MaterialFormatRegistry;
-import com.example.demo.infrastructure.material.OcrCapabilityProvider;
-import com.example.demo.infrastructure.material.StoredMaterialRecord;
 import com.example.demo.model.MaterialMetadataInput;
 import com.example.demo.model.MaterialListResponse;
 import com.example.demo.model.MaterialLineageResponse;

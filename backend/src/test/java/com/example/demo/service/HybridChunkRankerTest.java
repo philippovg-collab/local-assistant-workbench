@@ -1,9 +1,10 @@
 package com.example.demo.service;
 
+import com.example.demo.service.material.MaterialChunkSearchMatch;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import com.example.demo.infrastructure.material.MaterialChunkSearchMatch;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 

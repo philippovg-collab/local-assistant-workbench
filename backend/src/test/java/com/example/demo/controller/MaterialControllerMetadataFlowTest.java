@@ -1,5 +1,8 @@
 package com.example.demo.controller;
 
+import com.example.demo.service.material.MaterialFormatRegistry;
+import com.example.demo.service.material.port.DocumentTextExtractor;
+
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.hasSize;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -12,8 +15,6 @@ import com.example.demo.api.ApiExceptionHandler;
 import com.example.demo.config.MaterialProperties;
 import com.example.demo.config.OcrProperties;
 import com.example.demo.config.RagProperties;
-import com.example.demo.infrastructure.material.DocumentTextExtractor;
-import com.example.demo.infrastructure.material.MaterialFormatRegistry;
 import com.example.demo.infrastructure.material.OcrCapabilityService;
 import com.example.demo.infrastructure.material.OcrClient;
 import com.example.demo.infrastructure.material.PdfDocumentExtractionStrategy;
@@ -251,7 +252,8 @@ class MaterialControllerMetadataFlowTest {
         MaterialFormatRegistry formatRegistry = new MaterialFormatRegistry();
         OcrProperties ocrProperties = new OcrProperties();
         OcrClient ocrClient = (imagePath, pageNumber) -> "OCR fallback text for page " + pageNumber;
-        OcrCapabilityService ocrCapabilityService = new OcrCapabilityService(
+        com.example.demo.infrastructure.material.OcrCapabilityService ocrCapabilityService =
+            new com.example.demo.infrastructure.material.OcrCapabilityService(
             ocrProperties,
             (binaryPath, timeoutSeconds) -> new TesseractRuntimeProbe.CommandResult(
                 0,

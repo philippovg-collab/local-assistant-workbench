@@ -31,6 +31,9 @@ app:
     max-upload-bytes: 8388608
     max-upload-request-bytes: 9437184
     max-text-chars: 200000
+    max-pdf-pages: 200
+    tika-write-limit-chars: 250000
+    tika-embedded-resources-enabled: false
     chunk-size: 900
     chunk-overlap: 180
     max-chunks: 24
@@ -83,6 +86,13 @@ app:
   audit:
     fail-closed: false
     health-failure-threshold: 1
+    retention-days: 30
+  request:
+    max-json-bytes: 1048576
+  security:
+    enabled: true
+    admin-username: "${APP_SECURITY_ADMIN_USERNAME:admin}"
+    admin-password: "${APP_SECURITY_ADMIN_PASSWORD:}"
   chat-execution:
     threads: 2
     queue-capacity: 32

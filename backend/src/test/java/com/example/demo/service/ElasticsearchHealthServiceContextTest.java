@@ -1,10 +1,11 @@
 package com.example.demo.service;
 
+import com.example.demo.service.material.port.MaterialSearchSyncQueueRepository;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
 
 import com.example.demo.config.SearchSyncProperties;
-import com.example.demo.infrastructure.material.MaterialSearchSyncQueueRepository;
 import java.time.Instant;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;

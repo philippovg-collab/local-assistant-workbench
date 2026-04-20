@@ -1,17 +1,18 @@
 package com.example.demo.service;
 
+import com.example.demo.service.material.ChunkProfile;
+import com.example.demo.service.material.DocumentBlockConfidence;
+import com.example.demo.service.material.DocumentBlockType;
+import com.example.demo.service.material.StoredEmbeddedMaterialChunk;
+import com.example.demo.service.material.StoredMaterialChunk;
+import com.example.demo.service.material.StoredMaterialRecord;
+import com.example.demo.service.material.StoredMaterialSegment;
+
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.example.demo.config.MaterialProperties;
 import com.example.demo.config.RagProperties;
-import com.example.demo.infrastructure.material.ChunkProfile;
-import com.example.demo.infrastructure.material.DocumentBlockConfidence;
-import com.example.demo.infrastructure.material.DocumentBlockType;
-import com.example.demo.infrastructure.material.StoredEmbeddedMaterialChunk;
-import com.example.demo.infrastructure.material.StoredMaterialChunk;
-import com.example.demo.infrastructure.material.StoredMaterialRecord;
-import com.example.demo.infrastructure.material.StoredMaterialSegment;
 import com.example.demo.model.ChatSource;
 import com.example.demo.model.DocumentType;
 import com.example.demo.model.MaterialIndexingStatus;

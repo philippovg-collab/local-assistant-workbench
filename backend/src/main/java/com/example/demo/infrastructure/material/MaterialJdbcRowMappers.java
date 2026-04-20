@@ -1,5 +1,16 @@
 package com.example.demo.infrastructure.material;
 
+import com.example.demo.service.material.DocumentBlockConfidence;
+import com.example.demo.service.material.DocumentBlockType;
+import com.example.demo.service.material.MaterialChunkSearchMatch;
+import com.example.demo.service.material.MaterialSearchSyncQueueEntry;
+import com.example.demo.service.material.SearchSyncDeliveryState;
+import com.example.demo.service.material.SearchSyncOperationType;
+import com.example.demo.service.material.SearchableMaterialChunkSnapshot;
+import com.example.demo.service.material.StoredMaterialChunk;
+import com.example.demo.service.material.StoredMaterialRecord;
+import com.example.demo.service.material.StoredMaterialSegment;
+
 import com.example.demo.model.MaterialIndexingStatus;
 import com.example.demo.model.MaterialSummary;
 import com.example.demo.model.MaterialVersionState;

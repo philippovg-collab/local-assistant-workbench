@@ -1,5 +1,7 @@
 package com.example.demo.infrastructure.material;
 
+import com.example.demo.service.material.ExtractedDocumentSegment;
+
 import java.util.List;
 
 public record ExtractedDocument(

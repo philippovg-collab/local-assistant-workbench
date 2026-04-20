@@ -4,6 +4,7 @@ import com.example.demo.model.ChatExecutionRequest;
 import com.example.demo.model.ChatRunSubmissionResponse;
 import com.example.demo.model.ChatRunTraceDetail;
 import com.example.demo.service.ChatRunExecutionService;
+import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -24,7 +25,7 @@ public class ChatRunCommandController {
 
     @PostMapping
     @ResponseStatus(HttpStatus.ACCEPTED)
-    public ChatRunSubmissionResponse submitRun(@RequestBody ChatExecutionRequest request) {
+    public ChatRunSubmissionResponse submitRun(@Valid @RequestBody ChatExecutionRequest request) {
         return chatRunExecutionService.submit(request);
     }
 

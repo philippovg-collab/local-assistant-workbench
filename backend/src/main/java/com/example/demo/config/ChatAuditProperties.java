@@ -9,6 +9,7 @@ public class ChatAuditProperties {
 
     private boolean failClosed = false;
     private int healthFailureThreshold = 1;
+    private int retentionDays = 30;
 
     public boolean isFailClosed() {
         return failClosed;
@@ -24,5 +25,13 @@ public class ChatAuditProperties {
 
     public void setHealthFailureThreshold(int healthFailureThreshold) {
         this.healthFailureThreshold = healthFailureThreshold;
+    }
+
+    public int getRetentionDays() {
+        return retentionDays;
+    }
+
+    public void setRetentionDays(int retentionDays) {
+        this.retentionDays = retentionDays;
     }
 }

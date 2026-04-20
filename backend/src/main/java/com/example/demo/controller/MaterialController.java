@@ -12,6 +12,7 @@ import com.example.demo.model.MaterialUploadPolicyResponse;
 import com.example.demo.model.RechunkActiveMaterialsResponse;
 import com.example.demo.model.MaterialSummary;
 import com.example.demo.service.MaterialService;
+import jakarta.validation.Valid;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -61,7 +62,7 @@ public class MaterialController {
     }
 
     @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
-    public MaterialSummary createTextMaterial(@RequestBody CreateTextMaterialRequest request) {
+    public MaterialSummary createTextMaterial(@Valid @RequestBody CreateTextMaterialRequest request) {
         if (request == null) {
             throw new ApiException(
                 HttpStatus.BAD_REQUEST,
@@ -76,7 +77,7 @@ public class MaterialController {
     public MaterialSummary uploadMaterial(
         @RequestPart("file") MultipartFile file,
         @RequestParam(required = false) String title,
-        @RequestPart(value = "metadata", required = false) MaterialMetadataInput metadata
+        @Valid @RequestPart(value = "metadata", required = false) MaterialMetadataInput metadata
     ) {
         return materialService.saveUpload(title, file, metadata);
     }
@@ -98,7 +99,7 @@ public class MaterialController {
 
     @PostMapping(path = "/rechunk-active/batch", consumes = MediaType.APPLICATION_JSON_VALUE)
     public RechunkActiveMaterialsBatchResponse rechunkActiveMaterialsBatch(
-        @RequestBody(required = false) RechunkActiveMaterialsBatchRequest request
+        @Valid @RequestBody(required = false) RechunkActiveMaterialsBatchRequest request
     ) {
         return materialService.rechunkActiveMaterialsBatch(request);
     }

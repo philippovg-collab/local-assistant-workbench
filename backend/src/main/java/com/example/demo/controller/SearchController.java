@@ -1,9 +1,11 @@
 package com.example.demo.controller;
 
 import com.example.demo.api.ApiException;
+import com.example.demo.api.InputLimits;
 import com.example.demo.model.MaterialSearchRequest;
 import com.example.demo.model.MaterialSearchResponse;
 import com.example.demo.service.MaterialService;
+import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -21,7 +23,7 @@ public class SearchController {
     }
 
     @PostMapping("/search")
-    public MaterialSearchResponse search(@RequestBody MaterialSearchRequest request) {
+    public MaterialSearchResponse search(@Valid @RequestBody MaterialSearchRequest request) {
         if (request == null) {
             throw new ApiException(
                 HttpStatus.BAD_REQUEST,
@@ -29,6 +31,7 @@ public class SearchController {
                 "Request payload is required"
             );
         }
+        InputLimits.validateMaterialSearchRequest(request);
         return materialService.search(request);
     }
 }

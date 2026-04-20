@@ -1,6 +1,7 @@
 package com.example.demo.service;
 
 import com.example.demo.api.ApiException;
+import com.example.demo.api.InputLimits;
 import com.example.demo.infrastructure.knowledge.PostgresKnowledgePresetRepository;
 import com.example.demo.infrastructure.knowledge.StoredKnowledgePresetRecord;
 import com.example.demo.infrastructure.knowledge.StoredKnowledgePresetRevisionRecord;
@@ -48,6 +49,7 @@ public class KnowledgePresetService {
     }
 
     public KnowledgePresetDetail createPreset(CreateKnowledgePresetRequest request) {
+        InputLimits.validateKnowledgePresetRequest(request);
         String name = sanitize(request == null ? null : request.name(), "name");
         String description = sanitizeOptional(request == null ? null : request.description());
         KnowledgeScope scope = request == null || request.scope() == null ? KnowledgeScope.empty() : request.scope();
@@ -70,6 +72,7 @@ public class KnowledgePresetService {
     }
 
     public KnowledgePresetDetail updatePreset(String id, CreateKnowledgePresetRequest request) {
+        InputLimits.validateKnowledgePresetRequest(request);
         String presetId = requireValidId(id);
         StoredKnowledgePresetRecord current = repository.findById(presetId)
             .orElseThrow(() -> new ApiException(
@@ -170,6 +173,7 @@ public class KnowledgePresetService {
 
     public ResolvedKnowledgeScopeContext resolveScope(KnowledgeScope requestScope) {
         KnowledgeScope safeRequestScope = requestScope == null ? KnowledgeScope.empty() : requestScope;
+        InputLimits.validateKnowledgeScope(safeRequestScope, "knowledgeScope");
         List<KnowledgePresetReference> references = new ArrayList<>();
         LinkedHashSet<com.example.demo.model.KnowledgeDocumentClass> documentClasses = new LinkedHashSet<>();
         LinkedHashSet<String> tags = new LinkedHashSet<>();

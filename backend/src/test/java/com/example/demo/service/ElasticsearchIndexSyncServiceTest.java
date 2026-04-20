@@ -1,5 +1,13 @@
 package com.example.demo.service;
 
+import com.example.demo.service.material.MaterialSearchSyncQueueEntry;
+import com.example.demo.service.material.SearchSyncDeliveryState;
+import com.example.demo.service.material.SearchSyncOperationType;
+import com.example.demo.service.material.SearchableMaterialChunkSnapshot;
+import com.example.demo.service.material.SearchableMaterialSnapshot;
+import com.example.demo.service.material.port.MaterialSearchSyncQueueRepository;
+import com.example.demo.service.material.port.MaterialSearchableSnapshotRepository;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -13,13 +21,6 @@ import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import co.elastic.clients.elasticsearch.core.BulkRequest;
 import co.elastic.clients.elasticsearch.core.DeleteByQueryRequest;
 import com.example.demo.config.SearchSyncProperties;
-import com.example.demo.infrastructure.material.MaterialSearchSyncQueueEntry;
-import com.example.demo.infrastructure.material.MaterialSearchSyncQueueRepository;
-import com.example.demo.infrastructure.material.MaterialSearchableSnapshotRepository;
-import com.example.demo.infrastructure.material.SearchSyncDeliveryState;
-import com.example.demo.infrastructure.material.SearchSyncOperationType;
-import com.example.demo.infrastructure.material.SearchableMaterialChunkSnapshot;
-import com.example.demo.infrastructure.material.SearchableMaterialSnapshot;
 import java.io.IOException;
 import java.time.Instant;
 import java.util.List;

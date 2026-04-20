@@ -120,6 +120,15 @@ public class PostgresChatRunTraceRepository {
     ) {
         write(() -> jdbcTemplate.update(
             """
+                WITH mutable_run AS (
+                    SELECT id
+                    FROM chat_run_headers
+                    WHERE id = ?
+                      AND status <> 'FAILED'
+                      AND status <> 'COMPLETED'
+                      AND status <> 'CANCELLED'
+                    FOR UPDATE
+                )
                 INSERT INTO chat_run_request_snapshots (
                     run_id,
                     request_jsonb,
@@ -127,7 +136,9 @@ public class PostgresChatRunTraceRepository {
                     prompt,
                     knowledge_scope_jsonb,
                     retrieval_filters_jsonb
-                ) VALUES (?, ?::jsonb, ?::jsonb, ?, ?::jsonb, ?::jsonb)
+                )
+                SELECT mutable_run.id, ?::jsonb, ?::jsonb, ?, ?::jsonb, ?::jsonb
+                FROM mutable_run
                 ON CONFLICT (run_id) DO UPDATE
                 SET request_jsonb = EXCLUDED.request_jsonb,
                     normalized_request_jsonb = EXCLUDED.normalized_request_jsonb,
@@ -148,60 +159,75 @@ public class PostgresChatRunTraceRepository {
         PromptPolicySnapshot safeSnapshot = snapshot == null
             ? new PromptPolicySnapshot(null, null, null, null, null, null, null, null, null, List.of(), null, List.of(), null, false)
             : snapshot;
-        write(() -> jdbcTemplate.update(
-            """
-                INSERT INTO chat_run_prompt_snapshots (
-                    run_id,
-                    base_system_prompt,
-                    system_instructions_text,
-                    safety_instructions_text,
-                    context_instructions_text,
-                    user_instructions_text,
-                    temporary_instruction_text,
-                    answer_mode_block_text,
-                    grounding_block_text,
-                    grounding_rules_applied,
-                    resolved_system_prompt,
-                    messages_jsonb,
-                    prompt_hash,
-                    instruction_trace_jsonb,
-                    knowledge_scope_resolved_jsonb,
-                    updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?::jsonb, ?::jsonb, ?)
-                ON CONFLICT (run_id) DO UPDATE
-                SET base_system_prompt = EXCLUDED.base_system_prompt,
-                    system_instructions_text = EXCLUDED.system_instructions_text,
-                    safety_instructions_text = EXCLUDED.safety_instructions_text,
-                    context_instructions_text = EXCLUDED.context_instructions_text,
-                    user_instructions_text = EXCLUDED.user_instructions_text,
-                    temporary_instruction_text = EXCLUDED.temporary_instruction_text,
-                    answer_mode_block_text = EXCLUDED.answer_mode_block_text,
-                    grounding_block_text = EXCLUDED.grounding_block_text,
-                    grounding_rules_applied = EXCLUDED.grounding_rules_applied,
-                    resolved_system_prompt = EXCLUDED.resolved_system_prompt,
-                    prompt_hash = EXCLUDED.prompt_hash,
-                    instruction_trace_jsonb = EXCLUDED.instruction_trace_jsonb,
-                    knowledge_scope_resolved_jsonb = EXCLUDED.knowledge_scope_resolved_jsonb,
-                    updated_at = EXCLUDED.updated_at
-                """,
-            UUID.fromString(runId),
-            safeSnapshot.baseSystemPrompt(),
-            safeSnapshot.systemInstructionsText(),
-            safeSnapshot.safetyInstructionsText(),
-            safeSnapshot.contextInstructionsText(),
-            safeSnapshot.userInstructionsText(),
-            safeSnapshot.temporaryInstructionText(),
-            safeSnapshot.answerModeBlockText(),
-            safeSnapshot.groundingBlockText(),
-            safeSnapshot.groundingRulesApplied(),
-            safeSnapshot.resolvedSystemPrompt(),
-            writeJson(safeSnapshot.messages()),
-            safeSnapshot.promptHash(),
-            writeJson(safeSnapshot.instructionTrace()),
-            writeJson(safeSnapshot.knowledgeScopeResolved()),
-            Timestamp.from(Instant.now())
-        ));
-        markStatus(runId, "PROMPT_RESOLVED");
+        write(() -> {
+            int updated = jdbcTemplate.update(
+                """
+                    WITH mutable_run AS (
+                        SELECT id
+                        FROM chat_run_headers
+                        WHERE id = ?
+                          AND status <> 'FAILED'
+                          AND status <> 'COMPLETED'
+                          AND status <> 'CANCELLED'
+                        FOR UPDATE
+                    )
+                    INSERT INTO chat_run_prompt_snapshots (
+                        run_id,
+                        base_system_prompt,
+                        system_instructions_text,
+                        safety_instructions_text,
+                        context_instructions_text,
+                        user_instructions_text,
+                        temporary_instruction_text,
+                        answer_mode_block_text,
+                        grounding_block_text,
+                        grounding_rules_applied,
+                        resolved_system_prompt,
+                        messages_jsonb,
+                        prompt_hash,
+                        instruction_trace_jsonb,
+                        knowledge_scope_resolved_jsonb,
+                        updated_at
+                    )
+                    SELECT mutable_run.id, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?::jsonb, ?::jsonb, ?
+                    FROM mutable_run
+                    ON CONFLICT (run_id) DO UPDATE
+                    SET base_system_prompt = EXCLUDED.base_system_prompt,
+                        system_instructions_text = EXCLUDED.system_instructions_text,
+                        safety_instructions_text = EXCLUDED.safety_instructions_text,
+                        context_instructions_text = EXCLUDED.context_instructions_text,
+                        user_instructions_text = EXCLUDED.user_instructions_text,
+                        temporary_instruction_text = EXCLUDED.temporary_instruction_text,
+                        answer_mode_block_text = EXCLUDED.answer_mode_block_text,
+                        grounding_block_text = EXCLUDED.grounding_block_text,
+                        grounding_rules_applied = EXCLUDED.grounding_rules_applied,
+                        resolved_system_prompt = EXCLUDED.resolved_system_prompt,
+                        prompt_hash = EXCLUDED.prompt_hash,
+                        instruction_trace_jsonb = EXCLUDED.instruction_trace_jsonb,
+                        knowledge_scope_resolved_jsonb = EXCLUDED.knowledge_scope_resolved_jsonb,
+                        updated_at = EXCLUDED.updated_at
+                    """,
+                UUID.fromString(runId),
+                safeSnapshot.baseSystemPrompt(),
+                safeSnapshot.systemInstructionsText(),
+                safeSnapshot.safetyInstructionsText(),
+                safeSnapshot.contextInstructionsText(),
+                safeSnapshot.userInstructionsText(),
+                safeSnapshot.temporaryInstructionText(),
+                safeSnapshot.answerModeBlockText(),
+                safeSnapshot.groundingBlockText(),
+                safeSnapshot.groundingRulesApplied(),
+                safeSnapshot.resolvedSystemPrompt(),
+                writeJson(safeSnapshot.messages()),
+                safeSnapshot.promptHash(),
+                writeJson(safeSnapshot.instructionTrace()),
+                writeJson(safeSnapshot.knowledgeScopeResolved()),
+                Timestamp.from(Instant.now())
+            );
+            if (updated > 0) {
+                markStatus(runId, "PROMPT_RESOLVED");
+            }
+        });
     }
 
     public void savePromptMessages(String runId, List<ChatRunMessage> messages) {
@@ -210,7 +236,15 @@ public class PostgresChatRunTraceRepository {
                 UPDATE chat_run_prompt_snapshots
                 SET messages_jsonb = ?::jsonb,
                     updated_at = ?
-                WHERE run_id = ?
+                WHERE run_id = (
+                    SELECT id
+                    FROM chat_run_headers
+                    WHERE id = ?
+                      AND status <> 'FAILED'
+                      AND status <> 'COMPLETED'
+                      AND status <> 'CANCELLED'
+                    FOR UPDATE
+                )
                 """,
             writeJson(messages == null ? List.of() : messages),
             Timestamp.from(Instant.now()),
@@ -224,123 +258,166 @@ public class PostgresChatRunTraceRepository {
         RetrievalTrace trace,
         RetrievalDebug debug
     ) {
-        write(() -> jdbcTemplate.update(
-            """
-                INSERT INTO chat_run_retrieval_summaries (
-                    run_id,
-                    retrieval_status,
-                    trace_jsonb,
-                    debug_jsonb,
-                    relevance_profile,
-                    query_hints_jsonb,
-                    manual_filters_jsonb,
-                    effective_filters_jsonb,
-                    rollout_flags_jsonb,
-                    applied_capabilities_jsonb
-                ) VALUES (?, ?, ?::jsonb, ?::jsonb, ?, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb)
-                ON CONFLICT (run_id) DO UPDATE
-                SET retrieval_status = EXCLUDED.retrieval_status,
-                    trace_jsonb = EXCLUDED.trace_jsonb,
-                    debug_jsonb = EXCLUDED.debug_jsonb,
-                    relevance_profile = EXCLUDED.relevance_profile,
-                    query_hints_jsonb = EXCLUDED.query_hints_jsonb,
-                    manual_filters_jsonb = EXCLUDED.manual_filters_jsonb,
-                    effective_filters_jsonb = EXCLUDED.effective_filters_jsonb,
-                    rollout_flags_jsonb = EXCLUDED.rollout_flags_jsonb,
-                    applied_capabilities_jsonb = EXCLUDED.applied_capabilities_jsonb
-                """,
-            UUID.fromString(runId),
-            retrievalStatus,
-            writeJson(trace),
-            writeJson(debug),
-            debug == null ? null : debug.relevanceProfile(),
-            writeJson(debug == null ? null : debug.queryHints()),
-            writeJson(debug == null ? null : debug.manualFilters()),
-            writeJson(debug == null ? null : debug.effectiveFilters()),
-            writeJson(debug == null ? null : debug.activeRolloutFlags()),
-            writeJson(debug == null ? List.of() : debug.appliedCapabilities())
-        ));
-        markStatus(runId, "RETRIEVAL_DONE");
+        write(() -> {
+            int updated = jdbcTemplate.update(
+                """
+                    WITH mutable_run AS (
+                        SELECT id
+                        FROM chat_run_headers
+                        WHERE id = ?
+                          AND status <> 'FAILED'
+                          AND status <> 'COMPLETED'
+                          AND status <> 'CANCELLED'
+                        FOR UPDATE
+                    )
+                    INSERT INTO chat_run_retrieval_summaries (
+                        run_id,
+                        retrieval_status,
+                        trace_jsonb,
+                        debug_jsonb,
+                        relevance_profile,
+                        query_hints_jsonb,
+                        manual_filters_jsonb,
+                        effective_filters_jsonb,
+                        rollout_flags_jsonb,
+                        applied_capabilities_jsonb
+                    )
+                    SELECT mutable_run.id, ?, ?::jsonb, ?::jsonb, ?, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb
+                    FROM mutable_run
+                    ON CONFLICT (run_id) DO UPDATE
+                    SET retrieval_status = EXCLUDED.retrieval_status,
+                        trace_jsonb = EXCLUDED.trace_jsonb,
+                        debug_jsonb = EXCLUDED.debug_jsonb,
+                        relevance_profile = EXCLUDED.relevance_profile,
+                        query_hints_jsonb = EXCLUDED.query_hints_jsonb,
+                        manual_filters_jsonb = EXCLUDED.manual_filters_jsonb,
+                        effective_filters_jsonb = EXCLUDED.effective_filters_jsonb,
+                        rollout_flags_jsonb = EXCLUDED.rollout_flags_jsonb,
+                        applied_capabilities_jsonb = EXCLUDED.applied_capabilities_jsonb
+                    """,
+                UUID.fromString(runId),
+                retrievalStatus,
+                writeJson(trace),
+                writeJson(debug),
+                debug == null ? null : debug.relevanceProfile(),
+                writeJson(debug == null ? null : debug.queryHints()),
+                writeJson(debug == null ? null : debug.manualFilters()),
+                writeJson(debug == null ? null : debug.effectiveFilters()),
+                writeJson(debug == null ? null : debug.activeRolloutFlags()),
+                writeJson(debug == null ? List.of() : debug.appliedCapabilities())
+            );
+            if (updated > 0) {
+                markStatus(runId, "RETRIEVAL_DONE");
+            }
+        });
     }
 
     public void insertLlmCall(String runId, LlmCallTrace call) {
-        write(() -> jdbcTemplate.update(
-            """
-                INSERT INTO chat_run_llm_calls (
-                    id,
-                    run_id,
-                    provider,
-                    model,
-                    request_messages_jsonb,
-                    raw_response_text,
-                    parsed_answer_text,
-                    prompt_tokens,
-                    completion_tokens,
-                    total_tokens,
-                    latency_ms,
-                    retry_count,
-                    timeout_seconds,
-                    finish_reason,
-                    error_code,
-                    error_message,
-                    created_at
-                ) VALUES (?, ?, ?, ?, ?::jsonb, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-            UUID.fromString(call.id()),
-            UUID.fromString(runId),
-            call.provider(),
-            call.model(),
-            writeJson(call.requestMessages()),
-            call.rawResponseText(),
-            call.parsedAnswerText(),
-            call.promptTokens(),
-            call.completionTokens(),
-            call.totalTokens(),
-            call.latencyMs(),
-            call.retryCount(),
-            call.timeoutSeconds(),
-            call.finishReason(),
-            call.errorCode(),
-            call.errorMessage(),
-            Timestamp.from(call.createdAt())
-        ));
-        if (call.errorCode() == null) {
-            markStatus(runId, "LLM_DONE");
-        }
+        write(() -> {
+            int inserted = jdbcTemplate.update(
+                """
+                    WITH mutable_run AS (
+                        SELECT id
+                        FROM chat_run_headers
+                        WHERE id = ?
+                          AND status <> 'FAILED'
+                          AND status <> 'COMPLETED'
+                          AND status <> 'CANCELLED'
+                        FOR UPDATE
+                    )
+                    INSERT INTO chat_run_llm_calls (
+                        id,
+                        run_id,
+                        provider,
+                        model,
+                        request_messages_jsonb,
+                        raw_response_text,
+                        parsed_answer_text,
+                        prompt_tokens,
+                        completion_tokens,
+                        total_tokens,
+                        latency_ms,
+                        retry_count,
+                        timeout_seconds,
+                        finish_reason,
+                        error_code,
+                        error_message,
+                        created_at
+                    )
+                    SELECT ?, mutable_run.id, ?, ?, ?::jsonb, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                    FROM mutable_run
+                    """,
+                UUID.fromString(runId),
+                UUID.fromString(call.id()),
+                call.provider(),
+                call.model(),
+                writeJson(call.requestMessages()),
+                call.rawResponseText(),
+                call.parsedAnswerText(),
+                call.promptTokens(),
+                call.completionTokens(),
+                call.totalTokens(),
+                call.latencyMs(),
+                call.retryCount(),
+                call.timeoutSeconds(),
+                call.finishReason(),
+                call.errorCode(),
+                call.errorMessage(),
+                Timestamp.from(call.createdAt())
+            );
+            if (inserted > 0 && call.errorCode() == null) {
+                markStatus(runId, "LLM_DONE");
+            }
+        });
     }
 
     public void saveOutput(String runId, ChatRunOutputTrace output) {
         ChatRunOutputTrace safeOutput = output == null
             ? new ChatRunOutputTrace(null, null, List.of(), null, null, null)
             : output;
-        write(() -> jdbcTemplate.update(
-            """
-                INSERT INTO chat_run_outputs (
-                    run_id,
-                    raw_model_answer,
-                    final_user_answer,
-                    sources_jsonb,
-                    postprocess_jsonb,
-                    abstained,
-                    strict_sources_blocked_answer
-                ) VALUES (?, ?, ?, ?::jsonb, ?::jsonb, ?, ?)
-                ON CONFLICT (run_id) DO UPDATE
-                SET raw_model_answer = EXCLUDED.raw_model_answer,
-                    final_user_answer = EXCLUDED.final_user_answer,
-                    sources_jsonb = EXCLUDED.sources_jsonb,
-                    postprocess_jsonb = EXCLUDED.postprocess_jsonb,
-                    abstained = EXCLUDED.abstained,
-                    strict_sources_blocked_answer = EXCLUDED.strict_sources_blocked_answer
-                """,
-            UUID.fromString(runId),
-            safeOutput.rawModelAnswer(),
-            safeOutput.finalUserAnswer(),
-            writeJson(safeOutput.sources()),
-            writeJson(safeOutput.postprocess()),
-            safeOutput.abstained(),
-            safeOutput.strictSourcesBlockedAnswer()
-        ));
-        markStatus(runId, "POSTPROCESSED");
+        write(() -> {
+            int updated = jdbcTemplate.update(
+                """
+                    WITH mutable_run AS (
+                        SELECT id
+                        FROM chat_run_headers
+                        WHERE id = ?
+                          AND status <> 'FAILED'
+                          AND status <> 'COMPLETED'
+                          AND status <> 'CANCELLED'
+                        FOR UPDATE
+                    )
+                    INSERT INTO chat_run_outputs (
+                        run_id,
+                        raw_model_answer,
+                        final_user_answer,
+                        sources_jsonb,
+                        postprocess_jsonb,
+                        abstained,
+                        strict_sources_blocked_answer
+                    )
+                    SELECT mutable_run.id, ?, ?, ?::jsonb, ?::jsonb, ?, ?
+                    FROM mutable_run
+                    ON CONFLICT (run_id) DO UPDATE
+                    SET raw_model_answer = EXCLUDED.raw_model_answer,
+                        final_user_answer = EXCLUDED.final_user_answer,
+                        sources_jsonb = EXCLUDED.sources_jsonb,
+                        postprocess_jsonb = EXCLUDED.postprocess_jsonb,
+                        abstained = EXCLUDED.abstained,
+                        strict_sources_blocked_answer = EXCLUDED.strict_sources_blocked_answer
+                    """,
+                UUID.fromString(runId),
+                safeOutput.rawModelAnswer(),
+                safeOutput.finalUserAnswer(),
+                writeJson(safeOutput.sources()),
+                writeJson(safeOutput.postprocess()),
+                safeOutput.abstained(),
+                safeOutput.strictSourcesBlockedAnswer()
+            );
+            if (updated > 0) {
+                markStatus(runId, "POSTPROCESSED");
+            }
+        });
     }
 
     public boolean completeRun(
@@ -427,6 +504,25 @@ public class PostgresChatRunTraceRepository {
                 LIMIT 1
                 """,
             (resultSet, rowNum) -> readJson(resultSet.getString("response_jsonb"), ChatExecutionResponse.class),
+            UUID.fromString(runId)
+        );
+    }
+
+    public Optional<ChatRunHeaderStatus> findHeaderStatus(String runId) {
+        return queryOptional(
+            """
+                SELECT id, status, created_at, completed_at, failure_message
+                FROM chat_run_headers
+                WHERE id = ?
+                LIMIT 1
+                """,
+            (resultSet, rowNum) -> new ChatRunHeaderStatus(
+                resultSet.getObject("id").toString(),
+                resultSet.getString("status"),
+                toInstant(resultSet.getTimestamp("created_at")),
+                toInstantOrNull(resultSet.getTimestamp("completed_at")),
+                resultSet.getString("failure_message")
+            ),
             UUID.fromString(runId)
         );
     }
@@ -671,6 +767,15 @@ public class PostgresChatRunTraceRepository {
             Integer.class
         ));
         return count != null && count > 0;
+    }
+
+    public int deleteRunsOlderThan(Instant cutoff) {
+        int[] deletedCount = {0};
+        write(() -> deletedCount[0] = jdbcTemplate.update(
+            "DELETE FROM chat_run_headers WHERE created_at < ?",
+            Timestamp.from(cutoff)
+        ));
+        return deletedCount[0];
     }
 
     private Optional<HeaderRow> findHeader(String runId) {
@@ -1044,6 +1149,15 @@ public class PostgresChatRunTraceRepository {
 
     private static String nullToEmpty(String value) {
         return value == null ? "" : value;
+    }
+
+    public record ChatRunHeaderStatus(
+        String id,
+        String status,
+        Instant createdAt,
+        Instant completedAt,
+        String failureMessage
+    ) {
     }
 
     private record HeaderRow(

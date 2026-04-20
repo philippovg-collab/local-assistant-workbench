@@ -1,5 +1,8 @@
 package com.example.demo.service;
 
+import com.example.demo.service.material.MaterialFormatRegistry;
+import com.example.demo.service.material.port.DocumentTextExtractor;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -12,8 +15,6 @@ import com.example.demo.config.LlmProperties;
 import com.example.demo.config.MaterialProperties;
 import com.example.demo.config.OcrProperties;
 import com.example.demo.config.RagProperties;
-import com.example.demo.infrastructure.material.DocumentTextExtractor;
-import com.example.demo.infrastructure.material.MaterialFormatRegistry;
 import com.example.demo.infrastructure.material.OcrCapabilityService;
 import com.example.demo.infrastructure.material.OcrClient;
 import com.example.demo.infrastructure.material.PdfDocumentExtractionStrategy;
@@ -89,6 +90,19 @@ class ChatExecutionServiceTest {
         ));
 
         assertEquals("chat.invalid_request", exception.getCode());
+        assertEquals(0, llmClient.chatCalls);
+    }
+
+    @Test
+    void rejectsOversizedPromptsBeforeCallingTheModel() {
+        CapturingLlmClient llmClient = new CapturingLlmClient();
+        ChatExecutionFixture fixture = createChatExecutionFixture(llmClient);
+
+        ApiException exception = assertThrows(ApiException.class, () -> fixture.chatExecutionService().execute(
+            new ChatExecutionRequest(ChatMode.DIRECT, null, "x".repeat(20_001), null, List.of())
+        ));
+
+        assertEquals("request.field_too_large", exception.getCode());
         assertEquals(0, llmClient.chatCalls);
     }
 
@@ -627,7 +641,8 @@ class ChatExecutionServiceTest {
         MaterialFormatRegistry formatRegistry = new MaterialFormatRegistry();
         OcrProperties ocrProperties = new OcrProperties();
         OcrClient ocrClient = (imagePath, pageNumber) -> "OCR fallback text for page " + pageNumber;
-        OcrCapabilityService ocrCapabilityService = new OcrCapabilityService(
+        com.example.demo.infrastructure.material.OcrCapabilityService ocrCapabilityService =
+            new com.example.demo.infrastructure.material.OcrCapabilityService(
             ocrProperties,
             (binaryPath, timeoutSeconds) -> new TesseractRuntimeProbe.CommandResult(
                 0,

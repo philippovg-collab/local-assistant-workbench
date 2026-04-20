@@ -1,5 +1,15 @@
 package com.example.demo.infrastructure.material;
 
+import com.example.demo.service.material.LexicalProviderType;
+import com.example.demo.service.material.port.LexicalSearchProvider;
+import com.example.demo.service.material.port.MaterialCatalogRepository;
+import com.example.demo.service.material.port.MaterialChunkingRepository;
+import com.example.demo.service.material.port.MaterialIndexingQueueRepository;
+import com.example.demo.service.material.port.MaterialLineageRepository;
+import com.example.demo.service.material.port.MaterialSearchSyncQueueRepository;
+import com.example.demo.service.material.port.MaterialSearchableSnapshotRepository;
+import com.example.demo.service.material.port.SemanticSearchRepository;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -57,14 +67,14 @@ class MaterialRuntimeTopologyIT extends PostgresIntegrationTestSupport {
 
     @Test
     void resolvesRuntimePortsToDedicatedPostgresAdapters() {
-        assertInstanceOf(PostgresMaterialCatalogRepository.class, catalogRepository);
-        assertInstanceOf(PostgresMaterialLineageRepository.class, lineageRepository);
-        assertInstanceOf(PostgresMaterialChunkingRepository.class, chunkingRepository);
-        assertInstanceOf(PostgresMaterialSemanticSearchRepository.class, semanticSearchRepository);
-        assertInstanceOf(PostgresLexicalSearchProvider.class, lexicalSearchProvider);
-        assertInstanceOf(PostgresMaterialIndexingQueueRepository.class, indexingQueueRepository);
-        assertInstanceOf(PostgresMaterialSearchSyncQueueRepository.class, searchSyncQueueRepository);
-        assertInstanceOf(PostgresMaterialSearchableSnapshotRepository.class, searchableSnapshotRepository);
+        assertInstanceOf(PostgresMaterialCatalogAdapter.class, catalogRepository);
+        assertInstanceOf(PostgresMaterialLineageAdapter.class, lineageRepository);
+        assertInstanceOf(PostgresMaterialChunkingAdapter.class, chunkingRepository);
+        assertInstanceOf(PostgresMaterialRetrievalSearchAdapter.class, semanticSearchRepository);
+        assertInstanceOf(PostgresMaterialRetrievalSearchAdapter.class, lexicalSearchProvider);
+        assertInstanceOf(PostgresMaterialIndexingQueueAdapter.class, indexingQueueRepository);
+        assertInstanceOf(PostgresMaterialSearchSyncQueueAdapter.class, searchSyncQueueRepository);
+        assertInstanceOf(PostgresMaterialSearchableSnapshotAdapter.class, searchableSnapshotRepository);
         assertSame(lexicalSearchProvider, lexicalSearchStrategy.resolve());
         assertEquals(LexicalProviderType.POSTGRES, lexicalSearchStrategy.resolve().type());
         assertNotSame(catalogRepository, semanticSearchRepository);

@@ -1,12 +1,13 @@
 package com.example.demo.service;
 
+import com.example.demo.service.material.StoredMaterialChunk;
+import com.example.demo.service.material.StoredMaterialRecord;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import com.example.demo.api.ApiException;
 import com.example.demo.config.MaterialProperties;
 import com.example.demo.embedding.EmbeddingClient;
-import com.example.demo.infrastructure.material.StoredMaterialChunk;
-import com.example.demo.infrastructure.material.StoredMaterialRecord;
 import com.example.demo.model.MaterialIndexingStatus;
 import com.example.demo.model.MaterialVersionState;
 import com.example.demo.support.DeterministicEmbeddingClient;

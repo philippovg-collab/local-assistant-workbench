@@ -1,5 +1,8 @@
 package com.example.demo.controller;
 
+import com.example.demo.service.material.OcrCapability;
+import com.example.demo.service.material.port.OcrCapabilityProvider;
+
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasSize;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
@@ -9,8 +12,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.example.demo.infrastructure.material.OcrCapability;
-import com.example.demo.infrastructure.material.OcrCapabilityProvider;
 import com.example.demo.infrastructure.material.OcrClient;
 import com.example.demo.model.MaterialSummary;
 import com.example.demo.support.IntegrationTestOverrides;

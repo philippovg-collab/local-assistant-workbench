@@ -1,5 +1,12 @@
 package com.example.demo.controller;
 
+import com.example.demo.service.material.LexicalProviderMode;
+import com.example.demo.service.material.LexicalProviderType;
+import com.example.demo.service.material.OcrCapability;
+import com.example.demo.service.material.port.MaterialCatalogRepository;
+import com.example.demo.service.material.port.MaterialIndexingQueueRepository;
+import com.example.demo.service.material.port.OcrCapabilityProvider;
+
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -9,12 +16,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.example.demo.config.OcrProperties;
 import com.example.demo.config.RolloutProperties;
-import com.example.demo.infrastructure.material.LexicalProviderMode;
-import com.example.demo.infrastructure.material.LexicalProviderType;
-import com.example.demo.infrastructure.material.MaterialCatalogRepository;
-import com.example.demo.infrastructure.material.MaterialIndexingQueueRepository;
-import com.example.demo.infrastructure.material.OcrCapability;
-import com.example.demo.infrastructure.material.OcrCapabilityProvider;
 import com.example.demo.service.ChatAuditService;
 import com.example.demo.service.ElasticsearchHealthService;
 import com.example.demo.service.HealthStatusService;

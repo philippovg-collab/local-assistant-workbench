@@ -1,11 +1,12 @@
 package com.example.demo.service;
 
+import com.example.demo.service.material.LexicalProviderMode;
+import com.example.demo.service.material.OcrCapability;
+import com.example.demo.service.material.port.MaterialCatalogRepository;
+import com.example.demo.service.material.port.MaterialIndexingQueueRepository;
+import com.example.demo.service.material.port.OcrCapabilityProvider;
+
 import com.example.demo.config.OcrProperties;
-import com.example.demo.infrastructure.material.LexicalProviderMode;
-import com.example.demo.infrastructure.material.MaterialCatalogRepository;
-import com.example.demo.infrastructure.material.MaterialIndexingQueueRepository;
-import com.example.demo.infrastructure.material.OcrCapability;
-import com.example.demo.infrastructure.material.OcrCapabilityProvider;
 import com.example.demo.model.HealthResponse;
 import java.time.Instant;
 import java.util.LinkedHashMap;

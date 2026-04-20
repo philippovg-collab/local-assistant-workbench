@@ -1,5 +1,24 @@
 package com.example.demo.infrastructure.material;
 
+import com.example.demo.service.material.ChunkProfile;
+import com.example.demo.service.material.LexicalProviderType;
+import com.example.demo.service.material.MaterialChunkSearchMatch;
+import com.example.demo.service.material.MaterialIndexingLease;
+import com.example.demo.service.material.MaterialLineageIdentity;
+import com.example.demo.service.material.MaterialRetrievalScopeSnapshot;
+import com.example.demo.service.material.MaterialSearchSyncQueueEntry;
+import com.example.demo.service.material.QualityLayerCoverageSnapshot;
+import com.example.demo.service.material.SearchSyncDeliveryState;
+import com.example.demo.service.material.SearchSyncOperationType;
+import com.example.demo.service.material.SearchableMaterialChunkSnapshot;
+import com.example.demo.service.material.SearchableMaterialSnapshot;
+import com.example.demo.service.material.StoredEmbeddedMaterialChunk;
+import com.example.demo.service.material.StoredMaterialChunk;
+import com.example.demo.service.material.StoredMaterialRecord;
+import com.example.demo.service.material.StoredMaterialSegment;
+import com.example.demo.service.material.port.MaterialIndexingQueueRepository;
+import com.example.demo.service.material.port.MaterialSearchSyncQueueRepository;
+
 import static com.example.demo.infrastructure.material.MaterialJdbcRowMappers.CHUNK_SEARCH_ROW_MAPPER;
 import static com.example.demo.infrastructure.material.MaterialJdbcRowMappers.MATERIAL_ROW_MAPPER;
 import static com.example.demo.infrastructure.material.MaterialJdbcRowMappers.MATERIAL_SUMMARY_ROW_MAPPER;
@@ -39,7 +58,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
-class PostgresMaterialJdbcSupport {
+abstract class PostgresMaterialJdbcSupport {
 
     private static final String MATERIAL_COLUMNS = """
         id,

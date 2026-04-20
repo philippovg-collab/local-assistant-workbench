@@ -7,7 +7,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.example.demo.model.AnswerMode;
 import com.example.demo.model.ChatExecutionResponse;
 import com.example.demo.model.ChatMode;
+import com.example.demo.model.ChatRunOutputTrace;
 import com.example.demo.model.KnowledgeScopeResolved;
+import com.example.demo.model.LlmCallTrace;
+import com.example.demo.model.PromptPolicySnapshot;
 import com.example.demo.model.RetrievalTrace;
 import com.example.demo.support.PostgresIntegrationTestSupport;
 import java.time.Instant;
@@ -84,6 +87,58 @@ class PostgresChatRunTraceRepositoryIT extends PostgresIntegrationTestSupport {
         assertFalse(repository.insertResultIfAbsent(runId, response(runId, "Second"), createdAt.plusSeconds(2), "TRACE_BACKFILL"));
 
         assertEquals("First", repository.findResult(runId).orElseThrow().answer());
+    }
+
+    @Test
+    void nonTerminalTraceWritesDoNotMutateTablesAfterTerminalStatus() {
+        String runId = runId();
+        Instant createdAt = Instant.parse("2026-04-19T00:00:00Z");
+        repository.insertHeader(runId, ChatMode.DIRECT, "qwen2.5:7b", AnswerMode.BRIEF, createdAt);
+        repository.cancelRun(runId, createdAt.plusSeconds(1), 1000);
+
+        repository.saveOutput(runId, new ChatRunOutputTrace("raw", "Late answer", List.of(), null, false, false));
+        repository.savePromptSnapshot(runId, new PromptPolicySnapshot(
+            null,
+            null,
+            null,
+            null,
+            "Late prompt",
+            null,
+            null,
+            null,
+            "resolved",
+            List.of(),
+            "hash",
+            List.of(),
+            KnowledgeScopeResolved.empty(),
+            false
+        ));
+        repository.saveRetrievalSummary(runId, "DONE", new RetrievalTrace(0, 0, 0, 0, 0, 0, 0, 0, 0), null);
+        repository.insertLlmCall(runId, new LlmCallTrace(
+            runId(),
+            "ollama",
+            "qwen2.5:7b",
+            List.of(),
+            "raw",
+            "parsed",
+            1,
+            2,
+            3,
+            10L,
+            0,
+            null,
+            "stop",
+            null,
+            null,
+            createdAt.plusSeconds(2)
+        ));
+
+        assertEquals("CANCELLED", stringValue("SELECT status FROM chat_run_headers WHERE id = ?::uuid", runId));
+        assertEquals(0, intValue("SELECT COUNT(*) FROM chat_run_outputs WHERE run_id = ?::uuid", runId));
+        assertEquals(0, intValue("SELECT COUNT(*) FROM chat_run_prompt_snapshots WHERE run_id = ?::uuid", runId));
+        assertEquals(0, intValue("SELECT COUNT(*) FROM chat_run_retrieval_summaries WHERE run_id = ?::uuid", runId));
+        assertEquals(0, intValue("SELECT COUNT(*) FROM chat_run_llm_calls WHERE run_id = ?::uuid", runId));
+        assertTrue(eventTypes(runId).isEmpty());
     }
 
     private ChatExecutionResponse response(String runId, String answer) {

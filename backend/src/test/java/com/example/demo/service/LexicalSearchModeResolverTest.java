@@ -1,11 +1,12 @@
 package com.example.demo.service;
 
+import com.example.demo.service.material.LexicalProviderMode;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.example.demo.config.RagProperties;
-import com.example.demo.infrastructure.material.LexicalProviderMode;
 import org.junit.jupiter.api.Test;
 
 class LexicalSearchModeResolverTest {

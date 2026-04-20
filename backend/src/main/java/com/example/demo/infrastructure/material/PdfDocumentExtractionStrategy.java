@@ -1,6 +1,18 @@
 package com.example.demo.infrastructure.material;
 
+import com.example.demo.service.material.DocumentBlock;
+import com.example.demo.service.material.DocumentBlockBuilder;
+import com.example.demo.service.material.DocumentBlockType;
+import com.example.demo.service.material.DocumentParseResult;
+import com.example.demo.service.material.DocumentParserProfile;
+import com.example.demo.service.material.MaterialFormatRegistry;
+import com.example.demo.service.material.MaterialMetadataHints;
+import com.example.demo.service.material.OcrCapability;
+import com.example.demo.service.material.ParseWarning;
+import com.example.demo.service.material.port.OcrCapabilityProvider;
+
 import com.example.demo.api.ApiException;
+import com.example.demo.config.MaterialProperties;
 import com.example.demo.config.OcrProperties;
 import java.awt.image.BufferedImage;
 import java.io.IOException;
@@ -20,6 +32,7 @@ import org.apache.pdfbox.rendering.PDFRenderer;
 import org.apache.pdfbox.text.PDFTextStripper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
@@ -31,9 +44,25 @@ public class PdfDocumentExtractionStrategy implements DocumentTextExtractionStra
     private static final String PARTIAL_WARNING_CODE = "material.partial_extraction";
 
     private final MaterialFormatRegistry formatRegistry;
+    private final MaterialProperties materialProperties;
     private final OcrProperties ocrProperties;
     private final OcrClient ocrClient;
     private final OcrCapabilityProvider ocrCapabilityProvider;
+
+    @Autowired
+    public PdfDocumentExtractionStrategy(
+        MaterialFormatRegistry formatRegistry,
+        MaterialProperties materialProperties,
+        OcrProperties ocrProperties,
+        OcrClient ocrClient,
+        OcrCapabilityProvider ocrCapabilityProvider
+    ) {
+        this.formatRegistry = formatRegistry;
+        this.materialProperties = materialProperties;
+        this.ocrProperties = ocrProperties;
+        this.ocrClient = ocrClient;
+        this.ocrCapabilityProvider = ocrCapabilityProvider;
+    }
 
     public PdfDocumentExtractionStrategy(
         MaterialFormatRegistry formatRegistry,
@@ -41,10 +70,7 @@ public class PdfDocumentExtractionStrategy implements DocumentTextExtractionStra
         OcrClient ocrClient,
         OcrCapabilityProvider ocrCapabilityProvider
     ) {
-        this.formatRegistry = formatRegistry;
-        this.ocrProperties = ocrProperties;
-        this.ocrClient = ocrClient;
-        this.ocrCapabilityProvider = ocrCapabilityProvider;
+        this(formatRegistry, new MaterialProperties(), ocrProperties, ocrClient, ocrCapabilityProvider);
     }
 
     @Override
@@ -58,6 +84,13 @@ public class PdfDocumentExtractionStrategy implements DocumentTextExtractionStra
     public DocumentParseResult extract(String originalFileName, String mediaType, byte[] bytes) {
         try (PDDocument document = PDDocument.load(bytes)) {
             int pageCount = document.getNumberOfPages();
+            if (pageCount > materialProperties.getMaxPdfPages()) {
+                throw new ApiException(
+                    HttpStatus.BAD_REQUEST,
+                    "material.extraction_too_large",
+                    "PDF page count exceeds the configured limit of " + materialProperties.getMaxPdfPages() + " pages"
+                );
+            }
             List<PageParseUnit> extractedPages = extractEmbeddedText(document, pageCount);
             List<PageParseUnit> resolvedPages = new ArrayList<>();
             List<Integer> skippedPages = new ArrayList<>();

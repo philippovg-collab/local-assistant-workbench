@@ -1,5 +1,7 @@
 package com.example.demo.infrastructure.material;
 
+import com.example.demo.service.material.OcrCapability;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;

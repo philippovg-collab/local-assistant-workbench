@@ -1,13 +1,14 @@
 package com.example.demo.support;
 
+import com.example.demo.service.material.port.MaterialCatalogRepository;
+import com.example.demo.service.material.port.MaterialChunkingRepository;
+import com.example.demo.service.material.port.MaterialIndexingQueueRepository;
+import com.example.demo.service.material.port.MaterialLineageRepository;
+import com.example.demo.service.material.port.MaterialSearchSyncQueueRepository;
+import com.example.demo.service.material.port.SemanticSearchRepository;
+
 import com.example.demo.config.RagProperties;
 import com.example.demo.embedding.EmbeddingClient;
-import com.example.demo.infrastructure.material.MaterialCatalogRepository;
-import com.example.demo.infrastructure.material.MaterialChunkingRepository;
-import com.example.demo.infrastructure.material.MaterialIndexingQueueRepository;
-import com.example.demo.infrastructure.material.MaterialLineageRepository;
-import com.example.demo.infrastructure.material.MaterialSearchSyncQueueRepository;
-import com.example.demo.infrastructure.material.SemanticSearchRepository;
 import com.example.demo.service.AfterCommitExecutor;
 import com.example.demo.service.AnswerModePostProcessor;
 import com.example.demo.service.ElasticsearchIndexSyncService;

@@ -1,4 +1,6 @@
 import type {
+  AuthLoginRequest,
+  AuthSession,
   ChatAuditRunDetail,
   ChatAuditRunSummary,
   ChatRunTraceDetail,
@@ -54,6 +56,10 @@ const resolveApiBaseUrl = () => {
 };
 
 const buildApiUrl = (path: string) => `${resolveApiBaseUrl()}${path}`;
+const CSRF_UNSAFE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+
+let csrfHeaderName = "X-XSRF-TOKEN";
+let csrfToken: string | null = null;
 
 type ApiErrorPayload = {
   code?: string;
@@ -119,8 +125,30 @@ const buildApiClientError = async (response: Response) => {
   });
 };
 
+const rememberCsrf = (session: AuthSession) => {
+  if (session.csrfHeaderName) {
+    csrfHeaderName = session.csrfHeaderName;
+  }
+  csrfToken = session.csrfToken ?? null;
+};
+
+const shouldAttachCsrf = (method?: string) =>
+  CSRF_UNSAFE_METHODS.has((method ?? "GET").toUpperCase()) && csrfToken !== null;
+
+const buildRequestInit = (init: RequestInit = {}): RequestInit => {
+  const headers = new Headers(init.headers);
+  if (shouldAttachCsrf(init.method)) {
+    headers.set(csrfHeaderName, csrfToken ?? "");
+  }
+  return {
+    ...init,
+    credentials: "include",
+    headers,
+  };
+};
+
 const requestJson = async <T>(path: string, init?: RequestInit) => {
-  const response = await fetch(buildApiUrl(path), init);
+  const response = await fetch(buildApiUrl(path), buildRequestInit(init));
   if (!response.ok) {
     throw await buildApiClientError(response);
   }
@@ -129,13 +157,36 @@ const requestJson = async <T>(path: string, init?: RequestInit) => {
 };
 
 const requestVoid = async (path: string, init?: RequestInit) => {
-  const response = await fetch(buildApiUrl(path), init);
+  const response = await fetch(buildApiUrl(path), buildRequestInit(init));
   if (!response.ok) {
     throw await buildApiClientError(response);
   }
 };
 
 export const apiClient = {
+  async fetchSession(signal?: AbortSignal) {
+    const session = await requestJson<AuthSession>("/api/auth/session", { signal });
+    rememberCsrf(session);
+    return session;
+  },
+  async login(input: AuthLoginRequest) {
+    const session = await requestJson<AuthSession>("/api/auth/login", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(input),
+    });
+    rememberCsrf(session);
+    return session;
+  },
+  async logout() {
+    const session = await requestJson<AuthSession>("/api/auth/logout", {
+      method: "POST",
+    });
+    rememberCsrf(session);
+    return session;
+  },
   fetchHealth(signal?: AbortSignal) {
     return requestJson<HealthResponse>("/api/health", { signal });
   },
@@ -328,6 +379,8 @@ export const apiClient = {
 
     return `curl ${curlBaseUrl}/api/chat \\
   -H "Content-Type: application/json" \\
-  -d '${JSON.stringify(input, null, 2)}'`;
+  --data-binary @- <<'JSON'
+${JSON.stringify(input, null, 2)}
+JSON`;
   },
 };

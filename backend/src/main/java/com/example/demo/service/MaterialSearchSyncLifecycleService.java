@@ -1,15 +1,17 @@
 package com.example.demo.service;
 
-import com.example.demo.infrastructure.material.MaterialCatalogRepository;
-import com.example.demo.infrastructure.material.MaterialChunkingRepository;
-import com.example.demo.infrastructure.material.MaterialLineageRepository;
-import com.example.demo.infrastructure.material.MaterialSearchSyncQueueRepository;
-import com.example.demo.infrastructure.material.ChunkProfile;
-import com.example.demo.infrastructure.material.StoredEmbeddedMaterialChunk;
-import com.example.demo.infrastructure.material.StoredMaterialChunk;
-import com.example.demo.infrastructure.material.StoredMaterialRecord;
-import com.example.demo.infrastructure.material.StoredMaterialSegment;
-import com.example.demo.infrastructure.material.SearchSyncOperationType;
+import com.example.demo.service.material.ChunkProfile;
+import com.example.demo.service.material.SearchSyncOperationType;
+import com.example.demo.service.material.StoredEmbeddedMaterialChunk;
+import com.example.demo.service.material.StoredMaterialChunk;
+import com.example.demo.service.material.StoredMaterialRecord;
+import com.example.demo.service.material.StoredMaterialSegment;
+import com.example.demo.service.material.port.MaterialCatalogRepository;
+import com.example.demo.service.material.port.MaterialChunkingRepository;
+import com.example.demo.service.material.port.MaterialIndexingQueueRepository;
+import com.example.demo.service.material.port.MaterialLineageRepository;
+import com.example.demo.service.material.port.MaterialSearchSyncQueueRepository;
+
 import com.example.demo.model.MaterialIndexingStatus;
 import com.example.demo.model.MaterialVersionState;
 import java.time.Instant;
@@ -26,7 +28,7 @@ public class MaterialSearchSyncLifecycleService {
     private final MaterialCatalogRepository catalogRepository;
     private final MaterialLineageRepository lineageRepository;
     private final MaterialChunkingRepository chunkingRepository;
-    private final com.example.demo.infrastructure.material.MaterialIndexingQueueRepository indexingQueueRepository;
+    private final MaterialIndexingQueueRepository indexingQueueRepository;
     private final MaterialSearchSyncQueueRepository queueRepository;
     private final AfterCommitExecutor afterCommitExecutor;
     private final ObjectProvider<ElasticsearchIndexSyncService> searchSyncServiceProvider;
@@ -36,7 +38,7 @@ public class MaterialSearchSyncLifecycleService {
         MaterialCatalogRepository catalogRepository,
         MaterialLineageRepository lineageRepository,
         MaterialChunkingRepository chunkingRepository,
-        com.example.demo.infrastructure.material.MaterialIndexingQueueRepository indexingQueueRepository,
+        MaterialIndexingQueueRepository indexingQueueRepository,
         MaterialSearchSyncQueueRepository queueRepository,
         AfterCommitExecutor afterCommitExecutor,
         ObjectProvider<ElasticsearchIndexSyncService> searchSyncServiceProvider

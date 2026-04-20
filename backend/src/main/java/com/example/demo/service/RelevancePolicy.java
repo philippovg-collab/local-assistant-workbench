@@ -1,7 +1,8 @@
 package com.example.demo.service;
 
+import com.example.demo.service.material.MaterialChunkSearchMatch;
+
 import com.example.demo.config.RagProperties;
-import com.example.demo.infrastructure.material.MaterialChunkSearchMatch;
 import java.util.List;
 
 public interface RelevancePolicy {

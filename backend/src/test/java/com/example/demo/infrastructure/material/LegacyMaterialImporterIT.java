@@ -1,5 +1,14 @@
 package com.example.demo.infrastructure.material;
 
+import com.example.demo.service.material.MaterialFormatRegistry;
+import com.example.demo.service.material.port.LexicalSearchProvider;
+import com.example.demo.service.material.port.MaterialCatalogRepository;
+import com.example.demo.service.material.port.MaterialChunkingRepository;
+import com.example.demo.service.material.port.MaterialIndexingQueueRepository;
+import com.example.demo.service.material.port.MaterialLineageRepository;
+import com.example.demo.service.material.port.MaterialSearchSyncQueueRepository;
+import com.example.demo.service.material.port.SemanticSearchRepository;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
@@ -85,23 +94,25 @@ class LegacyMaterialImporterIT extends PostgresIntegrationTestSupport {
             postgresUsername(),
             postgresPassword()
         );
-        PostgresMaterialRepository postgresRepository = new PostgresMaterialRepository(
-            new JdbcTemplate(dataSource),
-            new DataSourceTransactionManager(dataSource)
+        JdbcTemplate jdbcTemplate = new JdbcTemplate(dataSource);
+        DataSourceTransactionManager transactionManager = new DataSourceTransactionManager(dataSource);
+        MaterialCatalogRepository catalogRepository = new PostgresMaterialCatalogAdapter(jdbcTemplate, transactionManager);
+        MaterialLineageRepository lineageRepository = new PostgresMaterialLineageAdapter(jdbcTemplate, transactionManager);
+        MaterialChunkingRepository chunkingRepository = new PostgresMaterialChunkingAdapter(jdbcTemplate, transactionManager);
+        MaterialIndexingQueueRepository indexingQueueRepository = new PostgresMaterialIndexingQueueAdapter(
+            jdbcTemplate,
+            transactionManager
         );
-        MaterialCatalogRepository catalogRepository = new PostgresMaterialCatalogRepository(postgresRepository);
-        MaterialLineageRepository lineageRepository = new PostgresMaterialLineageRepository(postgresRepository);
-        MaterialChunkingRepository chunkingRepository = new PostgresMaterialChunkingRepository(postgresRepository);
-        MaterialIndexingQueueRepository indexingQueueRepository = new PostgresMaterialIndexingQueueRepository(
-            postgresRepository
+        MaterialSearchSyncQueueRepository searchSyncQueueRepository = new PostgresMaterialSearchSyncQueueAdapter(
+            jdbcTemplate,
+            transactionManager
         );
-        MaterialSearchSyncQueueRepository searchSyncQueueRepository = new PostgresMaterialSearchSyncQueueRepository(
-            postgresRepository
+        PostgresMaterialRetrievalSearchAdapter retrievalSearchAdapter = new PostgresMaterialRetrievalSearchAdapter(
+            jdbcTemplate,
+            transactionManager
         );
-        SemanticSearchRepository semanticSearchRepository = new PostgresMaterialSemanticSearchRepository(
-            postgresRepository
-        );
-        LexicalSearchProvider lexicalSearchProvider = new PostgresLexicalSearchProvider(postgresRepository);
+        SemanticSearchRepository semanticSearchRepository = retrievalSearchAdapter;
+        LexicalSearchProvider lexicalSearchProvider = retrievalSearchAdapter;
         MaterialFormatRegistry formatRegistry = new MaterialFormatRegistry();
         MaterialProperties materialProperties = new MaterialProperties();
         OcrProperties ocrProperties = new OcrProperties();

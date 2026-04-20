@@ -1,6 +1,7 @@
 package com.example.demo.model;
 
-import com.example.demo.infrastructure.material.DocumentBlockType;
+import com.example.demo.service.material.DocumentBlockType;
+
 import java.util.List;
 
 public record ChatSource(

@@ -1,19 +1,31 @@
 package com.example.demo.model;
 
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.Size;
 import java.util.List;
 
 public record ChatExecutionRequest(
     ChatMode mode,
+    @Size(max = 128)
     String model,
+    @Size(max = 20000)
     String prompt,
+    @Size(max = 8000)
     String systemPrompt,
+    @Size(max = 32)
     List<String> instructionIds,
     AnswerMode answerMode,
+    @Valid
     KnowledgeScope knowledgeScope,
+    @Size(max = 128)
     String instructionWorkspaceKey,
+    @Valid
     RetrievalFilters retrievalFilters,
+    @Size(max = 32)
     List<String> dismissedRetrievalHintKeys,
+    @Size(max = 32)
     List<String> scenarioInstructionIds,
+    @Size(max = 8000)
     String temporaryInstruction
 ) {
     public ChatExecutionRequest(

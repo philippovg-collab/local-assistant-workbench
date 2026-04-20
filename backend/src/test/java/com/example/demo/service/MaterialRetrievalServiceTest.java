@@ -1,5 +1,18 @@
 package com.example.demo.service;
 
+import com.example.demo.service.material.DocumentBlockConfidence;
+import com.example.demo.service.material.DocumentBlockType;
+import com.example.demo.service.material.LexicalProviderMode;
+import com.example.demo.service.material.LexicalProviderType;
+import com.example.demo.service.material.MaterialChunkSearchMatch;
+import com.example.demo.service.material.MaterialRetrievalScopeSnapshot;
+import com.example.demo.service.material.StoredEmbeddedMaterialChunk;
+import com.example.demo.service.material.StoredMaterialChunk;
+import com.example.demo.service.material.StoredMaterialRecord;
+import com.example.demo.service.material.port.MaterialCatalogRepository;
+import com.example.demo.service.material.port.MaterialChunkingRepository;
+import com.example.demo.service.material.port.SemanticSearchRepository;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -16,18 +29,6 @@ import com.example.demo.api.ApiException;
 import com.example.demo.config.MaterialProperties;
 import com.example.demo.config.RagProperties;
 import com.example.demo.config.RolloutProperties;
-import com.example.demo.infrastructure.material.LexicalProviderMode;
-import com.example.demo.infrastructure.material.LexicalProviderType;
-import com.example.demo.infrastructure.material.MaterialCatalogRepository;
-import com.example.demo.infrastructure.material.MaterialChunkSearchMatch;
-import com.example.demo.infrastructure.material.MaterialChunkingRepository;
-import com.example.demo.infrastructure.material.MaterialRetrievalScopeSnapshot;
-import com.example.demo.infrastructure.material.DocumentBlockConfidence;
-import com.example.demo.infrastructure.material.DocumentBlockType;
-import com.example.demo.infrastructure.material.SemanticSearchRepository;
-import com.example.demo.infrastructure.material.StoredEmbeddedMaterialChunk;
-import com.example.demo.infrastructure.material.StoredMaterialChunk;
-import com.example.demo.infrastructure.material.StoredMaterialRecord;
 import com.example.demo.embedding.EmbeddingClient;
 import com.example.demo.model.ChatSource;
 import com.example.demo.model.DocumentType;
@@ -1433,8 +1434,8 @@ class MaterialRetrievalServiceTest {
         @Override
         public void compareIfEligible(
             String query,
-            com.example.demo.infrastructure.material.LexicalProviderType productionProviderType,
-            List<com.example.demo.infrastructure.material.MaterialChunkSearchMatch> productionMatches,
+            LexicalProviderType productionProviderType,
+            List<MaterialChunkSearchMatch> productionMatches,
             int limit
         ) {
             calls++;

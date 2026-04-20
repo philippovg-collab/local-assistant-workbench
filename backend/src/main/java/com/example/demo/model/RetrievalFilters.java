@@ -1,5 +1,6 @@
 package com.example.demo.model;
 
+import jakarta.validation.constraints.Size;
 import java.time.LocalDate;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -7,14 +8,21 @@ import java.util.Locale;
 import java.util.Set;
 
 public record RetrievalFilters(
+    @Size(max = 128)
     String documentNumber,
     LocalDate documentDateFrom,
     LocalDate documentDateTo,
+    @Size(max = 128)
     String department,
+    @Size(max = 128)
     String project,
+    @Size(max = 128)
     String counterparty,
+    @Size(max = 128)
     String businessStatus,
+    @Size(max = 128)
     String language,
+    @Size(max = 32)
     List<String> tags,
     SourceTrustLevel sourceTrustMin
 ) {

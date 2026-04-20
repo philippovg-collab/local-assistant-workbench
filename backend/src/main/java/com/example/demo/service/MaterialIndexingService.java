@@ -1,15 +1,16 @@
 package com.example.demo.service;
 
+import com.example.demo.service.material.MaterialIndexingLease;
+import com.example.demo.service.material.StoredEmbeddedMaterialChunk;
+import com.example.demo.service.material.StoredMaterialChunk;
+import com.example.demo.service.material.StoredMaterialRecord;
+import com.example.demo.service.material.StoredMaterialSegment;
+import com.example.demo.service.material.port.MaterialChunkingRepository;
+import com.example.demo.service.material.port.MaterialIndexingQueueRepository;
+
 import com.example.demo.api.ApiException;
 import com.example.demo.config.MaterialProperties;
 import com.example.demo.embedding.EmbeddingClient;
-import com.example.demo.infrastructure.material.MaterialIndexingLease;
-import com.example.demo.infrastructure.material.MaterialChunkingRepository;
-import com.example.demo.infrastructure.material.MaterialIndexingQueueRepository;
-import com.example.demo.infrastructure.material.StoredMaterialChunk;
-import com.example.demo.infrastructure.material.StoredEmbeddedMaterialChunk;
-import com.example.demo.infrastructure.material.StoredMaterialRecord;
-import com.example.demo.infrastructure.material.StoredMaterialSegment;
 import com.example.demo.model.MaterialIndexingStatus;
 import java.time.Instant;
 import java.util.ArrayList;

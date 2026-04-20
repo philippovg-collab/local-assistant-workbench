@@ -1,5 +1,15 @@
 package com.example.demo.infrastructure.material;
 
+import com.example.demo.service.material.DocumentBlock;
+import com.example.demo.service.material.DocumentBlockBuilder;
+import com.example.demo.service.material.DocumentBlockConfidence;
+import com.example.demo.service.material.DocumentBlockHeuristics;
+import com.example.demo.service.material.DocumentBlockType;
+import com.example.demo.service.material.DocumentParseResult;
+import com.example.demo.service.material.DocumentParserProfile;
+import com.example.demo.service.material.MaterialFormatRegistry;
+import com.example.demo.service.material.MaterialMetadataHints;
+
 import com.example.demo.api.ApiException;
 import com.example.demo.config.MaterialProperties;
 import java.io.ByteArrayInputStream;
@@ -17,9 +27,12 @@ import javax.xml.XMLConstants;
 import javax.xml.parsers.DocumentBuilderFactory;
 import org.apache.tika.metadata.Metadata;
 import org.apache.tika.metadata.TikaCoreProperties;
+import org.apache.tika.exception.WriteLimitReachedException;
 import org.apache.tika.parser.AutoDetectParser;
+import org.apache.tika.parser.EmptyParser;
 import org.apache.tika.parser.ParseContext;
 import org.apache.tika.sax.ToXMLContentHandler;
+import org.apache.tika.sax.WriteOutContentHandler;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
@@ -47,12 +60,15 @@ public class TikaDocumentTextExtractor implements DocumentTextExtractionStrategy
         String extension = formatRegistry.extensionOf(originalFileName);
         return (formatRegistry.isRichDocumentExtension(extension) && !formatRegistry.isPdfExtension(extension))
             || formatRegistry.isTabularExtension(extension)
-            || formatRegistry.isPresentationExtension(extension);
+            || formatRegistry.isPresentationExtension(extension)
+            || (formatRegistry.isRichDocumentMediaType(mediaType) && !formatRegistry.isPdfMediaType(mediaType))
+            || formatRegistry.isTabularMediaType(mediaType)
+            || formatRegistry.isPresentationMediaType(mediaType);
     }
 
     @Override
     public DocumentParseResult extract(String originalFileName, String mediaType, byte[] bytes) {
-        DocumentParserProfile parserProfile = resolveParserProfile(originalFileName);
+        DocumentParserProfile parserProfile = resolveParserProfile(originalFileName, mediaType);
         ParsedXhtml parsedXhtml = extractStructuredDocument(originalFileName, bytes);
         List<DocumentBlock> blocks = mapBlocks(parsedXhtml.document(), parserProfile);
 
@@ -105,12 +121,12 @@ public class TikaDocumentTextExtractor implements DocumentTextExtractionStrategy
         );
     }
 
-    private DocumentParserProfile resolveParserProfile(String originalFileName) {
+    private DocumentParserProfile resolveParserProfile(String originalFileName, String mediaType) {
         String extension = formatRegistry.extensionOf(originalFileName);
-        if (formatRegistry.isTabularExtension(extension)) {
+        if (formatRegistry.isTabularExtension(extension) || formatRegistry.isTabularMediaType(mediaType)) {
             return DocumentParserProfile.TABULAR;
         }
-        if (formatRegistry.isPresentationExtension(extension)) {
+        if (formatRegistry.isPresentationExtension(extension) || formatRegistry.isPresentationMediaType(mediaType)) {
             return DocumentParserProfile.PRESENTATION;
         }
         return DocumentParserProfile.RICH_TEXT;
@@ -139,6 +155,14 @@ public class TikaDocumentTextExtractor implements DocumentTextExtractionStrategy
             );
         } catch (ExecutionException exception) {
             Throwable cause = exception.getCause() == null ? exception : exception.getCause();
+            if (isWriteLimitFailure(cause)) {
+                throw new ApiException(
+                    HttpStatus.BAD_REQUEST,
+                    "material.extraction_too_large",
+                    "Extracted document text exceeds the configured parser output limit",
+                    cause
+                );
+            }
             throw new ApiException(
                 HttpStatus.BAD_REQUEST,
                 "material.extraction_failed",
@@ -157,14 +181,67 @@ public class TikaDocumentTextExtractor implements DocumentTextExtractionStrategy
             metadata.set(TikaCoreProperties.RESOURCE_NAME_KEY, originalFileName);
         }
 
+        ParseContext parseContext = new ParseContext();
+        if (!properties.isTikaEmbeddedResourcesEnabled()) {
+            parseContext.set(org.apache.tika.parser.Parser.class, EmptyParser.INSTANCE);
+        }
+
         ToXMLContentHandler handler = new ToXMLContentHandler();
+        int writeLimit = Math.max(1, properties.getTikaWriteLimitChars());
+        WriteOutContentHandler boundedHandler = new WriteOutContentHandler(
+            handler,
+            writeLimit,
+            true,
+            parseContext
+        );
         try (ByteArrayInputStream inputStream = new ByteArrayInputStream(bytes)) {
-            parser.parse(inputStream, handler, metadata, new ParseContext());
+            parser.parse(inputStream, boundedHandler, metadata, parseContext);
         }
 
         String xhtml = handler.toString();
-        Document document = parseXmlDocument(xhtml);
+        Document document;
+        try {
+            document = parseXmlDocument(xhtml);
+        } catch (Exception exception) {
+            if (xhtml.length() >= writeLimit) {
+                throw new ExtractionWriteLimitExceededException(exception);
+            }
+            throw exception;
+        }
         return new ParsedXhtml(document, document.getDocumentElement() == null ? "" : normalizeText(document.getDocumentElement().getTextContent()));
+    }
+
+    private boolean isWriteLimitFailure(Throwable throwable) {
+        if (WriteLimitReachedException.isWriteLimitReached(throwable)) {
+            return true;
+        }
+        Throwable current = throwable;
+        while (current != null) {
+            String className = current.getClass().getName();
+            if (className.contains("WriteLimitReachedException")
+                || className.contains("WriteOutContentHandler")
+                || className.contains("ExtractionWriteLimitExceededException")) {
+                return true;
+            }
+            String message = current.getMessage();
+            if (message != null) {
+                String normalizedMessage = message.toLowerCase(Locale.ROOT);
+                if (normalizedMessage.contains("write limit")
+                    || normalizedMessage.contains("requested limit")
+                    || normalizedMessage.contains("limit has been reached")) {
+                    return true;
+                }
+            }
+            current = current.getCause();
+        }
+        return false;
+    }
+
+    private static final class ExtractionWriteLimitExceededException extends Exception {
+
+        private ExtractionWriteLimitExceededException(Throwable cause) {
+            super("Tika output exceeded the configured write limit", cause);
+        }
     }
 
     private Document parseXmlDocument(String xhtml) throws Exception {

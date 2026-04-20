@@ -1,5 +1,7 @@
 package com.example.demo.infrastructure.material;
 
+import com.example.demo.service.material.StoredMaterialRecord;
+
 import com.example.demo.infrastructure.storage.AtomicJsonFileStore;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.file.Path;

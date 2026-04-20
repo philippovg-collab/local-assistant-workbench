@@ -1,5 +1,11 @@
 package com.example.demo.controller;
 
+import com.example.demo.service.material.DocumentBlockConfidence;
+import com.example.demo.service.material.DocumentBlockType;
+import com.example.demo.service.material.StoredEmbeddedMaterialChunk;
+import com.example.demo.service.material.StoredMaterialChunk;
+import com.example.demo.service.material.StoredMaterialRecord;
+
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -8,11 +14,6 @@ import com.example.demo.api.ApiExceptionHandler;
 import com.example.demo.config.MaterialProperties;
 import com.example.demo.config.RagProperties;
 import com.example.demo.config.RolloutProperties;
-import com.example.demo.infrastructure.material.DocumentBlockConfidence;
-import com.example.demo.infrastructure.material.DocumentBlockType;
-import com.example.demo.infrastructure.material.StoredEmbeddedMaterialChunk;
-import com.example.demo.infrastructure.material.StoredMaterialChunk;
-import com.example.demo.infrastructure.material.StoredMaterialRecord;
 import com.example.demo.model.DocumentType;
 import com.example.demo.model.MaterialIndexingStatus;
 import com.example.demo.model.MaterialMetadataInput;

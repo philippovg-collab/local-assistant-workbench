@@ -76,12 +76,12 @@ public class ChatRunExecutionService {
 
     public ChatRunTraceDetail cancel(String runId) {
         ChatRunTraceDetail trace = chatRunQueryService.getTrace(runId);
-        Thread runningThread = runningThreads.remove(trace.id());
-        if (runningThread != null) {
-            runningThread.interrupt();
-        }
         if (chatRunTraceService.cancelRun(trace.id(), trace.createdAt())) {
             queueRepository.deleteQueueEntry(trace.id());
+            Thread runningThread = runningThreads.remove(trace.id());
+            if (runningThread != null) {
+                runningThread.interrupt();
+            }
         }
         return chatRunQueryService.getTrace(trace.id());
     }

@@ -1,9 +1,10 @@
 package com.example.demo.service;
 
-import com.example.demo.infrastructure.material.DocumentBlockConfidence;
-import com.example.demo.infrastructure.material.DocumentBlockType;
-import com.example.demo.infrastructure.material.StoredMaterialChunk;
-import com.example.demo.infrastructure.material.StoredMaterialRecord;
+import com.example.demo.service.material.DocumentBlockConfidence;
+import com.example.demo.service.material.DocumentBlockType;
+import com.example.demo.service.material.StoredMaterialChunk;
+import com.example.demo.service.material.StoredMaterialRecord;
+
 import com.example.demo.model.ChunkScoreBreakdown;
 import com.example.demo.model.MaterialMetadataSnapshot;
 import com.example.demo.model.RetrievalFilters;

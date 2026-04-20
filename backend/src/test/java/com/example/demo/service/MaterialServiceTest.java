@@ -1,5 +1,9 @@
 package com.example.demo.service;
 
+import com.example.demo.service.material.MaterialFormatRegistry;
+import com.example.demo.service.material.StoredMaterialRecord;
+import com.example.demo.service.material.port.DocumentTextExtractor;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -10,15 +14,11 @@ import com.example.demo.config.MaterialProperties;
 import com.example.demo.config.OcrProperties;
 import com.example.demo.config.RagProperties;
 import com.example.demo.embedding.EmbeddingClient;
-import com.example.demo.infrastructure.material.DocumentTextExtractor;
-import com.example.demo.infrastructure.material.MaterialCatalogRepository;
-import com.example.demo.infrastructure.material.MaterialFormatRegistry;
 import com.example.demo.infrastructure.material.OcrCapabilityService;
 import com.example.demo.infrastructure.material.OcrClient;
 import com.example.demo.infrastructure.material.PdfDocumentExtractionStrategy;
 import com.example.demo.infrastructure.material.PlainTextDocumentExtractionStrategy;
 import com.example.demo.infrastructure.material.RoutingDocumentTextExtractor;
-import com.example.demo.infrastructure.material.StoredMaterialRecord;
 import com.example.demo.infrastructure.material.TesseractRuntimeProbe;
 import com.example.demo.infrastructure.material.TikaDocumentTextExtractor;
 import com.example.demo.model.DocumentType;
@@ -460,7 +460,8 @@ class MaterialServiceTest {
         MaterialFormatRegistry formatRegistry = new MaterialFormatRegistry();
         OcrProperties ocrProperties = new OcrProperties();
         OcrClient ocrClient = (imagePath, pageNumber) -> "OCR fallback text for page " + pageNumber;
-        OcrCapabilityService ocrCapabilityService = new OcrCapabilityService(
+        com.example.demo.infrastructure.material.OcrCapabilityService ocrCapabilityService =
+            new com.example.demo.infrastructure.material.OcrCapabilityService(
             ocrProperties,
             (binaryPath, timeoutSeconds) -> new TesseractRuntimeProbe.CommandResult(
                 0,

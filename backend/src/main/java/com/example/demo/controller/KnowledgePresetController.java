@@ -6,6 +6,7 @@ import com.example.demo.model.KnowledgePresetRevisionDiff;
 import com.example.demo.model.KnowledgePresetRevisionDetail;
 import com.example.demo.model.KnowledgePresetSummary;
 import com.example.demo.service.KnowledgePresetService;
+import jakarta.validation.Valid;
 import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -41,12 +42,12 @@ public class KnowledgePresetController {
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    public KnowledgePresetDetail createKnowledgePreset(@RequestBody CreateKnowledgePresetRequest request) {
+    public KnowledgePresetDetail createKnowledgePreset(@Valid @RequestBody CreateKnowledgePresetRequest request) {
         return knowledgePresetService.createPreset(request);
     }
 
     @PutMapping("/{id}")
-    public KnowledgePresetDetail updateKnowledgePreset(@PathVariable String id, @RequestBody CreateKnowledgePresetRequest request) {
+    public KnowledgePresetDetail updateKnowledgePreset(@PathVariable String id, @Valid @RequestBody CreateKnowledgePresetRequest request) {
         return knowledgePresetService.updatePreset(id, request);
     }
 

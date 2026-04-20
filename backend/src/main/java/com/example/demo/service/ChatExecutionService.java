@@ -1,6 +1,7 @@
 package com.example.demo.service;
 
 import com.example.demo.api.ApiException;
+import com.example.demo.api.InputLimits;
 import com.example.demo.config.ChatAuditProperties;
 import com.example.demo.llm.LlmClient;
 import com.example.demo.llm.LlmTracingClient;
@@ -166,13 +167,7 @@ public class ChatExecutionService {
     }
 
     private void validateRequest(ChatExecutionRequest request) {
-        if (request == null || !StringUtils.hasText(request.prompt())) {
-            throw new ApiException(
-                HttpStatus.BAD_REQUEST,
-                "chat.invalid_request",
-                "Field 'prompt' is required"
-            );
-        }
+        InputLimits.validateChatRequest(request);
     }
 
     private ChatExecutionResponse executeLegacy(ChatExecutionRequest request) {
@@ -197,13 +192,7 @@ public class ChatExecutionService {
     }
 
     public ChatExecutionResponse execute(ChatExecutionRequest request, List<InstructionDetail> instructions) {
-        if (request == null || !StringUtils.hasText(request.prompt())) {
-            throw new ApiException(
-                HttpStatus.BAD_REQUEST,
-                "chat.invalid_request",
-                "Field 'prompt' is required"
-            );
-        }
+        validateRequest(request);
 
         ChatMode mode = request.mode() == null ? ChatMode.DIRECT : request.mode();
         String temporaryInstruction = firstNonBlank(request.temporaryInstruction(), request.systemPrompt());

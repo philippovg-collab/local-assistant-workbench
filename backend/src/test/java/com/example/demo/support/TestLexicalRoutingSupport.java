@@ -1,10 +1,11 @@
 package com.example.demo.support;
 
+import com.example.demo.service.material.port.LexicalSearchProvider;
+import com.example.demo.service.material.port.MaterialSearchSyncQueueRepository;
+
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import com.example.demo.config.RagProperties;
 import com.example.demo.config.SearchSyncProperties;
-import com.example.demo.infrastructure.material.LexicalSearchProvider;
-import com.example.demo.infrastructure.material.MaterialSearchSyncQueueRepository;
 import com.example.demo.service.ElasticsearchHealthService;
 import com.example.demo.service.LexicalSearchModeResolver;
 import com.example.demo.service.LexicalSearchStrategy;

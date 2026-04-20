@@ -1,7 +1,12 @@
 package com.example.demo.model;
 
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.Size;
+
 public record MaterialSearchRequest(
+    @Size(max = 20000)
     String query,
+    @Valid
     RetrievalFilters filters,
     Integer limit,
     Boolean includeNeighbors,

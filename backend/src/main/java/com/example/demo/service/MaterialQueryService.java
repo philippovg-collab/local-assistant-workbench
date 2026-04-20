@@ -1,17 +1,18 @@
 package com.example.demo.service;
 
+import com.example.demo.service.material.ChunkProfile;
+import com.example.demo.service.material.MaterialFormatRegistry;
+import com.example.demo.service.material.OcrCapability;
+import com.example.demo.service.material.StoredMaterialChunk;
+import com.example.demo.service.material.StoredMaterialRecord;
+import com.example.demo.service.material.StoredMaterialSegment;
+import com.example.demo.service.material.port.MaterialCatalogRepository;
+import com.example.demo.service.material.port.MaterialChunkingRepository;
+import com.example.demo.service.material.port.OcrCapabilityProvider;
+
 import com.example.demo.api.ApiException;
 import com.example.demo.config.MaterialProperties;
 import com.example.demo.config.RolloutProperties;
-import com.example.demo.infrastructure.material.ChunkProfile;
-import com.example.demo.infrastructure.material.MaterialCatalogRepository;
-import com.example.demo.infrastructure.material.MaterialChunkingRepository;
-import com.example.demo.infrastructure.material.MaterialFormatRegistry;
-import com.example.demo.infrastructure.material.OcrCapability;
-import com.example.demo.infrastructure.material.OcrCapabilityProvider;
-import com.example.demo.infrastructure.material.StoredMaterialChunk;
-import com.example.demo.infrastructure.material.StoredMaterialRecord;
-import com.example.demo.infrastructure.material.StoredMaterialSegment;
 import com.example.demo.model.MaterialIndexingStatus;
 import com.example.demo.model.MaterialChunkDetail;
 import com.example.demo.model.MaterialDetail;

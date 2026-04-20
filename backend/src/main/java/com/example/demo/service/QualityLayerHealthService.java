@@ -1,9 +1,10 @@
 package com.example.demo.service;
 
+import com.example.demo.service.material.DocumentBlockType;
+import com.example.demo.service.material.QualityLayerCoverageSnapshot;
+import com.example.demo.service.material.port.QualityLayerMetricsRepository;
+
 import com.example.demo.config.RolloutProperties;
-import com.example.demo.infrastructure.material.DocumentBlockType;
-import com.example.demo.infrastructure.material.QualityLayerCoverageSnapshot;
-import com.example.demo.infrastructure.material.QualityLayerMetricsRepository;
 import com.example.demo.model.ActiveBackfillCoverage;
 import com.example.demo.model.CoverageStat;
 import com.example.demo.model.MetadataCoverage;

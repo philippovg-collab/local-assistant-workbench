@@ -1,17 +1,19 @@
 package com.example.demo.service;
 
+import com.example.demo.service.material.ChunkProfile;
+import com.example.demo.service.material.DocumentBlock;
+import com.example.demo.service.material.DocumentBlockBuilder;
+import com.example.demo.service.material.DocumentBlockType;
+import com.example.demo.service.material.DocumentParseResult;
+import com.example.demo.service.material.ExtractedDocumentSegment;
+import com.example.demo.service.material.MaterialLineageIdentity;
+import com.example.demo.service.material.MaterialLineageIdentityKind;
+import com.example.demo.service.material.StoredMaterialChunk;
+import com.example.demo.service.material.StoredMaterialRecord;
+import com.example.demo.service.material.StoredMaterialSegment;
+
 import com.example.demo.api.ApiException;
 import com.example.demo.config.MaterialProperties;
-import com.example.demo.infrastructure.material.ChunkProfile;
-import com.example.demo.infrastructure.material.DocumentBlock;
-import com.example.demo.infrastructure.material.DocumentBlockBuilder;
-import com.example.demo.infrastructure.material.DocumentParseResult;
-import com.example.demo.infrastructure.material.ExtractedDocumentSegment;
-import com.example.demo.infrastructure.material.MaterialLineageIdentity;
-import com.example.demo.infrastructure.material.MaterialLineageIdentityKind;
-import com.example.demo.infrastructure.material.StoredMaterialChunk;
-import com.example.demo.infrastructure.material.StoredMaterialRecord;
-import com.example.demo.infrastructure.material.StoredMaterialSegment;
 import com.example.demo.model.MaterialIndexingStatus;
 import com.example.demo.model.MaterialLineageVersion;
 import com.example.demo.model.MaterialMetadataSnapshot;
@@ -379,7 +381,7 @@ public class MaterialContentSupport {
                 normalizeExtractor(segment.extractor()),
                 Boolean.TRUE.equals(segment.ocrUsed()),
                 false,
-                com.example.demo.infrastructure.material.DocumentBlockType.NARRATIVE,
+                DocumentBlockType.NARRATIVE,
                 nextIndex
             );
             if (segmentBlocks.isEmpty()) {

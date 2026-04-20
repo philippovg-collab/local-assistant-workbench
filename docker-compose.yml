@@ -81,6 +81,8 @@ services:
       APP_OCR_RENDER_DPI: ${APP_OCR_RENDER_DPI:-200}
       APP_MATERIALS_MAX_UPLOAD_BYTES: ${APP_MATERIALS_MAX_UPLOAD_BYTES:-8388608}
       APP_MATERIALS_MAX_UPLOAD_REQUEST_BYTES: ${APP_MATERIALS_MAX_UPLOAD_REQUEST_BYTES:-9437184}
+      APP_SECURITY_ADMIN_USERNAME: ${APP_SECURITY_ADMIN_USERNAME:-admin}
+      APP_SECURITY_ADMIN_PASSWORD: ${APP_SECURITY_ADMIN_PASSWORD:?Set APP_SECURITY_ADMIN_PASSWORD before starting the hardened stack}
       APP_RAG_LEXICAL_PROVIDER: ${APP_RAG_LEXICAL_PROVIDER:-postgres}
       APP_SEARCH_SYNC_ENABLED: ${APP_SEARCH_SYNC_ENABLED:-false}
       APP_SEARCH_SYNC_INDEX_PREFIX: ${APP_SEARCH_SYNC_INDEX_PREFIX:-rag-chunks}
@@ -91,7 +93,7 @@ services:
     expose:
       - "8080"
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/api/health"]
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/api/liveness"]
       interval: 30s
       timeout: ${BACKEND_HEALTHCHECK_TIMEOUT:-45s}
       retries: 10

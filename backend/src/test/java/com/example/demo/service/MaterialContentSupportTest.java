@@ -1,21 +1,22 @@
 package com.example.demo.service;
 
+import com.example.demo.service.material.ChunkProfile;
+import com.example.demo.service.material.DocumentBlock;
+import com.example.demo.service.material.DocumentBlockConfidence;
+import com.example.demo.service.material.DocumentBlockType;
+import com.example.demo.service.material.DocumentParseResult;
+import com.example.demo.service.material.DocumentParserProfile;
+import com.example.demo.service.material.MaterialLineageIdentity;
+import com.example.demo.service.material.MaterialLineageIdentityKind;
+import com.example.demo.service.material.MaterialMetadataHints;
+import com.example.demo.service.material.StoredMaterialChunk;
+import com.example.demo.service.material.StoredMaterialSegment;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.example.demo.config.MaterialProperties;
-import com.example.demo.infrastructure.material.ChunkProfile;
-import com.example.demo.infrastructure.material.DocumentBlock;
-import com.example.demo.infrastructure.material.DocumentBlockConfidence;
-import com.example.demo.infrastructure.material.DocumentBlockType;
-import com.example.demo.infrastructure.material.DocumentParseResult;
-import com.example.demo.infrastructure.material.DocumentParserProfile;
-import com.example.demo.infrastructure.material.MaterialMetadataHints;
-import com.example.demo.infrastructure.material.MaterialLineageIdentity;
-import com.example.demo.infrastructure.material.MaterialLineageIdentityKind;
-import com.example.demo.infrastructure.material.StoredMaterialChunk;
-import com.example.demo.infrastructure.material.StoredMaterialSegment;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 

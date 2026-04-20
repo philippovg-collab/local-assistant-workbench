@@ -1,11 +1,12 @@
 package com.example.demo.service;
 
+import com.example.demo.service.material.MaterialMetadataHints;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import com.example.demo.infrastructure.material.MaterialMetadataHints;
 import com.example.demo.model.DocumentType;
 import com.example.demo.model.KnowledgeDocumentClass;
 import com.example.demo.model.MaterialMetadataInput;

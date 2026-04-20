@@ -1,7 +1,7 @@
 #!/bin/zsh
 set -euo pipefail
 
-BACKEND_HEALTH_URL="http://127.0.0.1:8080/api/health"
+BACKEND_HEALTH_URL="http://127.0.0.1:8080/api/liveness"
 
 pkill -f 'spring-boot:run' || true
 pkill -f 'org.springframework.boot.loader.launch.JarLauncher' || true

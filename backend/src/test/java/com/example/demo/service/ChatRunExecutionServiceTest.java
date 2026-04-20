@@ -1,6 +1,7 @@
 package com.example.demo.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -173,12 +174,42 @@ class ChatRunExecutionServiceTest {
         });
         MapAccessor.runningThreads(service).put(runId, runningThread);
         when(queryService.getTrace(runId)).thenReturn(trace(runId, "PROMPT"));
-        when(traceService.cancelRun(runId, createdAt)).thenReturn(true);
+        when(traceService.cancelRun(runId, createdAt)).thenAnswer(invocation -> {
+            assertFalse(runningThread.isInterrupted());
+            return true;
+        });
 
         service.cancel(runId);
 
         assertTrue(runningThread.isInterrupted());
         verify(queueRepository).deleteQueueEntry(runId);
+    }
+
+    @Test
+    void cancelRejectedByTerminalTransitionDoesNotInterruptOrDeleteQueueEntry() {
+        PostgresChatRunQueueRepository queueRepository = mock(PostgresChatRunQueueRepository.class);
+        ChatRunTraceService traceService = mock(ChatRunTraceService.class);
+        ChatRunQueryService queryService = mock(ChatRunQueryService.class);
+        ChatRunExecutionService service = service(
+            new ManualExecutorService(),
+            queueRepository,
+            mock(ChatExecutionService.class),
+            traceService,
+            queryService
+        );
+        String runId = UUID.randomUUID().toString();
+        Instant createdAt = Instant.parse("2026-04-19T00:00:00Z");
+        Thread runningThread = new Thread(() -> {
+        });
+        MapAccessor.runningThreads(service).put(runId, runningThread);
+        when(queryService.getTrace(runId)).thenReturn(trace(runId, "PROMPT"));
+        when(traceService.cancelRun(runId, createdAt)).thenReturn(false);
+
+        service.cancel(runId);
+
+        assertFalse(runningThread.isInterrupted());
+        assertTrue(MapAccessor.runningThreads(service).containsKey(runId));
+        verify(queueRepository, never()).deleteQueueEntry(runId);
     }
 
     private ChatRunExecutionService service(

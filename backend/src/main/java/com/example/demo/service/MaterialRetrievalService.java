@@ -1,17 +1,21 @@
 package com.example.demo.service;
 
+import com.example.demo.service.material.DocumentBlockType;
+import com.example.demo.service.material.LexicalProviderMode;
+import com.example.demo.service.material.LexicalProviderType;
+import com.example.demo.service.material.MaterialChunkSearchMatch;
+import com.example.demo.service.material.MaterialRetrievalScopeSnapshot;
+import com.example.demo.service.material.StoredMaterialChunk;
+import com.example.demo.service.material.StoredMaterialRecord;
+import com.example.demo.service.material.StoredMaterialSegment;
+import com.example.demo.service.material.port.MaterialCatalogRepository;
+import com.example.demo.service.material.port.MaterialChunkingRepository;
+import com.example.demo.service.material.port.SemanticSearchRepository;
+
 import com.example.demo.api.ApiException;
 import com.example.demo.config.RolloutProperties;
 import com.example.demo.config.RagProperties;
 import com.example.demo.embedding.EmbeddingClient;
-import com.example.demo.infrastructure.material.MaterialCatalogRepository;
-import com.example.demo.infrastructure.material.MaterialChunkSearchMatch;
-import com.example.demo.infrastructure.material.MaterialChunkingRepository;
-import com.example.demo.infrastructure.material.MaterialRetrievalScopeSnapshot;
-import com.example.demo.infrastructure.material.SemanticSearchRepository;
-import com.example.demo.infrastructure.material.StoredMaterialChunk;
-import com.example.demo.infrastructure.material.StoredMaterialSegment;
-import com.example.demo.infrastructure.material.StoredMaterialRecord;
 import com.example.demo.model.ChatSource;
 import com.example.demo.model.KnowledgeScope;
 import com.example.demo.model.MaterialMetadataSnapshot;
@@ -672,8 +676,8 @@ public class MaterialRetrievalService {
         ProductionLexicalSearchRouter.LexicalRoutingDecision decision = productionLexicalSearchRouter.currentDecision();
         if (decision == null) {
             return new ProductionLexicalSearchRouter.LexicalSearchResult(
-                com.example.demo.infrastructure.material.LexicalProviderMode.POSTGRES,
-                com.example.demo.infrastructure.material.LexicalProviderType.POSTGRES,
+                LexicalProviderMode.POSTGRES,
+                LexicalProviderType.POSTGRES,
                 false,
                 "search.sync_disabled",
                 "Elasticsearch search sync is disabled by configuration.",
@@ -817,12 +821,12 @@ public class MaterialRetrievalService {
             && finalTop.scoreBreakdown().finalScore() > preTop.score();
         boolean appendixDemotion = top1Changed
             && preTop != null
-            && (preTop.match().chunkType() == com.example.demo.infrastructure.material.DocumentBlockType.APPENDIX
-                || preTop.match().chunkType() == com.example.demo.infrastructure.material.DocumentBlockType.CAPTION);
+            && (preTop.match().chunkType() == DocumentBlockType.APPENDIX
+                || preTop.match().chunkType() == DocumentBlockType.CAPTION);
         boolean highTrustPromotion = top1Changed
             && trustLevelOf(scopedReadyRecordsById.get(finalTop == null ? null : finalTop.match().materialId())) == SourceTrustLevel.HIGH
             && trustLevelOf(scopedReadyRecordsById.get(preTop == null ? null : preTop.match().materialId())) != SourceTrustLevel.HIGH;
-        List<com.example.demo.infrastructure.material.DocumentBlockType> finalChunkTypes = matches == null
+        List<DocumentBlockType> finalChunkTypes = matches == null
             ? List.of()
             : matches.stream()
                 .map(RetrievedMaterialChunk::source)

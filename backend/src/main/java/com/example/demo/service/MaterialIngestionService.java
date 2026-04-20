@@ -1,21 +1,24 @@
 package com.example.demo.service;
 
+import com.example.demo.service.material.ChunkProfile;
+import com.example.demo.service.material.DocumentBlock;
+import com.example.demo.service.material.DocumentBlockConfidence;
+import com.example.demo.service.material.DocumentBlockType;
+import com.example.demo.service.material.DocumentParseResult;
+import com.example.demo.service.material.DocumentParserProfile;
+import com.example.demo.service.material.MaterialLineageIdentity;
+import com.example.demo.service.material.MaterialMetadataHints;
+import com.example.demo.service.material.StoredMaterialChunk;
+import com.example.demo.service.material.StoredMaterialRecord;
+import com.example.demo.service.material.StoredMaterialSegment;
+import com.example.demo.service.material.port.DocumentTextExtractor;
+import com.example.demo.service.material.port.MaterialCatalogRepository;
+import com.example.demo.service.material.port.MaterialLineageRepository;
+
 import com.example.demo.api.ApiException;
+import com.example.demo.api.InputLimits;
 import com.example.demo.config.MaterialProperties;
 import com.example.demo.config.RolloutProperties;
-import com.example.demo.infrastructure.material.ChunkProfile;
-import com.example.demo.infrastructure.material.DocumentBlock;
-import com.example.demo.infrastructure.material.DocumentBlockConfidence;
-import com.example.demo.infrastructure.material.DocumentBlockType;
-import com.example.demo.infrastructure.material.DocumentParseResult;
-import com.example.demo.infrastructure.material.DocumentParserProfile;
-import com.example.demo.infrastructure.material.DocumentTextExtractor;
-import com.example.demo.infrastructure.material.MaterialCatalogRepository;
-import com.example.demo.infrastructure.material.MaterialLineageIdentity;
-import com.example.demo.infrastructure.material.MaterialLineageRepository;
-import com.example.demo.infrastructure.material.StoredMaterialChunk;
-import com.example.demo.infrastructure.material.StoredMaterialRecord;
-import com.example.demo.infrastructure.material.StoredMaterialSegment;
 import com.example.demo.model.MaterialIndexingStatus;
 import com.example.demo.model.MaterialMetadataInput;
 import com.example.demo.model.MaterialMetadataSnapshot;
@@ -104,6 +107,7 @@ public class MaterialIngestionService {
 
     @Transactional
     public MaterialSummary saveText(String title, String content, MaterialMetadataInput metadataInput) {
+        InputLimits.validateMaterialMetadata(metadataInput);
         if (!StringUtils.hasText(content)) {
             throw new ApiException(
                 HttpStatus.BAD_REQUEST,
@@ -125,7 +129,7 @@ public class MaterialIngestionService {
                 DocumentBlockConfidence.HIGH,
                 null
             )),
-            com.example.demo.infrastructure.material.MaterialMetadataHints.empty(),
+            MaterialMetadataHints.empty(),
             List.of(),
             null,
             "direct-text",
@@ -161,6 +165,7 @@ public class MaterialIngestionService {
 
     @Transactional
     public MaterialSummary saveUpload(String title, MultipartFile file, MaterialMetadataInput metadataInput) {
+        InputLimits.validateMaterialMetadata(metadataInput);
         if (file == null || file.isEmpty()) {
             throw new ApiException(
                 HttpStatus.BAD_REQUEST,
@@ -403,7 +408,7 @@ public class MaterialIngestionService {
         String originalFileName,
         String mediaType,
         String headerText,
-        com.example.demo.infrastructure.material.MaterialMetadataHints parserHints
+        MaterialMetadataHints parserHints
     ) {
         if (!rolloutProperties.isMetadataV1()) {
             return MaterialMetadataSnapshot.empty();

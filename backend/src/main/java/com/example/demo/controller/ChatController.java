@@ -6,6 +6,7 @@ import com.example.demo.model.ChatExecutionResponse;
 import com.example.demo.model.OllamaModelInfo;
 import com.example.demo.service.ChatExecutionService;
 import com.example.demo.service.ModelCatalogService;
+import jakarta.validation.Valid;
 import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -35,7 +36,7 @@ public class ChatController {
     }
 
     @PostMapping("/chat")
-    public ChatExecutionResponse chat(@RequestBody ChatExecutionRequest request) {
+    public ChatExecutionResponse chat(@Valid @RequestBody ChatExecutionRequest request) {
         if (request == null) {
             throw new ApiException(
                 HttpStatus.BAD_REQUEST,

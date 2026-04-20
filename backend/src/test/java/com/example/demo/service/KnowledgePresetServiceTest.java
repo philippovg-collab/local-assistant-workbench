@@ -10,6 +10,7 @@ import com.example.demo.api.ApiException;
 import com.example.demo.infrastructure.knowledge.PostgresKnowledgePresetRepository;
 import com.example.demo.infrastructure.knowledge.StoredKnowledgePresetRecord;
 import com.example.demo.infrastructure.knowledge.StoredKnowledgePresetRevisionRecord;
+import com.example.demo.model.CreateKnowledgePresetRequest;
 import com.example.demo.model.KnowledgePresetRevisionDiff;
 import com.example.demo.model.KnowledgeScope;
 import java.time.Instant;
@@ -41,6 +42,26 @@ class KnowledgePresetServiceTest {
         ));
 
         assertEquals("knowledge_preset.inactive", exception.getCode());
+    }
+
+    @Test
+    void rejectsTooManyPresetTags() {
+        PostgresKnowledgePresetRepository repository = mock(PostgresKnowledgePresetRepository.class);
+        KnowledgePresetService service = new KnowledgePresetService(repository);
+        List<String> tags = java.util.stream.IntStream.range(0, 33)
+            .mapToObj(index -> "tag-" + index)
+            .toList();
+
+        ApiException exception = assertThrows(ApiException.class, () -> service.createPreset(
+            new CreateKnowledgePresetRequest(
+                "Large scope",
+                "Too many tags",
+                new KnowledgeScope(List.of(), List.of(), tags, null, false),
+                true
+            )
+        ));
+
+        assertEquals("request.too_many_items", exception.getCode());
     }
 
     @Test

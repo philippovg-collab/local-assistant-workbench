@@ -37,10 +37,12 @@ Copy the project to the deployment directory, then create and edit the environme
 cp .env.example .env
 ```
 
-At minimum, set a strong `POSTGRES_PASSWORD` and update `APP_CORS_ALLOWED_ORIGINS` to match the public URL:
+At minimum, set strong `POSTGRES_PASSWORD` and `APP_SECURITY_ADMIN_PASSWORD` values, then update `APP_CORS_ALLOWED_ORIGINS` to match the public URL:
 
 ```dotenv
 POSTGRES_PASSWORD=replace-with-a-strong-password
+APP_SECURITY_ADMIN_USERNAME=admin
+APP_SECURITY_ADMIN_PASSWORD=replace-with-a-strong-admin-password
 APP_CORS_ALLOWED_ORIGINS=https://your-domain.example,http://your-server-ip
 ```
 
@@ -71,10 +73,27 @@ The browser should use same-origin `/api`; nginx handles the internal hop to the
 
 ## Health Checks
 
-Backend health:
+Public backend liveness:
 
 ```bash
-curl -fsS http://127.0.0.1/api/health
+curl -fsS http://127.0.0.1/api/liveness
+```
+
+Authenticated backend health:
+
+```bash
+COOKIE_JAR=/tmp/ragstudio-cookies.txt
+SESSION_JSON="$(curl -fsS -c "$COOKIE_JAR" http://127.0.0.1/api/auth/session)"
+CSRF_HEADER="$(printf '%s' "$SESSION_JSON" | sed -nE 's/.*"csrfHeaderName"[[:space:]]*:[[:space:]]*"([^"]*)".*/\1/p')"
+CSRF_TOKEN="$(printf '%s' "$SESSION_JSON" | sed -nE 's/.*"csrfToken"[[:space:]]*:[[:space:]]*"([^"]*)".*/\1/p')"
+curl -fsS -b "$COOKIE_JAR" -c "$COOKIE_JAR" \
+  -H "Content-Type: application/json" \
+  -H "$CSRF_HEADER: $CSRF_TOKEN" \
+  --data-binary @- \
+  http://127.0.0.1/api/auth/login <<JSON
+{"username":"${APP_SECURITY_ADMIN_USERNAME:-admin}","password":"$APP_SECURITY_ADMIN_PASSWORD"}
+JSON
+curl -fsS -b "$COOKIE_JAR" http://127.0.0.1/api/health
 ```
 
 Expected fields:
@@ -90,7 +109,7 @@ On a fresh empty database, the existing application health semantics can still r
 Material policy:
 
 ```bash
-curl -fsS http://127.0.0.1/api/materials/policy
+curl -fsS -b "$COOKIE_JAR" http://127.0.0.1/api/materials/policy
 ```
 
 Expected PDF policy:
@@ -247,7 +266,7 @@ OCR status is down:
 ```bash
 docker compose exec backend tesseract --version
 docker compose exec backend tesseract --list-langs
-docker compose exec backend curl -fsS http://127.0.0.1:8080/api/health
+scripts/linux/preflight-compose.sh
 ```
 
 If `kaz`, `rus`, or `eng` is missing, rebuild the backend image:

@@ -85,6 +85,17 @@ class InstructionServiceTest {
     }
 
     @Test
+    void rejectsOversizedInstructionContent() {
+        InstructionService service = new InstructionService(new InMemoryInstructionRepository());
+
+        ApiException exception = assertThrows(ApiException.class, () -> service.createInstruction(
+            new CreateInstructionRequest("Rule", "system", "x".repeat(20_001))
+        ));
+
+        assertEquals("request.field_too_large", exception.getCode());
+    }
+
+    @Test
     void computesRevisionDiffBetweenTwoInstructionRevisions() {
         InstructionService service = new InstructionService(new InMemoryInstructionRepository());
         String instructionId = service.createInstruction(new CreateInstructionRequest(
