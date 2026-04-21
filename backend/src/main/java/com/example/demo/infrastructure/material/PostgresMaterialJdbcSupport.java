@@ -28,8 +28,10 @@ import static com.example.demo.infrastructure.material.MaterialJdbcRowMappers.SE
 import static com.example.demo.infrastructure.material.MaterialJdbcRowMappers.SEGMENT_ROW_MAPPER;
 
 import com.example.demo.api.ApiException;
+import com.example.demo.model.DocumentStatus;
 import com.example.demo.model.KnowledgeScope;
 import com.example.demo.model.MaterialIndexingStatus;
+import com.example.demo.model.MaterialMetadataSnapshot;
 import com.example.demo.model.MaterialSummary;
 import com.example.demo.model.MaterialVersionState;
 import com.example.demo.model.RetrievalFilters;
@@ -60,6 +62,8 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 abstract class PostgresMaterialJdbcSupport {
 
+    private static final String DEFAULT_WORKSPACE_KEY = "general";
+
     private static final String MATERIAL_COLUMNS = """
         id,
         title,
@@ -82,8 +86,10 @@ abstract class PostgresMaterialJdbcSupport {
         language_code,
         source_trust,
         project_name,
+        project_key,
         counterparty,
         business_status,
+        document_status,
         period_start,
         period_end,
         knowledge_document_class,
@@ -118,9 +124,12 @@ abstract class PostgresMaterialJdbcSupport {
             return List.of();
         }
 
-        Map<String, List<String>> tagsByMaterialId = loadTagsByMaterialIds(records.stream().map(StoredMaterialRecord::id).toList());
+        Map<String, StoredTagLayers> tagsByMaterialId = loadTagsByMaterialIds(records.stream().map(StoredMaterialRecord::id).toList());
         return records.stream()
-            .map(record -> record.withMetadata(record.metadata().withTags(tagsByMaterialId.getOrDefault(record.id(), List.of()))))
+            .map(record -> {
+                StoredTagLayers tagLayers = tagsByMaterialId.getOrDefault(record.id(), StoredTagLayers.empty());
+                return record.withMetadata(record.metadata().withTagLayers(tagLayers.manualTags(), tagLayers.autoTags()));
+            })
             .toList();
     }
 
@@ -129,38 +138,41 @@ abstract class PostgresMaterialJdbcSupport {
             return List.of();
         }
 
-        Map<String, List<String>> tagsByMaterialId = loadTagsByMaterialIds(summaries.stream().map(MaterialSummary::id).toList());
+        Map<String, StoredTagLayers> tagsByMaterialId = loadTagsByMaterialIds(summaries.stream().map(MaterialSummary::id).toList());
         return summaries.stream()
-            .map(summary -> new MaterialSummary(
-                summary.id(),
-                summary.title(),
-                summary.sourceType(),
-                summary.originalFileName(),
-                summary.status(),
-                summary.versionState(),
-                summary.statusReasonCode(),
-                summary.statusReasonMessage(),
-                summary.createdAt(),
-                summary.updatedAt(),
-                summary.indexingAttempts(),
-                summary.nextRetryAt(),
-                summary.contentLength(),
-                summary.preview(),
-                summary.metadata().withTags(tagsByMaterialId.getOrDefault(summary.id(), List.of()))
-            ))
+            .map(summary -> {
+                StoredTagLayers tagLayers = tagsByMaterialId.getOrDefault(summary.id(), StoredTagLayers.empty());
+                return new MaterialSummary(
+                    summary.id(),
+                    summary.title(),
+                    summary.sourceType(),
+                    summary.originalFileName(),
+                    summary.status(),
+                    summary.versionState(),
+                    summary.statusReasonCode(),
+                    summary.statusReasonMessage(),
+                    summary.createdAt(),
+                    summary.updatedAt(),
+                    summary.indexingAttempts(),
+                    summary.nextRetryAt(),
+                    summary.contentLength(),
+                    summary.preview(),
+                    summary.metadata().withTagLayers(tagLayers.manualTags(), tagLayers.autoTags())
+                );
+            })
             .toList();
     }
 
-    private Map<String, List<String>> loadTagsByMaterialIds(List<String> materialIds) {
+    private Map<String, StoredTagLayers> loadTagsByMaterialIds(List<String> materialIds) {
         if (materialIds == null || materialIds.isEmpty()) {
             return Map.of();
         }
 
         String placeholders = String.join(", ", Collections.nCopies(materialIds.size(), "?"));
-        Map<String, List<String>> tagsByMaterialId = new LinkedHashMap<>();
+        Map<String, MutableTagLayers> tagsByMaterialId = new LinkedHashMap<>();
         jdbcTemplate.query(
             """
-                SELECT material_id, tag_value
+                SELECT material_id, tag_value, COALESCE(tag_source, 'MANUAL') AS tag_source
                 FROM material_tags
                 WHERE material_id IN (
                 """
@@ -171,12 +183,22 @@ abstract class PostgresMaterialJdbcSupport {
                 """,
             resultSet -> {
                 String materialId = resultSet.getObject("material_id").toString();
-                tagsByMaterialId.computeIfAbsent(materialId, ignored -> new ArrayList<>())
-                    .add(resultSet.getString("tag_value"));
+                MutableTagLayers tagLayers = tagsByMaterialId.computeIfAbsent(materialId, ignored -> new MutableTagLayers());
+                String tagSource = resultSet.getString("tag_source");
+                if ("AUTO".equals(tagSource)) {
+                    tagLayers.autoTags().add(resultSet.getString("tag_value"));
+                } else {
+                    tagLayers.manualTags().add(resultSet.getString("tag_value"));
+                }
             },
             materialIds.stream().map(UUID::fromString).toArray()
         );
-        return Map.copyOf(tagsByMaterialId);
+        Map<String, StoredTagLayers> immutableTagsByMaterialId = new LinkedHashMap<>();
+        tagsByMaterialId.forEach((materialId, tagLayers) -> immutableTagsByMaterialId.put(
+            materialId,
+            new StoredTagLayers(List.copyOf(tagLayers.manualTags()), List.copyOf(tagLayers.autoTags()))
+        ));
+        return Map.copyOf(immutableTagsByMaterialId);
     }
 
     public List<StoredMaterialRecord> findAll() {
@@ -208,8 +230,10 @@ abstract class PostgresMaterialJdbcSupport {
                         language_code,
                         source_trust,
                         project_name,
+                        project_key,
                         counterparty,
                         business_status,
+                        document_status,
                         period_start,
                         period_end,
                         knowledge_document_class,
@@ -416,7 +440,7 @@ abstract class PostgresMaterialJdbcSupport {
         try {
             return transactionTemplate.execute(status -> {
                 StoredMaterialRecord persistedRecord = insertMaterial(record, chunkProfile);
-                insertTags(persistedRecord.id(), persistedRecord.metadata().tags());
+                insertTags(persistedRecord.id(), persistedRecord.metadata());
                 insertRawChunks(persistedRecord.id(), chunks);
                 insertSegments(persistedRecord.id(), segments);
                 return persistedRecord;
@@ -574,6 +598,72 @@ abstract class PostgresMaterialJdbcSupport {
         }
     }
 
+    public StoredMaterialRecord updateMetadata(String materialId, MaterialMetadataSnapshot metadata, Instant updatedAt) {
+        try {
+            return transactionTemplate.execute(status -> {
+                if (!lockMaterialIfPresent(materialId)) {
+                    return null;
+                }
+                MaterialMetadataSnapshot safeMetadata = metadata == null ? MaterialMetadataSnapshot.empty() : metadata;
+                jdbcTemplate.update(
+                    """
+                        UPDATE materials
+                        SET document_type = ?,
+                            document_date = ?,
+                            document_number = ?,
+                            author_name = ?,
+                            department = ?,
+                            version_label = ?,
+                            language_code = ?,
+                            source_trust = ?,
+                            project_name = ?,
+                            project_key = ?,
+                            counterparty = ?,
+                            business_status = ?,
+                            document_status = ?,
+                            period_start = ?,
+                            period_end = ?,
+                            knowledge_document_class = ?,
+                            workspace_key = ?,
+                            metadata_jsonb = ?::jsonb,
+                            updated_at = ?
+                        WHERE id = ?
+                        """,
+                    safeMetadata.documentType().name(),
+                    safeMetadata.documentDate(),
+                    safeMetadata.documentNumber(),
+                    safeMetadata.author(),
+                    safeMetadata.department(),
+                    safeMetadata.versionLabel(),
+                    safeMetadata.languageCode() == null ? null : safeMetadata.languageCode().name(),
+                    safeMetadata.sourceTrust().name(),
+                    safeMetadata.projectKey(),
+                    safeMetadata.projectKey(),
+                    safeMetadata.counterparty(),
+                    safeMetadata.documentStatus().name(),
+                    safeMetadata.documentStatus().name(),
+                    safeMetadata.periodStart(),
+                    safeMetadata.periodEnd(),
+                    safeMetadata.knowledgeDocumentClass().name(),
+                    workspaceKeyOrDefault(safeMetadata.workspaceKey()),
+                    MaterialMetadataJdbcMapper.serialize(safeMetadata),
+                    Timestamp.from(updatedAt),
+                    UUID.fromString(materialId)
+                );
+                jdbcTemplate.update("DELETE FROM material_tags WHERE material_id = ?", UUID.fromString(materialId));
+                insertTags(materialId, safeMetadata);
+                return findById(materialId).orElse(null);
+            });
+        } catch (DataAccessException exception) {
+            throw new ApiException(
+                HttpStatus.INTERNAL_SERVER_ERROR,
+                "material.storage_write_failed",
+                "Unable to update material metadata in PostgreSQL",
+                exception
+            );
+        }
+    }
+
     public void delete(String id) {
         try {
             jdbcTemplate.update("DELETE FROM materials WHERE id = ?", UUID.fromString(id));
@@ -602,7 +692,7 @@ abstract class PostgresMaterialJdbcSupport {
 
     public int countReadyMaterials() {
         Integer count = jdbcTemplate.queryForObject(
-            "SELECT COUNT(*) FROM materials WHERE indexing_status IN ('READY', 'PARTIAL_READY') AND version_state = 'ACTIVE'",
+            "SELECT COUNT(*) FROM materials m WHERE " + retrievalReadyPredicate("m"),
             Integer.class
         );
         return count == null ? 0 : count;
@@ -616,42 +706,22 @@ abstract class PostgresMaterialJdbcSupport {
                         COUNT(*) FILTER (WHERE m.version_state = 'ACTIVE') AS active_total,
                         COUNT(*) FILTER (
                             WHERE m.version_state = 'ACTIVE'
-                              AND (
-                                  m.document_type <> 'OTHER'
-                                  OR m.source_trust <> 'UNKNOWN'
-                                  OR NULLIF(BTRIM(m.author_name), '') IS NOT NULL
-                                  OR NULLIF(BTRIM(m.department), '') IS NOT NULL
-                                  OR m.document_date IS NOT NULL
-                                  OR NULLIF(BTRIM(m.document_number), '') IS NOT NULL
-                                  OR NULLIF(BTRIM(m.version_label), '') IS NOT NULL
-                                  OR NULLIF(BTRIM(m.language_code), '') IS NOT NULL
-                                  OR NULLIF(BTRIM(m.project_name), '') IS NOT NULL
-                                  OR NULLIF(BTRIM(m.counterparty), '') IS NOT NULL
-                                  OR NULLIF(BTRIM(m.business_status), '') IS NOT NULL
-                                  OR m.period_start IS NOT NULL
-                                  OR m.period_end IS NOT NULL
-                                  OR EXISTS (
-                                      SELECT 1
-                                      FROM material_tags mt
-                                      WHERE mt.material_id = m.id
-                                  )
-                              )
+                              AND NULLIF(BTRIM(COALESCE(m.workspace_key, '')), '') IS NOT NULL
+                              AND m.document_type <> 'OTHER'
+                              AND NULLIF(BTRIM(COALESCE(m.document_status, '')), '') IS NOT NULL
                         ) AS active_with_effective_metadata,
+                        COUNT(*) FILTER (
+                            WHERE m.version_state = 'ACTIVE'
+                              AND NULLIF(BTRIM(COALESCE(m.workspace_key, '')), '') IS NOT NULL
+                        ) AS workspace_covered,
                         COUNT(*) FILTER (
                             WHERE m.version_state = 'ACTIVE'
                               AND m.document_type <> 'OTHER'
                         ) AS document_type_covered,
                         COUNT(*) FILTER (
                             WHERE m.version_state = 'ACTIVE'
-                              AND m.source_trust <> 'UNKNOWN'
-                        ) AS source_trust_covered,
-                        COUNT(*) FILTER (
-                            WHERE m.version_state = 'ACTIVE'
-                              AND (
-                                  NULLIF(BTRIM(m.author_name), '') IS NOT NULL
-                                  OR NULLIF(BTRIM(m.department), '') IS NOT NULL
-                              )
-                        ) AS author_or_department_covered,
+                              AND NULLIF(BTRIM(COALESCE(m.document_status, '')), '') IS NOT NULL
+                        ) AS document_status_covered,
                         COUNT(*) FILTER (
                             WHERE m.version_state = 'ACTIVE'
                               AND m.chunk_profile = 'structured-v1'
@@ -665,9 +735,9 @@ abstract class PostgresMaterialJdbcSupport {
                 (resultSet, rowNum) -> new QualityLayerCoverageSnapshot(
                     resultSet.getInt("active_total"),
                     resultSet.getInt("active_with_effective_metadata"),
+                    resultSet.getInt("workspace_covered"),
                     resultSet.getInt("document_type_covered"),
-                    resultSet.getInt("source_trust_covered"),
-                    resultSet.getInt("author_or_department_covered"),
+                    resultSet.getInt("document_status_covered"),
                     resultSet.getInt("structured_profile_active"),
                     resultSet.getInt("partial_ready_active")
                 )
@@ -701,7 +771,10 @@ abstract class PostgresMaterialJdbcSupport {
                         SELECT
                             m.id,
                             m.version_state,
-                            m.indexing_status
+                            m.indexing_status,
+                            m.document_status,
+                            m.period_start,
+                            m.period_end
                         FROM materials m
                         WHERE 1 = 1
                     """
@@ -712,14 +785,18 @@ abstract class PostgresMaterialJdbcSupport {
                     SELECT
                         (SELECT COUNT(*) FROM materials) AS material_count,
                         (SELECT COUNT(*) FROM materials WHERE version_state = 'ACTIVE') AS active_material_count,
-                        (SELECT COUNT(*) FROM materials
-                            WHERE version_state = 'ACTIVE'
-                              AND indexing_status IN ('READY', 'PARTIAL_READY')) AS ready_material_count,
+                        (SELECT COUNT(*) FROM materials m
+                            WHERE """
+                    + retrievalReadyPredicate("m")
+                    + """
+                        ) AS ready_material_count,
                         (SELECT COUNT(*) FROM scoped) AS scoped_material_count,
                         (SELECT COUNT(*) FROM scoped WHERE version_state = 'ACTIVE') AS scoped_active_material_count,
                         (SELECT COUNT(*) FROM scoped
-                            WHERE version_state = 'ACTIVE'
-                              AND indexing_status IN ('READY', 'PARTIAL_READY')) AS scoped_ready_material_count
+                            WHERE """
+                    + retrievalReadyPredicate(null)
+                    + """
+                        ) AS scoped_ready_material_count
                     """,
                 preparedStatement -> {
                     int parameterIndex = bindRetrievalScope(preparedStatement, 1, scopeSql);
@@ -744,8 +821,9 @@ abstract class PostgresMaterialJdbcSupport {
                 """
                     SELECT m.id::text
                     FROM materials m
-                    WHERE m.version_state = 'ACTIVE'
-                      AND m.indexing_status IN ('READY', 'PARTIAL_READY')
+                    WHERE """
+                    + retrievalReadyPredicate("m")
+                    + """
                     """
                     + scopeSql.sql()
                     + filterSql.sql()
@@ -959,8 +1037,9 @@ abstract class PostgresMaterialJdbcSupport {
                         NULL::DOUBLE PRECISION AS lexical_score
                     FROM material_chunks c
                     JOIN materials m ON m.id = c.material_id
-                    WHERE m.indexing_status IN ('READY', 'PARTIAL_READY')
-                      AND m.version_state = 'ACTIVE'
+                    WHERE """
+                    + retrievalReadyPredicate("m")
+                    + """
                       AND c.embedding IS NOT NULL
                       AND (CAST(? AS uuid[]) IS NULL OR m.id = ANY (?))
                     """
@@ -1033,8 +1112,9 @@ abstract class PostgresMaterialJdbcSupport {
                     FROM material_chunks c
                     JOIN materials m ON m.id = c.material_id
                     JOIN query_term qt ON TRUE
-                    WHERE m.indexing_status IN ('READY', 'PARTIAL_READY')
-                      AND m.version_state = 'ACTIVE'
+                    WHERE """
+                    + retrievalReadyPredicate("m")
+                    + """
                       AND (CAST(? AS uuid[]) IS NULL OR m.id = ANY (?))
                       AND c.search_vector @@ qt.q
                     """
@@ -1713,11 +1793,11 @@ abstract class PostgresMaterialJdbcSupport {
         try {
             return jdbcTemplate.query(
                 """
-                    SELECT id
-                    FROM materials
-                    WHERE version_state = 'ACTIVE'
-                      AND indexing_status IN ('READY', 'PARTIAL_READY')
-                    ORDER BY updated_at ASC, id ASC
+                    SELECT m.id
+                    FROM materials m
+                    WHERE
+                    """ + retrievalReadyPredicate("m") + """
+                    ORDER BY m.updated_at ASC, m.id ASC
                     """,
                 (resultSet, rowNum) -> resultSet.getObject("id").toString()
             );
@@ -1758,8 +1838,10 @@ abstract class PostgresMaterialJdbcSupport {
                     language_code,
                     source_trust,
                     project_name,
+                    project_key,
                     counterparty,
                     business_status,
+                    document_status,
                     period_start,
                     period_end,
                     knowledge_document_class,
@@ -1779,6 +1861,8 @@ abstract class PostgresMaterialJdbcSupport {
                     created_at,
                     updated_at
                 ) VALUES (
+                    ?,
+                    ?,
                     ?,
                     ?,
                     ?,
@@ -1840,15 +1924,17 @@ abstract class PostgresMaterialJdbcSupport {
             persistedRecord.metadata().author(),
             persistedRecord.metadata().department(),
             persistedRecord.metadata().versionLabel(),
-            persistedRecord.metadata().language(),
+            persistedRecord.metadata().languageCode() == null ? null : persistedRecord.metadata().languageCode().name(),
             persistedRecord.metadata().sourceTrust().name(),
-            persistedRecord.metadata().project(),
+            persistedRecord.metadata().projectKey(),
+            persistedRecord.metadata().projectKey(),
             persistedRecord.metadata().counterparty(),
-            persistedRecord.metadata().businessStatus(),
+            persistedRecord.metadata().documentStatus().name(),
+            persistedRecord.metadata().documentStatus().name(),
             persistedRecord.metadata().periodStart(),
             persistedRecord.metadata().periodEnd(),
             persistedRecord.metadata().knowledgeDocumentClass().name(),
-            persistedRecord.metadata().workspaceKey(),
+            workspaceKeyOrDefault(persistedRecord.metadata().workspaceKey()),
             MaterialMetadataJdbcMapper.serialize(persistedRecord.metadata()),
             persistedRecord.lineageVersion(),
             chunkProfile,
@@ -1864,6 +1950,10 @@ abstract class PostgresMaterialJdbcSupport {
             Timestamp.from(persistedRecord.updatedAt())
         );
         return persistedRecord;
+    }
+
+    private String workspaceKeyOrDefault(String workspaceKey) {
+        return workspaceKey == null || workspaceKey.isBlank() ? DEFAULT_WORKSPACE_KEY : workspaceKey;
     }
 
     private int nextLineageVersion(String sourceKey) {
@@ -2174,8 +2264,20 @@ abstract class PostgresMaterialJdbcSupport {
         }
     }
 
-    private void insertTags(String materialId, List<String> tags) {
-        if (tags == null || tags.isEmpty()) {
+    private void insertTags(String materialId, MaterialMetadataSnapshot metadata) {
+        if (metadata == null) {
+            return;
+        }
+
+        List<StoredTagRow> tags = new ArrayList<>();
+        int tagOrder = 0;
+        for (String tag : metadata.manualTags()) {
+            tags.add(new StoredTagRow(tagOrder++, tag, "MANUAL"));
+        }
+        for (String tag : metadata.autoTags()) {
+            tags.add(new StoredTagRow(tagOrder++, tag, "AUTO"));
+        }
+        if (tags.isEmpty()) {
             return;
         }
 
@@ -2184,15 +2286,18 @@ abstract class PostgresMaterialJdbcSupport {
                 INSERT INTO material_tags (
                     material_id,
                     tag_order,
-                    tag_value
-                ) VALUES (?, ?, ?)
+                    tag_value,
+                    tag_source
+                ) VALUES (?, ?, ?, ?)
                 """,
             new BatchPreparedStatementSetter() {
                 @Override
                 public void setValues(PreparedStatement preparedStatement, int index) throws SQLException {
+                    StoredTagRow tag = tags.get(index);
                     preparedStatement.setObject(1, UUID.fromString(materialId));
-                    preparedStatement.setInt(2, index);
-                    preparedStatement.setString(3, tags.get(index));
+                    preparedStatement.setInt(2, tag.order());
+                    preparedStatement.setString(3, tag.value());
+                    preparedStatement.setString(4, tag.source());
                 }
 
                 @Override
@@ -2215,9 +2320,9 @@ abstract class PostgresMaterialJdbcSupport {
               AND (CAST(? AS date) IS NULL OR m.document_date >= ?)
               AND (CAST(? AS date) IS NULL OR m.document_date <= ?)
               AND (CAST(? AS text) IS NULL OR LOWER(m.department) = ?)
-              AND (CAST(? AS text) IS NULL OR LOWER(m.project_name) = ?)
+              AND (CAST(? AS text) IS NULL OR LOWER(COALESCE(m.project_key, '')) = ?)
               AND (CAST(? AS text) IS NULL OR LOWER(m.counterparty) = ?)
-              AND (CAST(? AS text) IS NULL OR LOWER(m.business_status) = ?)
+              AND (CAST(? AS text) IS NULL OR LOWER(COALESCE(m.document_status, 'ACTIVE')) = ?)
               AND (CAST(? AS text) IS NULL OR LOWER(m.language_code) = ?)
               AND (? = FALSE OR EXISTS (
                     SELECT 1
@@ -2357,6 +2462,17 @@ abstract class PostgresMaterialJdbcSupport {
         return value == null ? null : value.toLowerCase(java.util.Locale.ROOT);
     }
 
+    private static String retrievalReadyPredicate(String alias) {
+        String prefix = alias == null || alias.isBlank() ? "" : alias + ".";
+        return " " + """
+            %sversion_state = 'ACTIVE'
+              AND %sindexing_status IN ('READY', 'PARTIAL_READY')
+              AND COALESCE(%sdocument_status, 'ACTIVE') = 'ACTIVE'
+              AND (%speriod_start IS NULL OR %speriod_start <= CURRENT_DATE)
+              AND (%speriod_end IS NULL OR %speriod_end >= CURRENT_DATE)
+            """.formatted(prefix, prefix, prefix, prefix, prefix, prefix, prefix);
+    }
+
     private void bindTextArray(PreparedStatement preparedStatement, int parameterIndex, List<String> values) throws SQLException {
         if (values == null || values.isEmpty()) {
             preparedStatement.setNull(parameterIndex, Types.ARRAY);
@@ -2389,8 +2505,13 @@ abstract class PostgresMaterialJdbcSupport {
     }
 
     private boolean isSearchable(StoredMaterialRecord record) {
+        LocalDate today = LocalDate.now();
+        MaterialMetadataSnapshot metadata = record.metadata() == null ? MaterialMetadataSnapshot.empty() : record.metadata();
         return record.versionState() == MaterialVersionState.ACTIVE
-            && (record.status() == MaterialIndexingStatus.READY || record.status() == MaterialIndexingStatus.PARTIAL_READY);
+            && (record.status() == MaterialIndexingStatus.READY || record.status() == MaterialIndexingStatus.PARTIAL_READY)
+            && metadata.documentStatus() == DocumentStatus.ACTIVE
+            && (metadata.periodStart() == null || !metadata.periodStart().isAfter(today))
+            && (metadata.periodEnd() == null || !metadata.periodEnd().isBefore(today));
     }
 
     private static LocalDate toLocalDateOrNull(java.sql.Date value) {
@@ -2408,6 +2529,31 @@ abstract class PostgresMaterialJdbcSupport {
     private record ClaimCandidate(
         StoredMaterialRecord record,
         int attempts
+    ) {
+    }
+
+    private record MutableTagLayers(
+        List<String> manualTags,
+        List<String> autoTags
+    ) {
+        private MutableTagLayers() {
+            this(new ArrayList<>(), new ArrayList<>());
+        }
+    }
+
+    private record StoredTagLayers(
+        List<String> manualTags,
+        List<String> autoTags
+    ) {
+        private static StoredTagLayers empty() {
+            return new StoredTagLayers(List.of(), List.of());
+        }
+    }
+
+    private record StoredTagRow(
+        int order,
+        String value,
+        String source
     ) {
     }
 

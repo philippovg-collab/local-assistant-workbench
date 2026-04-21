@@ -71,6 +71,113 @@ describe("apiClient", () => {
     );
   });
 
+  it("uploads controlled material versions as multipart form data", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          id: "material-v2",
+          title: "Updated policy",
+          sourceType: "file",
+          originalFileName: "version.txt",
+          status: "PENDING",
+          versionState: "ACTIVE",
+          createdAt: "2026-04-21T10:00:00Z",
+          contentLength: 12,
+          preview: "Новая версия",
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        },
+      ),
+    );
+    const file = new File(["version"], "version.txt", { type: "text/plain" });
+
+    await apiClient.uploadMaterialVersion("material-1", {
+      file,
+      title: "Updated policy",
+      metadata: {
+        workspaceKey: "general",
+        documentType: "POLICY",
+        documentStatus: "ACTIVE",
+      },
+    });
+
+    const requestInit = fetchSpy.mock.calls[0]?.[1] as RequestInit;
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "http://127.0.0.1:8080/api/materials/material-1/versions",
+      expect.objectContaining({ credentials: "include", method: "POST" }),
+    );
+    expect(requestInit.body).toBeInstanceOf(FormData);
+    const body = requestInit.body as FormData;
+    expect(body.get("file")).toBe(file);
+    expect(body.get("title")).toBe("Updated policy");
+    expect(body.get("metadata")).toBeInstanceOf(Blob);
+  });
+
+  it("requests reference projects with workspace and active filters", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify([]), {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json",
+        },
+      }),
+    );
+
+    await apiClient.fetchReferenceProjects({ activeOnly: false, workspaceKey: "north-upgrade" });
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "http://127.0.0.1:8080/api/reference/projects?activeOnly=false&workspaceKey=north-upgrade",
+      expect.objectContaining({ credentials: "include", signal: undefined }),
+    );
+  });
+
+  it("sends JSON payloads when creating reference workspaces", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          key: "north-upgrade",
+          nameRu: "Северная модернизация",
+          active: true,
+          sortOrder: 10,
+          isDefault: false,
+          createdAt: "2026-04-20T10:00:00Z",
+          updatedAt: "2026-04-20T10:00:00Z",
+        }),
+        {
+          status: 201,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        },
+      ),
+    );
+
+    await apiClient.createReferenceWorkspace({
+      key: "north-upgrade",
+      nameRu: "Северная модернизация",
+      active: true,
+      sortOrder: 10,
+      isDefault: false,
+    });
+
+    const requestInit = fetchSpy.mock.calls[0]?.[1] as RequestInit;
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "http://127.0.0.1:8080/api/reference/workspaces",
+      expect.objectContaining({ credentials: "include", method: "POST" }),
+    );
+    expect(JSON.parse(String(requestInit.body))).toEqual({
+      key: "north-upgrade",
+      nameRu: "Северная модернизация",
+      active: true,
+      sortOrder: 10,
+      isDefault: false,
+    });
+  });
+
   it("fetches P0 chat run trace details from the trace endpoint", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(

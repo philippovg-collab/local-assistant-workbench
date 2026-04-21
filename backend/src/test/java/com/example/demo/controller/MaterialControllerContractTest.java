@@ -3,27 +3,39 @@ package com.example.demo.controller;
 import static org.hamcrest.Matchers.hasItems;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.example.demo.api.ApiExceptionHandler;
 import com.example.demo.config.MaterialProperties;
+import com.example.demo.model.DocumentType;
+import com.example.demo.model.MaterialIndexingStatus;
+import com.example.demo.model.MaterialMetadataInput;
 import com.example.demo.model.MaterialPdfUploadPolicyResponse;
 import com.example.demo.model.RechunkActiveMaterialsBatchResponse;
 import com.example.demo.model.RechunkActiveMaterialsResponse;
+import com.example.demo.model.MaterialVersionState;
 import com.example.demo.model.MaterialUploadPolicyResponse;
+import com.example.demo.model.MaterialSummary;
 import com.example.demo.service.MaterialService;
+import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.util.List;
+import org.mockito.ArgumentCaptor;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
 import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
+import org.springframework.mock.web.MockMultipartFile;
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
@@ -48,7 +60,71 @@ class MaterialControllerContractTest {
             .andExpect(status().isBadRequest())
             .andExpect(jsonPath("$.code").value("material.invalid_id"));
 
+        MockMultipartFile file = new MockMultipartFile(
+            "file",
+            "version.txt",
+            "text/plain",
+            "Новая версия".getBytes(StandardCharsets.UTF_8)
+        );
+        mockMvc.perform(multipart("/api/materials/not-a-uuid/versions").file(file))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.code").value("material.invalid_id"));
+
         verifyNoInteractions(materialService);
+    }
+
+    @Test
+    void exposesControlledVersionUploadEndpoint() throws Exception {
+        String materialId = "00000000-0000-0000-0000-000000000123";
+        when(materialService.saveUploadVersion(eq(materialId), eq("Updated policy"), any(), any()))
+            .thenReturn(new MaterialSummary(
+                "00000000-0000-0000-0000-000000000456",
+                "Updated policy",
+                "file",
+                "version.txt",
+                MaterialIndexingStatus.PENDING,
+                MaterialVersionState.ACTIVE,
+                null,
+                null,
+                Instant.parse("2026-04-21T10:00:00Z"),
+                14,
+                "Новая версия"
+            ));
+        MockMultipartFile file = new MockMultipartFile(
+            "file",
+            "version.txt",
+            "text/plain",
+            "Новая версия".getBytes(StandardCharsets.UTF_8)
+        );
+        MockMultipartFile metadata = new MockMultipartFile(
+            "metadata",
+            "",
+            MediaType.APPLICATION_JSON_VALUE,
+            """
+                {
+                  "documentType": "POLICY",
+                  "manualTags": ["grid"]
+                }
+                """.getBytes(StandardCharsets.UTF_8)
+        );
+        ArgumentCaptor<MaterialMetadataInput> metadataCaptor = ArgumentCaptor.forClass(MaterialMetadataInput.class);
+
+        mockMvc.perform(multipart("/api/materials/{id}/versions", materialId)
+                .file(file)
+                .file(metadata)
+                .param("title", "Updated policy"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.id").value("00000000-0000-0000-0000-000000000456"))
+            .andExpect(jsonPath("$.title").value("Updated policy"));
+
+        verify(materialService).saveUploadVersion(
+            eq(materialId),
+            eq("Updated policy"),
+            any(MultipartFile.class),
+            metadataCaptor.capture()
+        );
+        org.junit.jupiter.api.Assertions.assertEquals(DocumentType.POLICY, metadataCaptor.getValue().documentType());
+        org.junit.jupiter.api.Assertions.assertEquals(List.of("grid"), metadataCaptor.getValue().manualTags());
     }
 
     @Test

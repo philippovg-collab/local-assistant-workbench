@@ -1,5 +1,7 @@
-import { Label } from "@/components/ui/label";
+import { useEffect, useMemo } from "react";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -7,15 +9,22 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import type { DocumentType, KnowledgeDocumentClass, SourceTrustLevel } from "@/types";
 import type {
+  DocumentStatus,
+  DocumentType,
+  MaterialLanguageCode,
+  ReferenceProject,
+  ReferenceWorkspace,
+} from "@/types";
+import type {
+  MaterialLanguageFormValue,
   MaterialMetadataFormErrors,
   MaterialMetadataFormState,
 } from "@/utils/materialMetadata";
 import {
+  documentStatusLabels,
   documentTypeLabels,
-  materialKnowledgeDocumentClassLabels,
-  sourceTrustLabels,
+  materialLanguageCodeLabels,
 } from "@/utils/materialMetadata";
 
 type MaterialMetadataFormSectionProps = {
@@ -26,6 +35,10 @@ type MaterialMetadataFormSectionProps = {
   disabledReason?: string;
   title?: string;
   description?: string;
+  workspaces: ReferenceWorkspace[];
+  projects: ReferenceProject[];
+  isReferenceDataLoading?: boolean;
+  referenceDataError?: string | null;
   onChange: (next: MaterialMetadataFormState) => void;
 };
 
@@ -42,14 +55,12 @@ const documentTypes: DocumentType[] = [
   "OTHER",
 ];
 
-const sourceTrustLevels: SourceTrustLevel[] = ["HIGH", "MEDIUM", "LOW", "UNKNOWN"];
-const knowledgeDocumentClasses: KnowledgeDocumentClass[] = [
-  "contracts",
-  "regulations",
-  "correspondence",
-  "techdocs",
-  "other",
-];
+const documentStatuses: DocumentStatus[] = ["ACTIVE", "DRAFT", "ARCHIVED", "REVOKED"];
+const languageOptions: MaterialLanguageFormValue[] = ["AUTO", "RU", "KK", "EN"];
+const NO_PROJECT_VALUE = "__none__";
+
+const languageLabel = (languageCode: MaterialLanguageFormValue) =>
+  languageCode === "AUTO" ? "Определить автоматически" : materialLanguageCodeLabels[languageCode];
 
 export function MaterialMetadataFormSection({
   idPrefix,
@@ -57,10 +68,52 @@ export function MaterialMetadataFormSection({
   errors,
   disabled = false,
   disabledReason,
-  title = "Атрибуты материала и фильтры поиска",
-  description = "Заполни известные поля вручную или оставь пустыми: backend попробует определить их по названию, файлу и первым строкам документа.",
+  title = "Метаданные документа",
+  description = "Выберите рабочую область, тип и статус документа. Остальные поля можно заполнить в блоке «Дополнительно».",
+  workspaces,
+  projects,
+  isReferenceDataLoading = false,
+  referenceDataError = null,
   onChange,
 }: MaterialMetadataFormSectionProps) {
+  const activeWorkspaces = useMemo(
+    () => workspaces.filter((workspace) => workspace.active),
+    [workspaces],
+  );
+  const activeProjects = useMemo(
+    () => projects.filter((project) => project.active),
+    [projects],
+  );
+  const defaultWorkspaceKey = useMemo(
+    () => activeWorkspaces.find((workspace) => workspace.isDefault)?.key ?? activeWorkspaces[0]?.key ?? "",
+    [activeWorkspaces],
+  );
+  const availableProjects = useMemo(
+    () => activeProjects.filter((project) => project.workspaceKey === state.workspaceKey),
+    [activeProjects, state.workspaceKey],
+  );
+
+  useEffect(() => {
+    if (disabled || activeWorkspaces.length === 0) {
+      return;
+    }
+
+    const workspaceExists = activeWorkspaces.some((workspace) => workspace.key === state.workspaceKey);
+    const nextWorkspaceKey = workspaceExists ? state.workspaceKey : defaultWorkspaceKey;
+    const projectExists = activeProjects.some(
+      (project) => project.key === state.projectKey && project.workspaceKey === nextWorkspaceKey,
+    );
+    const nextProjectKey = projectExists ? state.projectKey : "";
+
+    if (nextWorkspaceKey !== state.workspaceKey || nextProjectKey !== state.projectKey) {
+      onChange({
+        ...state,
+        workspaceKey: nextWorkspaceKey,
+        projectKey: nextProjectKey,
+      });
+    }
+  }, [activeProjects, activeWorkspaces, defaultWorkspaceKey, disabled, onChange, state]);
+
   const setField = <Field extends keyof MaterialMetadataFormState>(
     field: Field,
     value: MaterialMetadataFormState[Field],
@@ -68,30 +121,144 @@ export function MaterialMetadataFormSection({
     if (disabled) {
       return;
     }
+
+    if (field === "workspaceKey") {
+      onChange({
+        ...state,
+        workspaceKey: value as string,
+        projectKey: "",
+      });
+      return;
+    }
+
+    if (field === "openEnded") {
+      onChange({
+        ...state,
+        openEnded: value as boolean,
+        periodEnd: value ? "" : state.periodEnd,
+      });
+      return;
+    }
+
     onChange({
       ...state,
       [field]: value,
     });
   };
 
+  const isProjectDisabled = disabled || !state.workspaceKey || availableProjects.length === 0;
+  const referenceHint = referenceDataError
+    ? referenceDataError
+    : isReferenceDataLoading
+      ? "Загружаем справочники..."
+      : activeWorkspaces.length === 0
+        ? "Нет активных рабочих областей."
+        : null;
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <div className="space-y-2">
         <p className="text-sm font-semibold text-foreground">{title}</p>
         <p className="text-sm leading-6 text-muted-foreground">
           {disabled && disabledReason ? disabledReason : description}
         </p>
+        {referenceHint ? (
+          <p className="text-sm text-muted-foreground">{referenceHint}</p>
+        ) : null}
       </div>
 
-      <div className="space-y-3">
-        <div>
-          <p className="text-sm font-semibold text-foreground">Фильтры поиска RAG</p>
-          <p className="text-sm text-muted-foreground">
-            Эти поля совпадают с фильтрами запроса по материалам, чтобы загруженные документы сразу можно было точно искать.
-          </p>
+      <div className="grid gap-4 md:grid-cols-3">
+        <div className="space-y-2">
+          <Label htmlFor={`${idPrefix}-workspace-key`}>Рабочая область</Label>
+          <Select
+            disabled={disabled || isReferenceDataLoading || activeWorkspaces.length === 0}
+            value={state.workspaceKey}
+            onValueChange={(value) => setField("workspaceKey", value)}
+          >
+            <SelectTrigger aria-label="Рабочая область" id={`${idPrefix}-workspace-key`}>
+              <SelectValue placeholder="Выберите область" />
+            </SelectTrigger>
+            <SelectContent>
+              {activeWorkspaces.map((workspace) => (
+                <SelectItem key={workspace.key} value={workspace.key}>
+                  {workspace.nameRu}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {errors?.workspaceKey ? <p className="text-sm text-destructive">{errors.workspaceKey}</p> : null}
         </div>
 
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="space-y-2">
+          <Label htmlFor={`${idPrefix}-document-type`}>Тип документа</Label>
+          <Select
+            disabled={disabled}
+            value={state.documentType}
+            onValueChange={(value) => setField("documentType", value as DocumentType)}
+          >
+            <SelectTrigger aria-label="Тип документа" id={`${idPrefix}-document-type`}>
+              <SelectValue placeholder="Выберите тип" />
+            </SelectTrigger>
+            <SelectContent>
+              {documentTypes.map((documentType) => (
+                <SelectItem key={documentType} value={documentType}>
+                  {documentTypeLabels[documentType]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {errors?.documentType ? <p className="text-sm text-destructive">{errors.documentType}</p> : null}
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor={`${idPrefix}-document-status`}>Статус документа</Label>
+          <Select
+            disabled={disabled}
+            value={state.documentStatus}
+            onValueChange={(value) => setField("documentStatus", value as DocumentStatus)}
+          >
+            <SelectTrigger aria-label="Статус документа" id={`${idPrefix}-document-status`}>
+              <SelectValue placeholder="Выберите статус" />
+            </SelectTrigger>
+            <SelectContent>
+              {documentStatuses.map((documentStatus) => (
+                <SelectItem key={documentStatus} value={documentStatus}>
+                  {documentStatusLabels[documentStatus]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {errors?.documentStatus ? <p className="text-sm text-destructive">{errors.documentStatus}</p> : null}
+        </div>
+      </div>
+
+      <details className="rounded-2xl border border-border bg-background px-4 py-3">
+        <summary className="cursor-pointer text-sm font-semibold text-foreground">
+          Дополнительно
+        </summary>
+
+        <div className="mt-4 grid gap-4 md:grid-cols-2">
+          <div className="space-y-2">
+            <Label htmlFor={`${idPrefix}-project-key`}>Проект</Label>
+            <Select
+              disabled={isProjectDisabled}
+              value={state.projectKey || NO_PROJECT_VALUE}
+              onValueChange={(value) => setField("projectKey", value === NO_PROJECT_VALUE ? "" : value)}
+            >
+              <SelectTrigger aria-label="Проект" id={`${idPrefix}-project-key`}>
+                <SelectValue placeholder="Выберите проект" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={NO_PROJECT_VALUE}>Без проекта</SelectItem>
+                {availableProjects.map((project) => (
+                  <SelectItem key={project.key} value={project.key}>
+                    {project.nameRu}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
           <div className="space-y-2">
             <Label htmlFor={`${idPrefix}-document-number`}>Номер документа</Label>
             <Input
@@ -104,127 +271,19 @@ export function MaterialMetadataFormSection({
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor={`${idPrefix}-document-date`}>Дата документа</Label>
-            <Input
-              disabled={disabled}
-              id={`${idPrefix}-document-date`}
-              type="date"
-              value={state.documentDate}
-              onChange={(event) => setField("documentDate", event.target.value)}
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor={`${idPrefix}-department`}>Подразделение</Label>
-            <Input
-              disabled={disabled}
-              id={`${idPrefix}-department`}
-              placeholder="Например: Grid operations"
-              value={state.department}
-              onChange={(event) => setField("department", event.target.value)}
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor={`${idPrefix}-project`}>Проект</Label>
-            <Input
-              disabled={disabled}
-              id={`${idPrefix}-project`}
-              placeholder="Например: North Upgrade"
-              value={state.project}
-              onChange={(event) => setField("project", event.target.value)}
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor={`${idPrefix}-counterparty`}>Контрагент</Label>
-            <Input
-              disabled={disabled}
-              id={`${idPrefix}-counterparty`}
-              placeholder="Например: GridBuild LLP"
-              value={state.counterparty}
-              onChange={(event) => setField("counterparty", event.target.value)}
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor={`${idPrefix}-business-status`}>Статус</Label>
-            <Input
-              disabled={disabled}
-              id={`${idPrefix}-business-status`}
-              placeholder="Например: APPROVED"
-              value={state.businessStatus}
-              onChange={(event) => setField("businessStatus", event.target.value)}
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor={`${idPrefix}-language`}>Язык</Label>
-            <Input
-              disabled={disabled}
-              id={`${idPrefix}-language`}
-              placeholder="Например: ru"
-              value={state.language}
-              onChange={(event) => setField("language", event.target.value)}
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor={`${idPrefix}-source-trust`}>Доверие к источнику</Label>
+            <Label htmlFor={`${idPrefix}-language-code`}>Язык документа</Label>
             <Select
               disabled={disabled}
-              value={state.sourceTrust}
-              onValueChange={(value) => setField("sourceTrust", value as MaterialMetadataFormState["sourceTrust"])}
+              value={state.languageCode}
+              onValueChange={(value) => setField("languageCode", value as MaterialLanguageFormValue)}
             >
-              <SelectTrigger aria-label="Доверие к источнику" id={`${idPrefix}-source-trust`}>
-                <SelectValue placeholder="Backend default" />
+              <SelectTrigger aria-label="Язык документа" id={`${idPrefix}-language-code`}>
+                <SelectValue placeholder="Определить автоматически" />
               </SelectTrigger>
               <SelectContent>
-                {sourceTrustLevels.map((sourceTrust) => (
-                  <SelectItem key={sourceTrust} value={sourceTrust}>
-                    {sourceTrustLabels[sourceTrust]}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-2 md:col-span-2">
-            <Label htmlFor={`${idPrefix}-tags`}>Теги / ключевые слова</Label>
-            <Input
-              disabled={disabled}
-              id={`${idPrefix}-tags`}
-              placeholder="Например: grid, policy, reserve"
-              value={state.tags}
-              onChange={(event) => setField("tags", event.target.value)}
-            />
-          </div>
-        </div>
-      </div>
-
-      <div className="space-y-3">
-        <div>
-          <p className="text-sm font-semibold text-foreground">Классификация и служебные атрибуты</p>
-          <p className="text-sm text-muted-foreground">
-            Эти поля помогают backend выбрать корпус знаний, workspace и версию материала. Пустые значения не блокируют загрузку.
-          </p>
-        </div>
-
-        <div className="grid gap-4 md:grid-cols-2">
-          <div className="space-y-2">
-            <Label htmlFor={`${idPrefix}-document-type`}>Тип документа</Label>
-            <Select
-              disabled={disabled}
-              value={state.documentType}
-              onValueChange={(value) => setField("documentType", value as MaterialMetadataFormState["documentType"])}
-            >
-              <SelectTrigger aria-label="Тип документа" id={`${idPrefix}-document-type`}>
-                <SelectValue placeholder="Backend auto-fill" />
-              </SelectTrigger>
-              <SelectContent>
-                {documentTypes.map((documentType) => (
-                  <SelectItem key={documentType} value={documentType}>
-                    {documentTypeLabels[documentType]}
+                {languageOptions.map((languageCode) => (
+                  <SelectItem key={languageCode} value={languageCode}>
+                    {languageLabel(languageCode)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -232,63 +291,7 @@ export function MaterialMetadataFormSection({
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor={`${idPrefix}-knowledge-class`}>Класс корпуса знаний</Label>
-            <Select
-              disabled={disabled}
-              value={state.knowledgeDocumentClass}
-              onValueChange={(value) => setField(
-                "knowledgeDocumentClass",
-                value as MaterialMetadataFormState["knowledgeDocumentClass"],
-              )}
-            >
-              <SelectTrigger aria-label="Класс корпуса знаний" id={`${idPrefix}-knowledge-class`}>
-                <SelectValue placeholder="Backend auto-fill" />
-              </SelectTrigger>
-              <SelectContent>
-                {knowledgeDocumentClasses.map((documentClass) => (
-                  <SelectItem key={documentClass} value={documentClass}>
-                    {materialKnowledgeDocumentClassLabels[documentClass]}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor={`${idPrefix}-workspace-key`}>Workspace</Label>
-            <Input
-              disabled={disabled}
-              id={`${idPrefix}-workspace-key`}
-              placeholder="Например: north-upgrade"
-              value={state.workspaceKey}
-              onChange={(event) => setField("workspaceKey", event.target.value)}
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor={`${idPrefix}-author`}>Автор</Label>
-            <Input
-              disabled={disabled}
-              id={`${idPrefix}-author`}
-              placeholder="Например: Ops lead"
-              value={state.author}
-              onChange={(event) => setField("author", event.target.value)}
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor={`${idPrefix}-version-label`}>Версия</Label>
-            <Input
-              disabled={disabled}
-              id={`${idPrefix}-version-label`}
-              placeholder="Например: v3.2"
-              value={state.versionLabel}
-              onChange={(event) => setField("versionLabel", event.target.value)}
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor={`${idPrefix}-period-start`}>Период с</Label>
+            <Label htmlFor={`${idPrefix}-period-start`}>Действует с</Label>
             <Input
               disabled={disabled}
               id={`${idPrefix}-period-start`}
@@ -298,22 +301,47 @@ export function MaterialMetadataFormSection({
             />
           </div>
 
-          <div className="space-y-2">
-            <Label htmlFor={`${idPrefix}-period-end`}>Период по</Label>
+          <div className="flex items-center gap-3 md:col-span-2">
+            <Checkbox
+              checked={state.openEnded}
+              disabled={disabled}
+              id={`${idPrefix}-open-ended`}
+              onCheckedChange={(checked) => setField("openEnded", checked === true)}
+            />
+            <Label className="text-sm font-medium" htmlFor={`${idPrefix}-open-ended`}>
+              Без срока действия
+            </Label>
+          </div>
+
+          {!state.openEnded ? (
+            <div className="space-y-2">
+              <Label htmlFor={`${idPrefix}-period-end`}>Действует по</Label>
+              <Input
+                disabled={disabled}
+                id={`${idPrefix}-period-end`}
+                type="date"
+                value={state.periodEnd}
+                onChange={(event) => setField("periodEnd", event.target.value)}
+              />
+            </div>
+          ) : null}
+
+          <div className="space-y-2 md:col-span-2">
+            <Label htmlFor={`${idPrefix}-manual-tags`}>Теги</Label>
             <Input
               disabled={disabled}
-              id={`${idPrefix}-period-end`}
-              type="date"
-              value={state.periodEnd}
-              onChange={(event) => setField("periodEnd", event.target.value)}
+              id={`${idPrefix}-manual-tags`}
+              placeholder="Например: grid, policy, reserve"
+              value={state.manualTags}
+              onChange={(event) => setField("manualTags", event.target.value)}
             />
           </div>
         </div>
 
         {errors?.periodStart || errors?.periodEnd ? (
-          <p className="text-sm text-destructive">{errors.periodStart ?? errors.periodEnd}</p>
+          <p className="mt-3 text-sm text-destructive">{errors.periodStart ?? errors.periodEnd}</p>
         ) : null}
-      </div>
+      </details>
     </div>
   );
 }

@@ -21,8 +21,11 @@ import com.example.demo.infrastructure.material.PlainTextDocumentExtractionStrat
 import com.example.demo.infrastructure.material.RoutingDocumentTextExtractor;
 import com.example.demo.infrastructure.material.TesseractRuntimeProbe;
 import com.example.demo.infrastructure.material.TikaDocumentTextExtractor;
+import com.example.demo.model.DocumentStatus;
 import com.example.demo.model.DocumentType;
+import com.example.demo.model.MaterialLanguageCode;
 import com.example.demo.model.MaterialIndexingStatus;
+import com.example.demo.model.MaterialLineageResponse;
 import com.example.demo.model.MaterialMetadataInput;
 import com.example.demo.model.MaterialSummary;
 import com.example.demo.model.MaterialVersionState;
@@ -71,10 +74,13 @@ class MaterialServiceTest {
         assertEquals("Strategy", input.department());
         assertEquals("v1", input.versionLabel());
         assertEquals("ru", input.language());
+        assertEquals(MaterialLanguageCode.RU, input.languageCode());
         assertEquals(List.of("finance", "ops"), input.tags());
+        assertEquals(List.of("finance", "ops"), input.manualTags());
         assertEquals("Program Atlas", input.project());
         assertEquals("Contoso", input.counterparty());
         assertEquals("DRAFT", input.businessStatus());
+        assertEquals(DocumentStatus.DRAFT, input.documentStatus());
     }
 
     @Test
@@ -157,9 +163,13 @@ class MaterialServiceTest {
 
         assertEquals(DocumentType.POLICY, stored.metadata().documentType());
         assertEquals("POL-2026-17", stored.metadata().documentNumber());
-        assertEquals("Grid operations", stored.metadata().department());
+        assertEquals("general", stored.metadata().workspaceKey());
+        assertEquals(DocumentStatus.ACTIVE, stored.metadata().documentStatus());
+        assertEquals(MaterialLanguageCode.RU, stored.metadata().languageCode());
         assertEquals(List.of("policy", "grid"), stored.metadata().tags());
-        assertEquals(SourceTrustLevel.HIGH, stored.metadata().sourceTrust());
+        assertEquals(List.of("policy", "grid"), stored.metadata().manualTags());
+        assertTrue(stored.metadata().autoTags().isEmpty());
+        assertEquals(SourceTrustLevel.UNKNOWN, stored.metadata().sourceTrust());
         assertEquals(MetadataValueOrigin.MANUAL, stored.metadata().provenance().fieldOrigins().get("documentType"));
         assertEquals(MetadataValueOrigin.MANUAL, stored.metadata().provenance().fieldOrigins().get("tags"));
         assertTrue(stored.metadata().provenance().fieldConfidence().isEmpty());
@@ -178,6 +188,8 @@ class MaterialServiceTest {
         assertEquals(DocumentType.OTHER, stored.metadata().documentType());
         assertEquals(SourceTrustLevel.UNKNOWN, stored.metadata().sourceTrust());
         assertTrue(stored.metadata().tags().isEmpty());
+        assertEquals("general", stored.metadata().workspaceKey());
+        assertEquals(DocumentStatus.ACTIVE, stored.metadata().documentStatus());
         assertEquals("ru", stored.metadata().language());
         assertEquals(MetadataValueOrigin.DEFAULT, stored.metadata().provenance().fieldOrigins().get("documentType"));
         assertEquals(MetadataValueOrigin.DEFAULT, stored.metadata().provenance().fieldOrigins().get("sourceTrust"));
@@ -214,9 +226,11 @@ class MaterialServiceTest {
         assertEquals("Grid operations", stored.metadata().department());
         assertEquals("v2", stored.metadata().versionLabel());
         assertEquals("ru", stored.metadata().language());
-        assertEquals("North Upgrade", stored.metadata().project());
+        assertEquals("general", stored.metadata().workspaceKey());
+        assertEquals(null, stored.metadata().project());
         assertEquals("GridBuild LLP", stored.metadata().counterparty());
-        assertEquals("APPROVED", stored.metadata().businessStatus());
+        assertEquals("ACTIVE", stored.metadata().businessStatus());
+        assertEquals(DocumentStatus.ACTIVE, stored.metadata().documentStatus());
         assertEquals(LocalDate.parse("2026-04-15"), stored.metadata().documentDate());
         assertEquals(LocalDate.parse("2026-04-01"), stored.metadata().periodStart());
         assertEquals(LocalDate.parse("2026-06-30"), stored.metadata().periodEnd());
@@ -268,12 +282,15 @@ class MaterialServiceTest {
             .orElseThrow();
 
         assertEquals(DocumentType.POLICY, stored.metadata().documentType());
-        assertEquals("Manual owner", stored.metadata().author());
-        assertEquals(List.of("grid", "policy"), stored.metadata().tags());
+        assertEquals("Dana Sarsen", stored.metadata().author());
+        assertEquals(List.of("grid", "policy"), stored.metadata().manualTags());
+        assertEquals(List.of("energy"), stored.metadata().autoTags());
+        assertEquals(List.of("grid", "policy", "energy"), stored.metadata().effectiveTags());
+        assertEquals(List.of("grid", "policy", "energy"), stored.metadata().tags());
         assertEquals("Grid operations", stored.metadata().department());
         assertEquals("v2", stored.metadata().versionLabel());
         assertEquals(MetadataValueOrigin.MANUAL, stored.metadata().provenance().fieldOrigins().get("documentType"));
-        assertEquals(MetadataValueOrigin.MANUAL, stored.metadata().provenance().fieldOrigins().get("author"));
+        assertEquals(MetadataValueOrigin.INFERRED, stored.metadata().provenance().fieldOrigins().get("author"));
         assertEquals(MetadataValueOrigin.INFERRED, stored.metadata().provenance().fieldOrigins().get("department"));
         assertEquals(MetadataValueOrigin.INFERRED, stored.metadata().provenance().fieldOrigins().get("versionLabel"));
     }
@@ -363,6 +380,327 @@ class MaterialServiceTest {
         assertEquals(2, summaries.size());
         assertEquals(1, summaries.stream().filter(summary -> summary.versionState() == MaterialVersionState.ACTIVE).count());
         assertEquals(1, summaries.stream().filter(summary -> summary.versionState() == MaterialVersionState.SUPERSEDED).count());
+    }
+
+    @Test
+    void newMaterialInSameLineageInheritsManualTagsWhenInputOmitsThem() {
+        MaterialService service = createService(new DeterministicEmbeddingClient());
+
+        service.saveText(
+            "Grid policy",
+            "Первая редакция документа.",
+            new MaterialMetadataInput(
+                DocumentType.POLICY,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                List.of("manual-grid", "retained"),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+            )
+        );
+        MaterialSummary second = service.saveText("Grid policy", "Вторая редакция документа с другим текстом.");
+
+        MaterialSummary stored = service.listSummaries().stream()
+            .filter(summary -> summary.id().equals(second.id()))
+            .findFirst()
+            .orElseThrow();
+
+        assertEquals(MaterialVersionState.ACTIVE, stored.versionState());
+        assertEquals(List.of("manual-grid", "retained"), stored.metadata().manualTags());
+        assertEquals(List.of("manual-grid", "retained"), stored.metadata().tags());
+    }
+
+    @Test
+    void explicitManualTagsOverrideSameLineageInheritance() {
+        MaterialService service = createService(new DeterministicEmbeddingClient());
+
+        service.saveText(
+            "Grid policy",
+            "Первая редакция документа.",
+            new MaterialMetadataInput(
+                DocumentType.POLICY,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                List.of("manual-grid", "retained"),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+            )
+        );
+        MaterialSummary second = service.saveText(
+            "Grid policy",
+            "Вторая редакция документа с другим текстом.",
+            new MaterialMetadataInput(
+                DocumentType.POLICY,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                List.of("override"),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+            )
+        );
+
+        MaterialSummary stored = service.listSummaries().stream()
+            .filter(summary -> summary.id().equals(second.id()))
+            .findFirst()
+            .orElseThrow();
+
+        assertEquals(List.of("override"), stored.metadata().manualTags());
+        assertEquals(List.of("override"), stored.metadata().tags());
+    }
+
+    @Test
+    void controlledVersionUploadCreatesNewActiveVersionInSameLineage() {
+        MaterialService service = createService(new DeterministicEmbeddingClient());
+
+        MaterialSummary first = service.saveUpload(
+            "Grid policy",
+            new MockMultipartFile(
+                "file",
+                "grid-policy-v1.txt",
+                "text/plain",
+                "Первая редакция документа.".getBytes(StandardCharsets.UTF_8)
+            )
+        );
+        MaterialSummary second = service.saveUploadVersion(
+            first.id(),
+            null,
+            new MockMultipartFile(
+                "file",
+                "renamed-anything.txt",
+                "text/plain",
+                "Вторая редакция документа с другим содержимым.".getBytes(StandardCharsets.UTF_8)
+            ),
+            null
+        );
+
+        MaterialLineageResponse lineage = service.getLineage(first.id());
+        MaterialSummary storedFirst = service.listSummaries().stream()
+            .filter(summary -> summary.id().equals(first.id()))
+            .findFirst()
+            .orElseThrow();
+
+        assertTrue(!first.id().equals(second.id()));
+        assertEquals(first.title(), second.title());
+        assertEquals(second.id(), lineage.activeMaterialId());
+        assertEquals(2, lineage.versions().size());
+        assertEquals(MaterialVersionState.SUPERSEDED, storedFirst.versionState());
+        assertEquals(MaterialVersionState.ACTIVE, second.versionState());
+    }
+
+    @Test
+    void controlledVersionUploadClonesEditableMetadataWhenMetadataIsOmitted() {
+        MaterialService service = createService(new DeterministicEmbeddingClient());
+
+        MaterialSummary first = service.saveText(
+            "Grid policy",
+            "Первая редакция документа.",
+            new MaterialMetadataInput(
+                DocumentType.POLICY,
+                "general",
+                DocumentStatus.DRAFT,
+                null,
+                "POL-42",
+                MaterialLanguageCode.RU,
+                List.of("manual-grid", "retained"),
+                LocalDate.parse("2026-04-01"),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                List.of(),
+                null,
+                null,
+                null,
+                null
+            )
+        );
+
+        MaterialSummary second = service.saveUploadVersion(
+            first.id(),
+            null,
+            new MockMultipartFile(
+                "file",
+                "grid-policy-v2.txt",
+                "text/plain",
+                "Вторая редакция документа.".getBytes(StandardCharsets.UTF_8)
+            ),
+            null
+        );
+
+        MaterialSummary stored = service.listSummaries().stream()
+            .filter(summary -> summary.id().equals(second.id()))
+            .findFirst()
+            .orElseThrow();
+
+        assertEquals(DocumentType.POLICY, stored.metadata().documentType());
+        assertEquals(DocumentStatus.DRAFT, stored.metadata().documentStatus());
+        assertEquals("POL-42", stored.metadata().documentNumber());
+        assertEquals(MaterialLanguageCode.RU, stored.metadata().languageCode());
+        assertEquals(LocalDate.parse("2026-04-01"), stored.metadata().periodStart());
+        assertEquals(List.of("manual-grid", "retained"), stored.metadata().manualTags());
+    }
+
+    @Test
+    void controlledVersionUploadUsesProvidedMetadataAsFullReplacement() {
+        MaterialService service = createService(new DeterministicEmbeddingClient());
+
+        MaterialSummary first = service.saveText(
+            "Grid policy",
+            "Первая редакция документа.",
+            new MaterialMetadataInput(
+                DocumentType.POLICY,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                List.of("manual-grid", "retained"),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+            )
+        );
+
+        MaterialSummary second = service.saveUploadVersion(
+            first.id(),
+            null,
+            new MockMultipartFile(
+                "file",
+                "grid-policy-v2.txt",
+                "text/plain",
+                "Вторая редакция документа.".getBytes(StandardCharsets.UTF_8)
+            ),
+            new MaterialMetadataInput(
+                DocumentType.REPORT,
+                "general",
+                DocumentStatus.ACTIVE,
+                null,
+                null,
+                null,
+                List.of(),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                List.of(),
+                null,
+                null,
+                null,
+                null
+            )
+        );
+
+        MaterialSummary stored = service.listSummaries().stream()
+            .filter(summary -> summary.id().equals(second.id()))
+            .findFirst()
+            .orElseThrow();
+
+        assertEquals(DocumentType.REPORT, stored.metadata().documentType());
+        assertTrue(stored.metadata().manualTags().isEmpty());
+    }
+
+    @Test
+    void controlledVersionUploadRejectsHistoricalTargets() {
+        MaterialService service = createService(new DeterministicEmbeddingClient());
+
+        MaterialSummary first = service.saveUpload(
+            "Grid policy",
+            new MockMultipartFile(
+                "file",
+                "grid-policy-v1.txt",
+                "text/plain",
+                "Первая редакция документа.".getBytes(StandardCharsets.UTF_8)
+            )
+        );
+        service.saveUploadVersion(
+            first.id(),
+            null,
+            new MockMultipartFile(
+                "file",
+                "grid-policy-v2.txt",
+                "text/plain",
+                "Вторая редакция документа.".getBytes(StandardCharsets.UTF_8)
+            ),
+            null
+        );
+
+        ApiException exception = assertThrows(ApiException.class, () -> service.saveUploadVersion(
+            first.id(),
+            null,
+            new MockMultipartFile(
+                "file",
+                "grid-policy-v3.txt",
+                "text/plain",
+                "Третья редакция документа.".getBytes(StandardCharsets.UTF_8)
+            ),
+            null
+        ));
+
+        assertEquals("material.version_upload_requires_active_version", exception.getCode());
+    }
+
+    @Test
+    void controlledVersionUploadRejectsDuplicateContentInsideLineage() {
+        MaterialService service = createService(new DeterministicEmbeddingClient());
+
+        MaterialSummary first = service.saveUpload(
+            "Grid policy",
+            new MockMultipartFile(
+                "file",
+                "grid-policy-v1.txt",
+                "text/plain",
+                "Одинаковое содержимое.".getBytes(StandardCharsets.UTF_8)
+            )
+        );
+
+        ApiException exception = assertThrows(ApiException.class, () -> service.saveUploadVersion(
+            first.id(),
+            null,
+            new MockMultipartFile(
+                "file",
+                "grid-policy-v2.txt",
+                "text/plain",
+                "Одинаковое содержимое.".getBytes(StandardCharsets.UTF_8)
+            ),
+            null
+        ));
+
+        assertEquals("material.version_duplicate_content", exception.getCode());
     }
 
     @Test
@@ -509,7 +847,8 @@ class MaterialServiceTest {
                 contentSupport,
                 lifecycleService,
                 indexingService,
-                afterCommitExecutor
+                afterCommitExecutor,
+                new MaterialMetadataResolver()
             ),
             new MaterialIngestionService(
                 repository,

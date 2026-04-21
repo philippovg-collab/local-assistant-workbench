@@ -2,8 +2,13 @@ package com.example.demo.service;
 
 import com.example.demo.service.material.MaterialMetadataHints;
 
+import com.example.demo.api.ApiException;
+import com.example.demo.infrastructure.reference.PostgresReferenceDataRepository;
+import com.example.demo.infrastructure.reference.StoredReferenceProjectRecord;
+import com.example.demo.model.DocumentStatus;
 import com.example.demo.model.DocumentType;
 import com.example.demo.model.KnowledgeDocumentClass;
+import com.example.demo.model.MaterialLanguageCode;
 import com.example.demo.model.MaterialMetadataInput;
 import com.example.demo.model.MaterialMetadataProvenance;
 import com.example.demo.model.MaterialMetadataSnapshot;
@@ -20,6 +25,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
@@ -33,15 +40,22 @@ public class MaterialMetadataResolver {
     private static final String DEPARTMENT = "department";
     private static final String VERSION_LABEL = "versionLabel";
     private static final String LANGUAGE = "language";
+    private static final String LANGUAGE_CODE = "languageCode";
     private static final String TAGS = "tags";
+    private static final String MANUAL_TAGS = "manualTags";
+    private static final String AUTO_TAGS = "autoTags";
+    private static final String EFFECTIVE_TAGS = "effectiveTags";
     private static final String SOURCE_TRUST = "sourceTrust";
     private static final String PROJECT = "project";
+    private static final String PROJECT_KEY = "projectKey";
     private static final String KNOWLEDGE_DOCUMENT_CLASS = "knowledgeDocumentClass";
     private static final String WORKSPACE_KEY = "workspaceKey";
     private static final String COUNTERPARTY = "counterparty";
     private static final String BUSINESS_STATUS = "businessStatus";
+    private static final String DOCUMENT_STATUS = "documentStatus";
     private static final String PERIOD_START = "periodStart";
     private static final String PERIOD_END = "periodEnd";
+    private static final String DEFAULT_WORKSPACE_KEY = "general";
 
     private static final double LABELLED_HEADER_CONFIDENCE = 0.9d;
     private static final double REGEX_HINT_CONFIDENCE = 0.75d;
@@ -134,6 +148,17 @@ public class MaterialMetadataResolver {
         "текст",
         "файл"
     );
+
+    private final PostgresReferenceDataRepository referenceDataRepository;
+
+    public MaterialMetadataResolver() {
+        this(null);
+    }
+
+    @Autowired
+    public MaterialMetadataResolver(PostgresReferenceDataRepository referenceDataRepository) {
+        this.referenceDataRepository = referenceDataRepository;
+    }
 
     public MaterialMetadataSnapshot resolve(
         MaterialMetadataInput manualInput,
@@ -321,86 +346,182 @@ public class MaterialMetadataResolver {
 
     private MaterialMetadataSnapshot merge(MaterialMetadataInput manualInput, MaterialMetadataHints hints) {
         DocumentType documentType = chooseDocumentType(manualInput, hints);
-        KnowledgeDocumentClass knowledgeDocumentClass = manualInput != null && manualInput.knowledgeDocumentClass() != null
-            ? manualInput.knowledgeDocumentClass()
-            : MaterialMetadataSnapshot.deriveKnowledgeDocumentClass(documentType);
-        SourceTrustLevel sourceTrust = manualInput != null && manualInput.sourceTrust() != null
-            ? manualInput.sourceTrust()
-            : SourceTrustLevel.UNKNOWN;
-        String project = chooseString(manualInput != null ? manualInput.project() : null, hints.project());
-        String workspaceKey = manualInput != null && manualInput.workspaceKey() != null
-            ? manualInput.workspaceKey()
-            : MaterialMetadataSnapshot.deriveWorkspaceKey(project);
+        KnowledgeDocumentClass knowledgeDocumentClass = MaterialMetadataSnapshot.deriveKnowledgeDocumentClass(documentType);
+        SourceTrustLevel sourceTrust = SourceTrustLevel.UNKNOWN;
+        String workspaceKey = resolveWorkspaceKey(manualInput);
+        String projectKey = resolveProjectKey(manualInput, workspaceKey);
+        DocumentStatus documentStatus = manualInput != null && manualInput.documentStatus() != null
+            ? manualInput.documentStatus()
+            : DocumentStatus.ACTIVE;
+        MaterialLanguageCode languageCode = manualInput != null && manualInput.languageCode() != null
+            ? manualInput.languageCode()
+            : languageCodeFromHint(hints.language());
+        String language = languageCode == null ? null : languageCode.name().toLowerCase(Locale.ROOT);
 
         Map<String, MetadataValueOrigin> origins = new LinkedHashMap<>();
         Map<String, Double> confidence = new LinkedHashMap<>();
 
         recordFieldOrigin(origins, confidence, DOCUMENT_TYPE, manualInput != null ? manualInput.documentType() : null, hints.documentType(), hints);
-        recordFieldOrigin(origins, confidence, DOCUMENT_DATE, manualInput != null ? manualInput.documentDate() : null, hints.documentDate(), hints);
+        recordFieldOrigin(origins, confidence, DOCUMENT_DATE, null, hints.documentDate(), hints);
         recordFieldOrigin(origins, confidence, DOCUMENT_NUMBER, manualInput != null ? manualInput.documentNumber() : null, hints.documentNumber(), hints);
-        recordFieldOrigin(origins, confidence, AUTHOR, manualInput != null ? manualInput.author() : null, hints.author(), hints);
-        recordFieldOrigin(origins, confidence, DEPARTMENT, manualInput != null ? manualInput.department() : null, hints.department(), hints);
-        recordFieldOrigin(origins, confidence, VERSION_LABEL, manualInput != null ? manualInput.versionLabel() : null, hints.versionLabel(), hints);
-        recordFieldOrigin(origins, confidence, LANGUAGE, manualInput != null ? manualInput.language() : null, hints.language(), hints);
+        recordFieldOrigin(origins, confidence, AUTHOR, null, hints.author(), hints);
+        recordFieldOrigin(origins, confidence, DEPARTMENT, null, hints.department(), hints);
+        recordFieldOrigin(origins, confidence, VERSION_LABEL, null, hints.versionLabel(), hints);
+        recordFieldOrigin(origins, confidence, LANGUAGE_CODE, manualInput != null ? manualInput.languageCode() : null, languageCodeFromHint(hints.language()), hints);
+        if (languageCode != null) {
+            origins.putIfAbsent(
+                LANGUAGE,
+                manualInput != null && manualInput.languageCode() != null
+                    ? MetadataValueOrigin.MANUAL
+                    : MetadataValueOrigin.INFERRED
+            );
+            if ((manualInput == null || manualInput.languageCode() == null) && hints.fieldConfidence().containsKey(LANGUAGE)) {
+                confidence.put(LANGUAGE, hints.fieldConfidence().get(LANGUAGE));
+                confidence.put(LANGUAGE_CODE, hints.fieldConfidence().get(LANGUAGE));
+            }
+        }
 
-        List<String> manualTags = manualInput == null || manualInput.tags() == null ? List.of() : manualInput.tags();
-        List<String> inferredTags = hints.tags();
-        List<String> tags = !manualTags.isEmpty() ? manualTags : inferredTags;
+        List<String> manualTags = manualInput == null ? List.of() : manualInput.effectiveManualTags();
+        List<String> autoTags = autoOnlyTags(hints.tags(), manualTags);
+        List<String> tags = unionTags(manualTags, autoTags);
         if (!manualTags.isEmpty()) {
             origins.put(TAGS, MetadataValueOrigin.MANUAL);
-        } else if (!inferredTags.isEmpty()) {
+            origins.put(MANUAL_TAGS, MetadataValueOrigin.MANUAL);
+            origins.put(EFFECTIVE_TAGS, MetadataValueOrigin.MANUAL);
+        } else if (!autoTags.isEmpty()) {
             origins.put(TAGS, MetadataValueOrigin.INFERRED);
+            origins.put(EFFECTIVE_TAGS, MetadataValueOrigin.INFERRED);
+        }
+        if (!autoTags.isEmpty()) {
+            origins.put(AUTO_TAGS, MetadataValueOrigin.INFERRED);
+            confidence.put(AUTO_TAGS, hints.fieldConfidence().getOrDefault(TAGS, TAG_HINT_CONFIDENCE));
             confidence.put(TAGS, hints.fieldConfidence().getOrDefault(TAGS, TAG_HINT_CONFIDENCE));
         }
 
-        if (manualInput != null && manualInput.knowledgeDocumentClass() != null) {
-            origins.put(KNOWLEDGE_DOCUMENT_CLASS, MetadataValueOrigin.MANUAL);
-        } else if ((manualInput != null && manualInput.documentType() != null) || hints.documentType() != null) {
+        if ((manualInput != null && manualInput.documentType() != null) || hints.documentType() != null) {
             origins.put(KNOWLEDGE_DOCUMENT_CLASS, MetadataValueOrigin.INFERRED);
         } else {
             origins.put(KNOWLEDGE_DOCUMENT_CLASS, MetadataValueOrigin.DEFAULT);
         }
 
-        recordFieldOrigin(origins, confidence, SOURCE_TRUST, manualInput != null ? manualInput.sourceTrust() : null, null, hints);
-        recordFieldOrigin(origins, confidence, PROJECT, manualInput != null ? manualInput.project() : null, hints.project(), hints);
+        origins.put(SOURCE_TRUST, MetadataValueOrigin.DEFAULT);
+        if (documentStatus == DocumentStatus.ACTIVE && (manualInput == null || manualInput.documentStatus() == null)) {
+            origins.put(DOCUMENT_STATUS, MetadataValueOrigin.DEFAULT);
+        } else {
+            origins.put(DOCUMENT_STATUS, MetadataValueOrigin.MANUAL);
+        }
+        if (projectKey != null) {
+            origins.put(
+                PROJECT_KEY,
+                manualInput != null && manualInput.projectKey() != null
+                    ? MetadataValueOrigin.MANUAL
+                    : MetadataValueOrigin.MANUAL
+            );
+            origins.put(PROJECT, origins.get(PROJECT_KEY));
+        }
         if (manualInput != null && manualInput.workspaceKey() != null) {
             origins.put(WORKSPACE_KEY, MetadataValueOrigin.MANUAL);
-        } else if (workspaceKey != null) {
-            origins.put(WORKSPACE_KEY, MetadataValueOrigin.INFERRED);
+        } else {
+            origins.put(WORKSPACE_KEY, MetadataValueOrigin.DEFAULT);
         }
-        recordFieldOrigin(origins, confidence, COUNTERPARTY, manualInput != null ? manualInput.counterparty() : null, hints.counterparty(), hints);
-        recordFieldOrigin(origins, confidence, BUSINESS_STATUS, manualInput != null ? manualInput.businessStatus() : null, hints.businessStatus(), hints);
+        recordFieldOrigin(origins, confidence, COUNTERPARTY, null, hints.counterparty(), hints);
+        origins.put(BUSINESS_STATUS, origins.get(DOCUMENT_STATUS));
         recordFieldOrigin(origins, confidence, PERIOD_START, manualInput != null ? manualInput.periodStart() : null, hints.periodStart(), hints);
         recordFieldOrigin(origins, confidence, PERIOD_END, manualInput != null ? manualInput.periodEnd() : null, hints.periodEnd(), hints);
 
         Object documentTypeSource = manualInput != null ? manualInput.documentType() : null;
-        Object sourceTrustSource = manualInput != null ? manualInput.sourceTrust() : null;
         if (documentTypeSource == null && hints.documentType() == null) {
             origins.put(DOCUMENT_TYPE, MetadataValueOrigin.DEFAULT);
-        }
-        if (sourceTrustSource == null) {
-            origins.put(SOURCE_TRUST, MetadataValueOrigin.DEFAULT);
         }
 
         return new MaterialMetadataSnapshot(
             documentType,
             knowledgeDocumentClass,
-            manualInput != null && manualInput.documentDate() != null ? manualInput.documentDate() : hints.documentDate(),
+            hints.documentDate(),
             chooseString(manualInput != null ? manualInput.documentNumber() : null, hints.documentNumber()),
-            chooseString(manualInput != null ? manualInput.author() : null, hints.author()),
-            chooseString(manualInput != null ? manualInput.department() : null, hints.department()),
-            chooseString(manualInput != null ? manualInput.versionLabel() : null, hints.versionLabel()),
-            chooseString(manualInput != null ? manualInput.language() : null, hints.language()),
+            hints.author(),
+            hints.department(),
+            hints.versionLabel(),
+            language,
+            languageCode,
+            tags,
+            manualTags,
+            autoTags,
             tags,
             sourceTrust,
-            project,
+            projectKey,
+            projectKey,
             workspaceKey,
-            chooseString(manualInput != null ? manualInput.counterparty() : null, hints.counterparty()),
-            chooseString(manualInput != null ? manualInput.businessStatus() : null, hints.businessStatus()),
+            hints.counterparty(),
+            documentStatus.name(),
+            documentStatus,
             manualInput != null && manualInput.periodStart() != null ? manualInput.periodStart() : hints.periodStart(),
             manualInput != null && manualInput.periodEnd() != null ? manualInput.periodEnd() : hints.periodEnd(),
             new MaterialMetadataProvenance(origins, confidence)
         );
+    }
+
+    private String resolveWorkspaceKey(MaterialMetadataInput manualInput) {
+        String workspaceKey = manualInput != null && manualInput.workspaceKey() != null
+            ? manualInput.workspaceKey()
+            : DEFAULT_WORKSPACE_KEY;
+        if (referenceDataRepository != null && !referenceDataRepository.workspaceExists(workspaceKey)) {
+            throw new ApiException(
+                HttpStatus.BAD_REQUEST,
+                "material.metadata.workspace_not_found",
+                "Reference workspace '" + workspaceKey + "' does not exist"
+            );
+        }
+        return workspaceKey;
+    }
+
+    private String resolveProjectKey(MaterialMetadataInput manualInput, String workspaceKey) {
+        if (manualInput == null) {
+            return null;
+        }
+        if (manualInput.projectKey() != null) {
+            return requireProjectInWorkspace(manualInput.projectKey(), workspaceKey);
+        }
+        if (manualInput.project() == null || referenceDataRepository == null) {
+            return null;
+        }
+        return referenceDataRepository.findProjectByKey(manualInput.project())
+            .filter(project -> project.workspaceKey().equals(workspaceKey))
+            .map(StoredReferenceProjectRecord::key)
+            .orElse(null);
+    }
+
+    private String requireProjectInWorkspace(String projectKey, String workspaceKey) {
+        if (referenceDataRepository == null) {
+            return projectKey;
+        }
+        StoredReferenceProjectRecord project = referenceDataRepository.findProjectByKey(projectKey)
+            .orElseThrow(() -> new ApiException(
+                HttpStatus.BAD_REQUEST,
+                "material.metadata.project_not_found",
+                "Reference project '" + projectKey + "' does not exist"
+            ));
+        if (!project.workspaceKey().equals(workspaceKey)) {
+            throw new ApiException(
+                HttpStatus.BAD_REQUEST,
+                "material.metadata.project_workspace_mismatch",
+                "Reference project '" + projectKey + "' does not belong to workspace '" + workspaceKey + "'"
+            );
+        }
+        return project.key();
+    }
+
+    private MaterialLanguageCode languageCodeFromHint(String language) {
+        String normalizedLanguage = normalizeText(language);
+        if (normalizedLanguage == null) {
+            return null;
+        }
+        return switch (normalizedLanguage.toLowerCase(Locale.ROOT)) {
+            case "ru", "rus", "russian" -> MaterialLanguageCode.RU;
+            case "kk", "kz", "kaz", "kazakh" -> MaterialLanguageCode.KK;
+            case "en", "eng", "english" -> MaterialLanguageCode.EN;
+            default -> null;
+        };
     }
 
     private static Pattern labelledPattern(String... labels) {
@@ -738,6 +859,45 @@ public class MaterialMetadataResolver {
 
     private <T> T chooseHint(T preferredValue, T fallbackValue) {
         return isPresent(preferredValue) ? preferredValue : fallbackValue;
+    }
+
+    private static List<String> autoOnlyTags(List<String> rawAutoTags, List<String> manualTags) {
+        if (rawAutoTags == null || rawAutoTags.isEmpty()) {
+            return List.of();
+        }
+
+        Set<String> manualSet = new LinkedHashSet<>();
+        if (manualTags != null) {
+            for (String tag : manualTags) {
+                String normalized = normalizeText(tag);
+                if (normalized != null) {
+                    manualSet.add(normalized);
+                }
+            }
+        }
+
+        Set<String> normalizedAutoTags = new LinkedHashSet<>();
+        for (String tag : rawAutoTags) {
+            String normalized = normalizeText(tag);
+            if (normalized != null && !manualSet.contains(normalized)) {
+                normalizedAutoTags.add(normalized);
+            }
+        }
+        return List.copyOf(normalizedAutoTags);
+    }
+
+    private static List<String> unionTags(List<String> manualTags, List<String> autoTags) {
+        Set<String> union = new LinkedHashSet<>();
+        if (manualTags != null) {
+            for (String tag : manualTags) {
+                String normalized = normalizeText(tag);
+                if (normalized != null) {
+                    union.add(normalized);
+                }
+            }
+        }
+        union.addAll(autoOnlyTags(autoTags, List.copyOf(union)));
+        return List.copyOf(union);
     }
 
     private static boolean isPresent(Object value) {

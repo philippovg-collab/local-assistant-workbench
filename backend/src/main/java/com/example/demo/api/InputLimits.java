@@ -74,6 +74,7 @@ public final class InputLimits {
             return;
         }
         requireMaxLength(metadata.documentNumber(), FILTER_TEXT_MAX, "material.metadata.documentNumber");
+        requireMaxLength(metadata.projectKey(), WORKSPACE_KEY_MAX, "material.metadata.projectKey");
         requireMaxLength(metadata.author(), FILTER_TEXT_MAX, "material.metadata.author");
         requireMaxLength(metadata.department(), FILTER_TEXT_MAX, "material.metadata.department");
         requireMaxLength(metadata.versionLabel(), FILTER_TEXT_MAX, "material.metadata.versionLabel");
@@ -82,6 +83,8 @@ public final class InputLimits {
         requireMaxLength(metadata.workspaceKey(), WORKSPACE_KEY_MAX, "material.metadata.workspaceKey");
         requireMaxLength(metadata.counterparty(), FILTER_TEXT_MAX, "material.metadata.counterparty");
         requireMaxLength(metadata.businessStatus(), FILTER_TEXT_MAX, "material.metadata.businessStatus");
+        requireMaxListSize(metadata.manualTags(), TAGS_MAX, "material.metadata.manualTags");
+        requireMaxStringListEntries(metadata.manualTags(), TAG_MAX, "material.metadata.manualTags");
         requireMaxListSize(metadata.tags(), TAGS_MAX, "material.metadata.tags");
         requireMaxStringListEntries(metadata.tags(), TAG_MAX, "material.metadata.tags");
     }

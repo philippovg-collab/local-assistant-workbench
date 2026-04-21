@@ -86,7 +86,7 @@ describe("deriveRagReadiness", () => {
     const readiness = deriveRagReadiness(buildHealth({
       ragStatus: "DOWN",
       knowledgeStatus: "DEGRADED",
-      knowledgeReasonMessage: "Активные материалы есть, но ни один ещё не готов для retrieval.",
+      knowledgeReasonMessage: "Активные материалы есть, но ни один не проходит retrieval-ready условия.",
     }));
 
     expect(readiness.state).toBe("degraded");
@@ -209,10 +209,10 @@ describe("buildRagReadinessPresentation", () => {
 
     expect(presentation.headline).toBe("1/1");
     expect(presentation.overviewMessage).toBe(
-      "Активные материалы и readiness считаются по одной модели состояния.",
+      "Readiness считается по active lineage, READY/PARTIAL_READY, действующему статусу документа и валидному периоду.",
     );
     expect(presentation.materialsMessage).toBe(
-      "RAG использует только активные READY и PARTIAL_READY версии, а historical остаются в каталоге для аудита.",
+      "RAG использует только active lineage версии со статусом READY/PARTIAL_READY, documentStatus=ACTIVE и валидным периодом; historical остаются в каталоге для аудита.",
     );
     expect(presentation.chatHelperText).toBe(
       "Вопрос уйдёт в qwen2.5:7b с локально подобранным контекстом из активных материалов.",

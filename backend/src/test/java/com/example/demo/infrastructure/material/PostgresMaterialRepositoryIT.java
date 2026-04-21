@@ -8,6 +8,7 @@ import com.example.demo.service.material.MaterialIndexingLease;
 import com.example.demo.service.material.MaterialLineageIdentity;
 import com.example.demo.service.material.MaterialRetrievalScopeSnapshot;
 import com.example.demo.service.material.MaterialSearchSyncQueueEntry;
+import com.example.demo.service.material.QualityLayerCoverageSnapshot;
 import com.example.demo.service.material.SearchSyncDeliveryState;
 import com.example.demo.service.material.SearchSyncOperationType;
 import com.example.demo.service.material.SearchableMaterialSnapshot;
@@ -24,9 +25,11 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.example.demo.config.MaterialProperties;
+import com.example.demo.model.DocumentStatus;
 import com.example.demo.model.DocumentType;
 import com.example.demo.model.KnowledgeDocumentClass;
 import com.example.demo.model.KnowledgeScope;
+import com.example.demo.model.MaterialLanguageCode;
 import com.example.demo.model.MaterialIndexingStatus;
 import com.example.demo.model.MaterialMetadataInput;
 import com.example.demo.model.MaterialMetadataSnapshot;
@@ -290,23 +293,173 @@ class PostgresMaterialRepositoryIT extends PostgresIntegrationTestSupport {
     }
 
     @Test
+    void defaultRetrievalReadyPredicateExcludesNonActiveStatusInvalidPeriodAndSupersededLineage() {
+        LocalDate today = LocalDate.now();
+        StoredMaterialRecord eligible = materialRecord(
+            UUID.randomUUID().toString(),
+            "Eligible policy",
+            "phase seven eligible retrieval token.",
+            "hash-phase-seven-eligible",
+            "phase-seven-eligible",
+            MaterialIndexingStatus.READY,
+            MaterialVersionState.ACTIVE,
+            Instant.parse("2026-04-17T10:00:00Z")
+        ).withMetadata(retrievalMetadata(DocumentStatus.ACTIVE, today.minusDays(1), today.plusDays(1)));
+        StoredMaterialRecord draft = materialRecord(
+            UUID.randomUUID().toString(),
+            "Draft policy",
+            "phase seven draft retrieval token.",
+            "hash-phase-seven-draft",
+            "phase-seven-draft",
+            MaterialIndexingStatus.READY,
+            MaterialVersionState.ACTIVE,
+            Instant.parse("2026-04-17T10:01:00Z")
+        ).withMetadata(retrievalMetadata(DocumentStatus.DRAFT, today.minusDays(1), today.plusDays(1)));
+        StoredMaterialRecord archived = materialRecord(
+            UUID.randomUUID().toString(),
+            "Archived policy",
+            "phase seven archived retrieval token.",
+            "hash-phase-seven-archived",
+            "phase-seven-archived",
+            MaterialIndexingStatus.READY,
+            MaterialVersionState.ACTIVE,
+            Instant.parse("2026-04-17T10:02:00Z")
+        ).withMetadata(retrievalMetadata(DocumentStatus.ARCHIVED, today.minusDays(1), today.plusDays(1)));
+        StoredMaterialRecord revoked = materialRecord(
+            UUID.randomUUID().toString(),
+            "Revoked policy",
+            "phase seven revoked retrieval token.",
+            "hash-phase-seven-revoked",
+            "phase-seven-revoked",
+            MaterialIndexingStatus.READY,
+            MaterialVersionState.ACTIVE,
+            Instant.parse("2026-04-17T10:03:00Z")
+        ).withMetadata(retrievalMetadata(DocumentStatus.REVOKED, today.minusDays(1), today.plusDays(1)));
+        StoredMaterialRecord expired = materialRecord(
+            UUID.randomUUID().toString(),
+            "Expired policy",
+            "phase seven expired retrieval token.",
+            "hash-phase-seven-expired",
+            "phase-seven-expired",
+            MaterialIndexingStatus.READY,
+            MaterialVersionState.ACTIVE,
+            Instant.parse("2026-04-17T10:04:00Z")
+        ).withMetadata(retrievalMetadata(DocumentStatus.ACTIVE, today.minusDays(10), today.minusDays(1)));
+        StoredMaterialRecord future = materialRecord(
+            UUID.randomUUID().toString(),
+            "Future policy",
+            "phase seven future retrieval token.",
+            "hash-phase-seven-future",
+            "phase-seven-future",
+            MaterialIndexingStatus.READY,
+            MaterialVersionState.ACTIVE,
+            Instant.parse("2026-04-17T10:05:00Z")
+        ).withMetadata(retrievalMetadata(DocumentStatus.ACTIVE, today.plusDays(1), today.plusDays(10)));
+        StoredMaterialRecord superseded = materialRecord(
+            UUID.randomUUID().toString(),
+            "Superseded policy",
+            "phase seven superseded retrieval token.",
+            "hash-phase-seven-superseded",
+            "phase-seven-superseded",
+            MaterialIndexingStatus.READY,
+            MaterialVersionState.SUPERSEDED,
+            Instant.parse("2026-04-17T10:06:00Z")
+        ).withMetadata(retrievalMetadata(DocumentStatus.ACTIVE, today.minusDays(1), today.plusDays(1)));
+
+        List.of(eligible, draft, archived, revoked, expired, future, superseded)
+            .forEach(record -> saveReadyMaterial(record, record.content()));
+
+        assertEquals(6, repository.countActiveMaterials());
+        assertEquals(1, repository.countReadyMaterials());
+
+        List<String> lexicalIds = repository.search("phase seven retrieval token", 20)
+            .stream()
+            .map(MaterialChunkSearchMatch::materialId)
+            .toList();
+        List<String> semanticIds = repository.searchSemantic(embeddingClient.embed("phase seven retrieval token"), 20)
+            .stream()
+            .map(MaterialChunkSearchMatch::materialId)
+            .toList();
+        MaterialRetrievalScopeSnapshot scope = repository.describeRetrievalScope(
+            KnowledgeScope.empty(),
+            RetrievalFilters.empty(),
+            null,
+            null
+        );
+
+        assertEquals(List.of(eligible.id()), lexicalIds);
+        assertEquals(List.of(eligible.id()), semanticIds);
+        assertEquals(List.of(eligible.id()), scope.scopedReadyMaterialIds().stream().toList());
+        assertEquals(List.of(eligible.id()), repository.findAllSearchableMaterialIds());
+    }
+
+    @Test
+    void qualityLayerCoverageUsesCanonicalMetadataFields() {
+        StoredMaterialRecord covered = materialRecord(
+            UUID.randomUUID().toString(),
+            "Covered policy",
+            "Covered policy content.",
+            "hash-quality-covered",
+            MaterialIndexingStatus.READY
+        ).withMetadata(retrievalMetadata(DocumentStatus.ACTIVE, null, null));
+        StoredMaterialRecord uncovered = materialRecord(
+            UUID.randomUUID().toString(),
+            "Uncovered material",
+            "Uncovered material content.",
+            "hash-quality-uncovered",
+            MaterialIndexingStatus.READY
+        );
+        StoredMaterialRecord historicalCovered = materialRecord(
+            UUID.randomUUID().toString(),
+            "Historical covered policy",
+            "Historical policy content.",
+            "hash-quality-historical",
+            "hash-quality-historical-source",
+            MaterialIndexingStatus.READY,
+            MaterialVersionState.SUPERSEDED,
+            Instant.parse("2026-04-17T10:00:00Z")
+        ).withMetadata(retrievalMetadata(DocumentStatus.ACTIVE, null, null));
+
+        repository.save(covered, List.of(rawChunk(0, covered.content(), 1)));
+        repository.save(uncovered, List.of(rawChunk(0, uncovered.content(), 1)));
+        repository.save(historicalCovered, List.of(rawChunk(0, historicalCovered.content(), 1)));
+
+        QualityLayerCoverageSnapshot snapshot = repository.qualityLayerCoverageSnapshot();
+
+        assertEquals(2, snapshot.activeTotal());
+        assertEquals(1, snapshot.activeWithEffectiveMetadata());
+        assertEquals(2, snapshot.workspaceCovered());
+        assertEquals(1, snapshot.documentTypeCovered());
+        assertEquals(2, snapshot.documentStatusCovered());
+    }
+
+    @Test
     void savesAndLoadsMaterialMetadata() {
+        seedWorkspace("north-upgrade", "North Upgrade");
+        seedProject("line-a", "north-upgrade", "Line A");
+
         MaterialMetadataSnapshot metadata = MaterialMetadataSnapshot.fromInput(new MaterialMetadataInput(
             DocumentType.CONTRACT,
-            LocalDate.parse("2026-04-17"),
+            "north-upgrade",
+            DocumentStatus.DRAFT,
+            "line-a",
             "KZ-2026-0415-ENERGY",
+            MaterialLanguageCode.RU,
+            List.of("contract", "energy"),
+            LocalDate.parse("2026-04-01"),
+            LocalDate.parse("2026-12-31"),
+            null,
+            LocalDate.parse("2026-04-17"),
             "Legal lead",
             "Legal",
             "v2.1",
-            "ru",
-            List.of("contract", "energy"),
-            SourceTrustLevel.HIGH,
-            "North Upgrade",
+            null,
+            null,
+            null,
+            null,
             "KazEnergy Service",
-            "SIGNED",
-            LocalDate.parse("2026-04-01"),
-            LocalDate.parse("2026-12-31")
-        ));
+            null
+        )).withTagLayers(List.of("contract", "energy"), List.of("auto-grid", "energy"));
         StoredMaterialRecord record = new StoredMaterialRecord(
             UUID.randomUUID().toString(),
             "Contract register",
@@ -339,14 +492,92 @@ class PostgresMaterialRepositoryIT extends PostgresIntegrationTestSupport {
         StoredMaterialRecord reloaded = repository.findById(record.id()).orElseThrow();
         assertEquals(DocumentType.CONTRACT, reloaded.metadata().documentType());
         assertEquals("KZ-2026-0415-ENERGY", reloaded.metadata().documentNumber());
-        assertEquals(List.of("contract", "energy"), reloaded.metadata().tags());
-        assertEquals(SourceTrustLevel.HIGH, reloaded.metadata().sourceTrust());
+        assertEquals("north-upgrade", reloaded.metadata().workspaceKey());
+        assertEquals("line-a", reloaded.metadata().projectKey());
+        assertEquals("line-a", reloaded.metadata().project());
+        assertEquals(DocumentStatus.DRAFT, reloaded.metadata().documentStatus());
+        assertEquals("DRAFT", reloaded.metadata().businessStatus());
+        assertEquals(MaterialLanguageCode.RU, reloaded.metadata().languageCode());
+        assertEquals("ru", reloaded.metadata().language());
+        assertEquals(List.of("contract", "energy"), reloaded.metadata().manualTags());
+        assertEquals(List.of("auto-grid"), reloaded.metadata().autoTags());
+        assertEquals(List.of("contract", "energy", "auto-grid"), reloaded.metadata().effectiveTags());
+        assertEquals(List.of("contract", "energy", "auto-grid"), reloaded.metadata().tags());
+        assertEquals(SourceTrustLevel.UNKNOWN, reloaded.metadata().sourceTrust());
         assertEquals(MetadataValueOrigin.MANUAL, reloaded.metadata().provenance().fieldOrigins().get("documentType"));
         assertTrue(reloaded.metadata().provenance().fieldConfidence().isEmpty());
+        assertEquals(
+            "line-a",
+            jdbcTemplate.queryForObject("SELECT project_key FROM materials WHERE id = ?", String.class, UUID.fromString(record.id()))
+        );
+        assertEquals(
+            "line-a",
+            jdbcTemplate.queryForObject("SELECT project_name FROM materials WHERE id = ?", String.class, UUID.fromString(record.id()))
+        );
+        assertEquals(
+            "DRAFT",
+            jdbcTemplate.queryForObject("SELECT document_status FROM materials WHERE id = ?", String.class, UUID.fromString(record.id()))
+        );
+        assertEquals(
+            "DRAFT",
+            jdbcTemplate.queryForObject("SELECT business_status FROM materials WHERE id = ?", String.class, UUID.fromString(record.id()))
+        );
+        assertEquals(
+            "RU",
+            jdbcTemplate.queryForObject("SELECT language_code FROM materials WHERE id = ?", String.class, UUID.fromString(record.id()))
+        );
+        assertEquals(
+            List.of("MANUAL", "MANUAL", "AUTO"),
+            jdbcTemplate.queryForList(
+                "SELECT tag_source FROM material_tags WHERE material_id = ? ORDER BY tag_order",
+                String.class,
+                UUID.fromString(record.id())
+            )
+        );
+        assertEquals(
+            1,
+            repository.describeRetrievalScope(
+                KnowledgeScope.empty(),
+                new RetrievalFilters(null, null, null, null, null, null, null, null, List.of("auto-grid"), null),
+                null,
+                null
+            ).scopedMaterialCount()
+        );
+    }
+
+    @Test
+    void legacyTagRowsDefaultToManualSource() {
+        StoredMaterialRecord record = materialRecord(
+            UUID.randomUUID().toString(),
+            "Legacy tags",
+            "Legacy tag content.",
+            "hash-legacy-tags",
+            MaterialIndexingStatus.READY
+        );
+
+        repository.save(record, List.of(rawChunk(0, record.content(), 1)));
+        jdbcTemplate.update(
+            "INSERT INTO material_tags (material_id, tag_order, tag_value) VALUES (?, ?, ?)",
+            UUID.fromString(record.id()),
+            0,
+            "legacy"
+        );
+
+        assertEquals(
+            "MANUAL",
+            jdbcTemplate.queryForObject(
+                "SELECT tag_source FROM material_tags WHERE material_id = ? AND tag_value = ?",
+                String.class,
+                UUID.fromString(record.id()),
+                "legacy"
+            )
+        );
     }
 
     @Test
     void persistsKnowledgeScopeColumnsAndFiltersRetrievalScopeFromPostgres() {
+        seedWorkspace("north-upgrade", "North Upgrade");
+
         MaterialMetadataSnapshot metadata = MaterialMetadataSnapshot.fromInput(new MaterialMetadataInput(
             DocumentType.POLICY,
             KnowledgeDocumentClass.REGULATIONS,
@@ -1396,6 +1627,31 @@ class PostgresMaterialRepositoryIT extends PostgresIntegrationTestSupport {
         );
     }
 
+    private MaterialMetadataSnapshot retrievalMetadata(DocumentStatus documentStatus, LocalDate periodStart, LocalDate periodEnd) {
+        return MaterialMetadataSnapshot.fromInput(new MaterialMetadataInput(
+            DocumentType.POLICY,
+            "general",
+            documentStatus,
+            null,
+            null,
+            null,
+            List.of(),
+            periodStart,
+            periodEnd,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null
+        ));
+    }
+
     private StoredMaterialRecord searchSyncReadyRecord(String title, String contentHash) {
         StoredMaterialRecord record = materialRecord(
             UUID.randomUUID().toString(),
@@ -1423,6 +1679,45 @@ class PostgresMaterialRepositoryIT extends PostgresIntegrationTestSupport {
         return java.util.Arrays.stream(materialIds)
             .sorted()
             .toList();
+    }
+
+    private void seedWorkspace(String key, String nameRu) {
+        jdbcTemplate.update(
+            """
+                INSERT INTO reference_workspaces (
+                    key,
+                    name_ru,
+                    active,
+                    sort_order,
+                    is_default,
+                    created_at,
+                    updated_at
+                ) VALUES (?, ?, true, 0, false, NOW(), NOW())
+                ON CONFLICT (key) DO NOTHING
+                """,
+            key,
+            nameRu
+        );
+    }
+
+    private void seedProject(String key, String workspaceKey, String nameRu) {
+        jdbcTemplate.update(
+            """
+                INSERT INTO reference_projects (
+                    key,
+                    workspace_key,
+                    name_ru,
+                    active,
+                    sort_order,
+                    created_at,
+                    updated_at
+                ) VALUES (?, ?, ?, true, 0, NOW(), NOW())
+                ON CONFLICT (key) DO NOTHING
+                """,
+            key,
+            workspaceKey,
+            nameRu
+        );
     }
 
     private void saveReadyMaterial(StoredMaterialRecord record, String embeddedText) {

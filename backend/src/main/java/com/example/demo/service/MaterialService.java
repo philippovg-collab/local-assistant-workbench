@@ -71,6 +71,15 @@ public class MaterialService {
         return ingestionService.saveUpload(title, file, metadata);
     }
 
+    public MaterialSummary saveUploadVersion(
+        String materialId,
+        String title,
+        MultipartFile file,
+        MaterialMetadataInput metadata
+    ) {
+        return ingestionService.saveUploadVersion(materialId, title, file, metadata);
+    }
+
     public void delete(String id) {
         queryService.delete(id);
     }

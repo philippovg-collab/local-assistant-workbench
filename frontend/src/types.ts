@@ -14,6 +14,8 @@ export type InstructionScopeLevel =
   | "request_temporary";
 export type MaterialVersionState = "ACTIVE" | "SUPERSEDED";
 export type KnowledgeDocumentClass = "contracts" | "regulations" | "correspondence" | "techdocs" | "other";
+export type DocumentStatus = "ACTIVE" | "DRAFT" | "ARCHIVED" | "REVOKED";
+export type MaterialLanguageCode = "RU" | "KK" | "EN";
 export type DocumentType =
   | "POLICY"
   | "CONTRACT"
@@ -121,11 +123,11 @@ export type HealthResponse = {
         covered: number;
         ratio: number;
       };
-      sourceTrust: {
+      workspace: {
         covered: number;
         ratio: number;
       };
-      authorOrDepartment: {
+      documentStatus: {
         covered: number;
         ratio: number;
       };
@@ -168,41 +170,40 @@ export type MaterialMetadataProvenance = {
 
 export type MaterialMetadata = {
   documentType: DocumentType;
-  knowledgeDocumentClass: KnowledgeDocumentClass;
-  documentDate?: string | null;
+  documentStatus: DocumentStatus;
+  workspaceKey?: string | null;
+  projectKey?: string | null;
   documentNumber?: string | null;
+  languageCode?: MaterialLanguageCode | null;
+  manualTags?: string[];
+  autoTags?: string[];
+  effectiveTags?: string[];
+  periodStart?: string | null;
+  periodEnd?: string | null;
+  tags?: string[];
+  knowledgeDocumentClass?: KnowledgeDocumentClass;
+  documentDate?: string | null;
   author?: string | null;
   department?: string | null;
   versionLabel?: string | null;
   language?: string | null;
-  tags: string[];
-  sourceTrust: SourceTrustLevel;
+  sourceTrust?: SourceTrustLevel | null;
   project?: string | null;
   counterparty?: string | null;
   businessStatus?: string | null;
-  periodStart?: string | null;
-  periodEnd?: string | null;
-  workspaceKey?: string | null;
   provenance: MaterialMetadataProvenance;
 };
 
 export type MaterialMetadataInput = {
+  workspaceKey?: string | null;
   documentType?: DocumentType;
-  knowledgeDocumentClass?: KnowledgeDocumentClass;
-  documentDate?: string | null;
+  documentStatus?: DocumentStatus;
+  projectKey?: string | null;
   documentNumber?: string | null;
-  author?: string | null;
-  department?: string | null;
-  versionLabel?: string | null;
-  language?: string | null;
-  tags?: string[];
-  sourceTrust?: SourceTrustLevel;
-  project?: string | null;
-  counterparty?: string | null;
-  businessStatus?: string | null;
+  languageCode?: MaterialLanguageCode | null;
   periodStart?: string | null;
   periodEnd?: string | null;
-  workspaceKey?: string | null;
+  manualTags?: string[];
 };
 
 export type RetrievalFilters = {
@@ -302,6 +303,12 @@ export type MaterialUploadPolicy = {
 };
 
 export type MaterialUploadItemInput = {
+  file: File;
+  title?: string;
+  metadata?: MaterialMetadataInput;
+};
+
+export type MaterialVersionUploadInput = {
   file: File;
   title?: string;
   metadata?: MaterialMetadataInput;
@@ -500,6 +507,42 @@ export type KnowledgePresetSummary = {
 
 export type KnowledgePresetDetail = KnowledgePresetSummary & {
   scope: KnowledgeScope;
+};
+
+export type ReferenceWorkspace = {
+  key: string;
+  nameRu: string;
+  active: boolean;
+  sortOrder: number;
+  isDefault: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ReferenceProject = {
+  key: string;
+  workspaceKey: string;
+  nameRu: string;
+  active: boolean;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ReferenceWorkspaceInput = {
+  key?: string;
+  nameRu: string;
+  active?: boolean;
+  sortOrder?: number;
+  isDefault?: boolean;
+};
+
+export type ReferenceProjectInput = {
+  key?: string;
+  workspaceKey: string;
+  nameRu: string;
+  active?: boolean;
+  sortOrder?: number;
 };
 
 export type KnowledgePresetRevisionDetail = {

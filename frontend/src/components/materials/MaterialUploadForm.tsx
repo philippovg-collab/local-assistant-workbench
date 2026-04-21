@@ -6,20 +6,13 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { MaterialMetadataFormSection } from "@/components/MaterialMetadataFormSection";
 import type {
-  KnowledgeDocumentClass,
   MaterialMetadataInput,
   MaterialUploadItemInput,
   MaterialUploadPolicy,
-  SourceTrustLevel,
+  ReferenceProject,
+  ReferenceWorkspace,
 } from "@/types";
 import { formatBytes } from "@/utils/format";
 import {
@@ -28,9 +21,6 @@ import {
 } from "@/utils/materialUploadPolicy";
 import {
   emptyMaterialMetadataFormState,
-  materialKnowledgeDocumentClassLabels,
-  parseTagsInput,
-  sourceTrustLabels,
   type MaterialMetadataValidation,
   toMaterialMetadataInput,
   validateMaterialMetadata,
@@ -42,59 +32,35 @@ type MaterialUploadFormProps = {
   policyWarning: string | null;
   metadataV1Enabled: boolean;
   metadataDisabledReason: string;
+  referenceWorkspaces: ReferenceWorkspace[];
+  referenceProjects: ReferenceProject[];
+  isReferenceDataLoading: boolean;
+  referenceDataError: string | null;
   onUpload: (input: { items: MaterialUploadItemInput[] }) => Promise<unknown>;
 };
 
 type UploadFileOverrideState = {
   expanded: boolean;
   title: string;
-  knowledgeDocumentClass: KnowledgeDocumentClass | "";
-  tags: string;
-  sourceTrust: SourceTrustLevel | "";
 };
-
-const sourceTrustLevels: SourceTrustLevel[] = ["HIGH", "MEDIUM", "LOW", "UNKNOWN"];
-const knowledgeDocumentClasses: KnowledgeDocumentClass[] = [
-  "contracts",
-  "regulations",
-  "correspondence",
-  "techdocs",
-  "other",
-];
 
 const emptyUploadOverride = (): UploadFileOverrideState => ({
   expanded: false,
   title: "",
-  knowledgeDocumentClass: "",
-  tags: "",
-  sourceTrust: "",
 });
 
 const uploadFileKey = (file: File, index: number) =>
   `${index}:${file.name}:${file.size}:${file.lastModified}`;
-
-const uploadOverrideMetadata = (override: UploadFileOverrideState): Partial<MaterialMetadataInput> => {
-  const tags = parseTagsInput(override.tags);
-  return {
-    ...(override.knowledgeDocumentClass ? { knowledgeDocumentClass: override.knowledgeDocumentClass } : {}),
-    ...(tags.length > 0 ? { tags } : {}),
-    ...(override.sourceTrust ? { sourceTrust: override.sourceTrust } : {}),
-  };
-};
-
-const mergeMetadataInput = (
-  base: MaterialMetadataInput,
-  override: Partial<MaterialMetadataInput>,
-): MaterialMetadataInput => ({
-  ...base,
-  ...override,
-});
 
 export function MaterialUploadForm({
   uploadPolicy,
   policyWarning,
   metadataV1Enabled,
   metadataDisabledReason,
+  referenceWorkspaces,
+  referenceProjects,
+  isReferenceDataLoading,
+  referenceDataError,
   onUpload,
 }: MaterialUploadFormProps) {
   const [uploadTitle, setUploadTitle] = useState("");
@@ -123,6 +89,8 @@ export function MaterialUploadForm({
     ? `Scanned PDF сейчас не поддерживаются: ${translatePdfCapabilityReason(pdfPolicy)}`
     : null;
   const isMultipleUpload = uploadFiles.length > 1;
+  const isMetadataUnavailable = metadataV1Enabled
+    && (isReferenceDataLoading || Boolean(referenceDataError) || referenceWorkspaces.length === 0);
 
   const updateUploadOverride = (
     file: File,
@@ -140,10 +108,7 @@ export function MaterialUploadForm({
     const commonMetadata = metadataV1Enabled ? toMaterialMetadataInput(uploadMetadata) : undefined;
     return uploadFiles.map((file, index) => {
       const override = uploadFileOverrides[uploadFileKey(file, index)] ?? emptyUploadOverride();
-      const overrideMetadata = metadataV1Enabled ? uploadOverrideMetadata(override) : {};
-      const metadata = metadataV1Enabled && commonMetadata
-        ? mergeMetadataInput(commonMetadata, overrideMetadata)
-        : undefined;
+      const metadata = metadataV1Enabled ? commonMetadata : undefined;
       const title = override.title.trim() || (!isMultipleUpload ? uploadTitle.trim() : "");
 
       return {
@@ -157,6 +122,10 @@ export function MaterialUploadForm({
   const handleUploadSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (uploadFiles.length === 0) {
+      return;
+    }
+
+    if (isMetadataUnavailable) {
       return;
     }
 
@@ -251,7 +220,11 @@ export function MaterialUploadForm({
             disabledReason={metadataDisabledReason}
             errors={uploadMetadataValidation?.fieldErrors}
             idPrefix="upload-material"
+            isReferenceDataLoading={isReferenceDataLoading}
+            projects={referenceProjects}
+            referenceDataError={referenceDataError}
             state={uploadMetadata}
+            workspaces={referenceWorkspaces}
             onChange={(next) => {
               setUploadMetadata(next);
               if (uploadMetadataValidation) {
@@ -265,8 +238,7 @@ export function MaterialUploadForm({
               <div>
                 <p className="text-sm font-semibold text-foreground">Выбранные файлы</p>
                 <p className="text-sm text-muted-foreground">
-                  Общие атрибуты применятся ко всем файлам. Для конкретного файла можно переопределить название,
-                  класс корпуса, теги и доверие.
+                  Общие метаданные применятся ко всем файлам. Для конкретного файла можно переопределить только название.
                 </p>
               </div>
 
@@ -291,13 +263,13 @@ export function MaterialUploadForm({
                             }))
                           }
                         >
-                          {override.expanded ? "Скрыть атрибуты" : "Настроить атрибуты"}
+                          {override.expanded ? "Скрыть название" : "Настроить название"}
                         </Button>
                       </div>
 
                       {override.expanded ? (
-                        <div className="mt-4 grid gap-4 md:grid-cols-2">
-                          <div className="space-y-2 md:col-span-2">
+                        <div className="mt-4">
+                          <div className="space-y-2">
                             <Label htmlFor={`upload-file-title-${index}`}>Название файла</Label>
                             <Input
                               id={`upload-file-title-${index}`}
@@ -307,74 +279,6 @@ export function MaterialUploadForm({
                                 updateUploadOverride(file, index, (current) => ({
                                   ...current,
                                   title: event.target.value,
-                                }))
-                              }
-                            />
-                          </div>
-
-                          <div className="space-y-2">
-                            <Label>Класс корпуса</Label>
-                            <Select
-                              disabled={!metadataV1Enabled}
-                              value={override.knowledgeDocumentClass || "inherit"}
-                              onValueChange={(value) =>
-                                updateUploadOverride(file, index, (current) => ({
-                                  ...current,
-                                  knowledgeDocumentClass: value === "inherit" ? "" : (value as KnowledgeDocumentClass),
-                                }))
-                              }
-                            >
-                              <SelectTrigger aria-label={`Класс корпуса для ${file.name || "файла"}`}>
-                                <SelectValue placeholder="Как в общих атрибутах" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="inherit">Как в общих атрибутах</SelectItem>
-                                {knowledgeDocumentClasses.map((documentClass) => (
-                                  <SelectItem key={documentClass} value={documentClass}>
-                                    {materialKnowledgeDocumentClassLabels[documentClass]}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
-
-                          <div className="space-y-2">
-                            <Label>Доверие</Label>
-                            <Select
-                              disabled={!metadataV1Enabled}
-                              value={override.sourceTrust || "inherit"}
-                              onValueChange={(value) =>
-                                updateUploadOverride(file, index, (current) => ({
-                                  ...current,
-                                  sourceTrust: value === "inherit" ? "" : (value as SourceTrustLevel),
-                                }))
-                              }
-                            >
-                              <SelectTrigger aria-label={`Доверие для ${file.name || "файла"}`}>
-                                <SelectValue placeholder="Как в общих атрибутах" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="inherit">Как в общих атрибутах</SelectItem>
-                                {sourceTrustLevels.map((sourceTrust) => (
-                                  <SelectItem key={sourceTrust} value={sourceTrust}>
-                                    {sourceTrustLabels[sourceTrust]}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
-
-                          <div className="space-y-2 md:col-span-2">
-                            <Label htmlFor={`upload-file-tags-${index}`}>Теги / ключевые слова</Label>
-                            <Input
-                              disabled={!metadataV1Enabled}
-                              id={`upload-file-tags-${index}`}
-                              placeholder="Оставь пустым, чтобы использовать общие теги"
-                              value={override.tags}
-                              onChange={(event) =>
-                                updateUploadOverride(file, index, (current) => ({
-                                  ...current,
-                                  tags: event.target.value,
                                 }))
                               }
                             />
@@ -414,7 +318,7 @@ export function MaterialUploadForm({
             </Alert>
           ) : null}
 
-          <Button disabled={isUploading || uploadFiles.length === 0} type="submit">
+          <Button disabled={isUploading || uploadFiles.length === 0 || isMetadataUnavailable} type="submit">
             <Upload className="h-4 w-4" />
             {isUploading ? "Загружаем..." : isMultipleUpload ? "Загрузить файлы" : "Загрузить файл"}
           </Button>

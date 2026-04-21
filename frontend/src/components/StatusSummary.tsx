@@ -80,7 +80,7 @@ export function StatusSummary({
       ].join(" · ")
     : "Quality-layer flags пока не опубликованы backend-контрактом.";
   const qualityMetadataSummary = health?.qualityLayer
-    ? `${health.qualityLayer.metadataCoverage.activeWithEffectiveMetadata}/${health.qualityLayer.metadataCoverage.activeTotal} active материалов с meaningful metadata`
+    ? `${health.qualityLayer.metadataCoverage.activeWithEffectiveMetadata}/${health.qualityLayer.metadataCoverage.activeTotal} active материалов с canonical metadata`
     : "Ждём metadata coverage.";
   const qualityBackfillSummary = health?.qualityLayer
     ? `${health.qualityLayer.activeBackfillCoverage.structuredProfileActive}/${health.qualityLayer.activeBackfillCoverage.activeTotal} active на structured-v1`

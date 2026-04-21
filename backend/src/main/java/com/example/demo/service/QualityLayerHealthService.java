@@ -138,9 +138,9 @@ public class QualityLayerHealthService {
             activeTotal,
             snapshot.activeWithEffectiveMetadata(),
             ratio(snapshot.activeWithEffectiveMetadata(), activeTotal),
+            new CoverageStat(snapshot.workspaceCovered(), ratio(snapshot.workspaceCovered(), activeTotal)),
             new CoverageStat(snapshot.documentTypeCovered(), ratio(snapshot.documentTypeCovered(), activeTotal)),
-            new CoverageStat(snapshot.sourceTrustCovered(), ratio(snapshot.sourceTrustCovered(), activeTotal)),
-            new CoverageStat(snapshot.authorOrDepartmentCovered(), ratio(snapshot.authorOrDepartmentCovered(), activeTotal))
+            new CoverageStat(snapshot.documentStatusCovered(), ratio(snapshot.documentStatusCovered(), activeTotal))
         );
     }
 

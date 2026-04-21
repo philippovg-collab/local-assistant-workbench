@@ -7,6 +7,7 @@ import com.example.demo.service.material.StoredMaterialRecord;
 import com.example.demo.service.material.StoredMaterialSegment;
 
 import com.example.demo.model.KnowledgeScope;
+import com.example.demo.model.MaterialMetadataSnapshot;
 import com.example.demo.model.MaterialVersionState;
 import com.example.demo.model.MaterialSummary;
 import com.example.demo.model.RetrievalFilters;
@@ -50,6 +51,8 @@ public interface MaterialCatalogRepository {
         List<StoredMaterialChunk> chunks,
         List<StoredMaterialSegment> segments
     );
+
+    StoredMaterialRecord updateMetadata(String materialId, MaterialMetadataSnapshot metadata, Instant updatedAt);
 
     List<StoredMaterialRecord> findAllBySourceKey(String sourceKey);
 

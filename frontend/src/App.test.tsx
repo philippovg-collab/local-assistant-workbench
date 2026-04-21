@@ -2,7 +2,14 @@ import { act, cleanup, render, screen, waitFor, within } from "@testing-library/
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
-import type { ChatExecutionResponse, HealthResponse, MaterialListResponse, MaterialSummary } from "./types";
+import type {
+  ChatExecutionResponse,
+  HealthResponse,
+  MaterialListResponse,
+  MaterialSummary,
+  ReferenceProject,
+  ReferenceWorkspace,
+} from "./types";
 import { buildChatExecutionResponse, buildMaterialListResponse, buildMaterialSummary } from "./testBuilders";
 import {
   EMPTY_KNOWLEDGE_SCOPE_RESOLVED,
@@ -26,6 +33,55 @@ const buildHealthResponse = (overrides: Partial<HealthResponse> = {}): HealthRes
   indexingInProgressCount: 0,
   indexingFailedCount: 0,
   ...overrides,
+});
+
+const buildQualityLayer = (
+  flags: Partial<NonNullable<HealthResponse["qualityLayer"]>["flags"]> = {},
+): NonNullable<HealthResponse["qualityLayer"]> => ({
+  flags: {
+    metadataV1: false,
+    structuredV1: false,
+    metadataFiltersV1: false,
+    searchApiV1: false,
+    rerankerV1: false,
+    queryHintsV1: false,
+    ...flags,
+  },
+  metadataCoverage: {
+    activeTotal: 1,
+    activeWithEffectiveMetadata: 1,
+    ratio: 1,
+    documentType: {
+      covered: 1,
+      ratio: 1,
+    },
+    workspace: {
+      covered: 1,
+      ratio: 1,
+    },
+    documentStatus: {
+      covered: 1,
+      ratio: 1,
+    },
+  },
+  activeBackfillCoverage: {
+    activeTotal: 1,
+    structuredProfileActive: 1,
+    ratio: 1,
+    pendingBackfill: 0,
+    partialReadyActive: 0,
+  },
+  retrievalWindow: {
+    sampleSize: 0,
+    noContextRate: 0,
+    hitDistributionByChunkType: {},
+    rerankerDelta: {
+      top1ChangedCount: 0,
+      top1ImprovedCount: 0,
+      appendixDemotions: 0,
+      highTrustPromotions: 0,
+    },
+  },
 });
 
 const modelsResponse = [{ name: "qwen2.5:7b" }, { name: "qwen2.5:3b" }];
@@ -113,6 +169,41 @@ const knowledgePresetsResponse = [
   },
 ];
 
+const referenceTimestamp = "2026-04-20T10:00:00Z";
+
+const referenceWorkspacesResponse: ReferenceWorkspace[] = [
+  {
+    key: "general",
+    nameRu: "Общая",
+    active: true,
+    sortOrder: 0,
+    isDefault: true,
+    createdAt: referenceTimestamp,
+    updatedAt: referenceTimestamp,
+  },
+  {
+    key: "north-upgrade",
+    nameRu: "Северная модернизация",
+    active: true,
+    sortOrder: 1,
+    isDefault: false,
+    createdAt: referenceTimestamp,
+    updatedAt: referenceTimestamp,
+  },
+];
+
+const referenceProjectsResponse: ReferenceProject[] = [
+  {
+    key: "north-line",
+    workspaceKey: "north-upgrade",
+    nameRu: "Северная линия",
+    active: true,
+    sortOrder: 0,
+    createdAt: referenceTimestamp,
+    updatedAt: referenceTimestamp,
+  },
+];
+
 const instructionDetailResponse = {
   id: "instruction-1",
   title: "Базовая роль ассистента",
@@ -175,7 +266,7 @@ const getUrl = (input: RequestInfo | URL) => {
   return input.toString();
 };
 
-const getPanel = (panelId: "overview" | "materials" | "instructions" | "rag" | "direct") =>
+const getPanel = (panelId: "overview" | "materials" | "instructions" | "references" | "rag" | "direct") =>
   document.querySelector(`#panel-${panelId}`) as HTMLElement;
 
 const openSection = async (user: ReturnType<typeof userEvent.setup>, sectionName: RegExp) => {
@@ -255,6 +346,8 @@ describe("App", () => {
     | typeof materialUploadPolicyResponse
     | typeof legacyMaterialUploadPolicyResponse;
   let currentMaterialsResponse: MaterialListResponse;
+  let currentReferenceWorkspaces: ReferenceWorkspace[];
+  let currentReferenceProjects: ReferenceProject[];
   let chatRequests: CapturedChatRequest[];
   let chatRunSequence: number;
   let chatRunResponses: Record<
@@ -270,6 +363,8 @@ describe("App", () => {
     currentHealthResponse = buildHealthResponse();
     currentMaterialUploadPolicyResponse = materialUploadPolicyResponse;
     currentMaterialsResponse = buildMaterialListResponse(materialsResponse);
+    currentReferenceWorkspaces = referenceWorkspacesResponse.map((workspace) => ({ ...workspace }));
+    currentReferenceProjects = referenceProjectsResponse.map((project) => ({ ...project }));
     chatRequests = [];
     chatRunSequence = 0;
     chatRunResponses = {};
@@ -322,6 +417,96 @@ describe("App", () => {
 
       if (url.endsWith("/api/knowledge-presets")) {
         return jsonResponse(knowledgePresetsResponse);
+      }
+
+      if (pathname === "/api/reference/workspaces" && (!init?.method || init.method === "GET")) {
+        return jsonResponse(currentReferenceWorkspaces);
+      }
+
+      if (pathname === "/api/reference/workspaces" && init?.method === "POST") {
+        const request = JSON.parse(String(init.body)) as Partial<ReferenceWorkspace>;
+        const created: ReferenceWorkspace = {
+          key: request.key ?? "",
+          nameRu: request.nameRu ?? "",
+          active: request.active ?? true,
+          sortOrder: request.sortOrder ?? 0,
+          isDefault: request.isDefault ?? false,
+          createdAt: referenceTimestamp,
+          updatedAt: referenceTimestamp,
+        };
+        if (created.isDefault) {
+          currentReferenceWorkspaces = currentReferenceWorkspaces.map((workspace) => ({
+            ...workspace,
+            isDefault: false,
+          }));
+        }
+        currentReferenceWorkspaces = [...currentReferenceWorkspaces, created];
+        return jsonResponse(created);
+      }
+
+      const referenceWorkspaceMatch = pathname.match(/^\/api\/reference\/workspaces\/([^/]+)$/);
+      if (referenceWorkspaceMatch && init?.method === "PUT") {
+        const workspaceKey = decodeURIComponent(referenceWorkspaceMatch[1] ?? "");
+        const request = JSON.parse(String(init.body)) as Partial<ReferenceWorkspace>;
+        if (request.isDefault) {
+          currentReferenceWorkspaces = currentReferenceWorkspaces.map((workspace) => ({
+            ...workspace,
+            isDefault: false,
+          }));
+        }
+        let updated = currentReferenceWorkspaces.find((workspace) => workspace.key === workspaceKey) ?? null;
+        currentReferenceWorkspaces = currentReferenceWorkspaces.map((workspace) => {
+          if (workspace.key !== workspaceKey) {
+            return workspace;
+          }
+          updated = {
+            ...workspace,
+            ...request,
+            key: workspace.key,
+            updatedAt: referenceTimestamp,
+          };
+          return updated;
+        });
+        return jsonResponse(updated);
+      }
+
+      if (pathname === "/api/reference/projects" && (!init?.method || init.method === "GET")) {
+        return jsonResponse(currentReferenceProjects);
+      }
+
+      if (pathname === "/api/reference/projects" && init?.method === "POST") {
+        const request = JSON.parse(String(init.body)) as Partial<ReferenceProject>;
+        const created: ReferenceProject = {
+          key: request.key ?? "",
+          workspaceKey: request.workspaceKey ?? "",
+          nameRu: request.nameRu ?? "",
+          active: request.active ?? true,
+          sortOrder: request.sortOrder ?? 0,
+          createdAt: referenceTimestamp,
+          updatedAt: referenceTimestamp,
+        };
+        currentReferenceProjects = [...currentReferenceProjects, created];
+        return jsonResponse(created);
+      }
+
+      const referenceProjectMatch = pathname.match(/^\/api\/reference\/projects\/([^/]+)$/);
+      if (referenceProjectMatch && init?.method === "PUT") {
+        const projectKey = decodeURIComponent(referenceProjectMatch[1] ?? "");
+        const request = JSON.parse(String(init.body)) as Partial<ReferenceProject>;
+        let updated = currentReferenceProjects.find((project) => project.key === projectKey) ?? null;
+        currentReferenceProjects = currentReferenceProjects.map((project) => {
+          if (project.key !== projectKey) {
+            return project;
+          }
+          updated = {
+            ...project,
+            ...request,
+            key: project.key,
+            updatedAt: referenceTimestamp,
+          };
+          return updated;
+        });
+        return jsonResponse(updated);
       }
 
       if (pathname === "/api/chat-runs" && init?.method === "POST") {
@@ -494,7 +679,7 @@ describe("App", () => {
     isSubmitDisabled: boolean;
     badgeLabel: string;
   }) => {
-    await openSection(user, /dashboard/i);
+    await openSection(user, /дашборд/i);
     const overviewPanel = getPanel("overview");
     expect(within(overviewPanel).getByText(overviewHeadline)).toBeTruthy();
     if (overviewMessage) {
@@ -503,7 +688,7 @@ describe("App", () => {
       ).toBeGreaterThan(0);
     }
 
-    await openSection(user, /materials/i);
+    await openSection(user, /материалы/i);
     const materialsPanel = getPanel("materials");
     expect(within(materialsPanel).getByText(materialsMessage)).toBeTruthy();
     expect(within(materialsPanel).getByText(badgeLabel)).toBeTruthy();
@@ -522,29 +707,33 @@ describe("App", () => {
     const user = userEvent.setup();
     const { container } = render(<App />);
 
-    await screen.findByRole("button", { name: /dashboard/i });
+    await screen.findByRole("button", { name: /дашборд/i });
 
-    const overviewButton = screen.getByRole("button", { name: /dashboard/i });
-    const materialsButton = screen.getByRole("button", { name: /materials/i });
-    const instructionsButton = screen.getByRole("button", { name: /instructions/i });
+    const overviewButton = screen.getByRole("button", { name: /дашборд/i });
+    const materialsButton = screen.getByRole("button", { name: /материалы/i });
+    const instructionsButton = screen.getByRole("button", { name: /инструкции/i });
+    const referencesButton = screen.getByRole("button", { name: /справочники/i });
     const ragButton = screen.getByRole("button", { name: /rag studio/i });
     const directButton = screen.getByRole("button", { name: /direct studio/i });
 
     expect(overviewButton.getAttribute("aria-current")).toBe("page");
     expect(materialsButton.getAttribute("aria-current")).toBeNull();
     expect(instructionsButton.getAttribute("aria-current")).toBeNull();
+    expect(referencesButton.getAttribute("aria-current")).toBeNull();
     expect(ragButton.getAttribute("aria-current")).toBeNull();
     expect(directButton.getAttribute("aria-current")).toBeNull();
 
     const overviewPanel = container.querySelector("#panel-overview") as HTMLElement;
     const materialsPanel = container.querySelector("#panel-materials") as HTMLElement;
     const instructionsPanel = container.querySelector("#panel-instructions") as HTMLElement;
+    const referencesPanel = container.querySelector("#panel-references") as HTMLElement;
     const ragPanel = container.querySelector("#panel-rag") as HTMLElement;
     const directPanel = container.querySelector("#panel-direct") as HTMLElement;
 
     expect(overviewPanel.hidden).toBe(false);
     expect(materialsPanel.hidden).toBe(true);
     expect(instructionsPanel.hidden).toBe(true);
+    expect(referencesPanel.hidden).toBe(true);
     expect(ragPanel.hidden).toBe(true);
     expect(directPanel.hidden).toBe(true);
     expect(within(overviewPanel).getByText("Backend")).toBeTruthy();
@@ -561,6 +750,12 @@ describe("App", () => {
     expect(instructionsPanel.hidden).toBe(false);
     expect(within(instructionsPanel).getByText("Библиотека инструкций по уровням")).toBeTruthy();
     expect(within(instructionsPanel).getByText("Сохранённые наборы знаний")).toBeTruthy();
+
+    await user.click(referencesButton);
+    expect(referencesButton.getAttribute("aria-current")).toBe("page");
+    expect(instructionsPanel.hidden).toBe(true);
+    expect(referencesPanel.hidden).toBe(false);
+    expect(within(referencesPanel).getByRole("heading", { name: "Рабочие области и проекты" })).toBeTruthy();
 
     await user.click(ragButton);
     expect(ragPanel.hidden).toBe(false);
@@ -580,6 +775,36 @@ describe("App", () => {
         name: "Выбрать инструкцию Факты только из контекста",
       }),
     ).toBeTruthy();
+  });
+
+  it("creates a reference workspace and shares it with the materials metadata form", async () => {
+    const user = userEvent.setup();
+    currentHealthResponse = buildHealthResponse({
+      qualityLayer: buildQualityLayer({ metadataV1: true }),
+    });
+    render(<App />);
+
+    await screen.findByRole("button", { name: /дашборд/i });
+    await openSection(user, /справочники/i);
+    const referencesPanel = getPanel("references");
+
+    await waitFor(() => {
+      expect(within(referencesPanel).getByText("Общая")).toBeTruthy();
+    });
+
+    await user.type(within(referencesPanel).getByLabelText("Ключ рабочей области"), "south-grid");
+    await user.type(within(referencesPanel).getByLabelText("Название рабочей области"), "Южная сеть");
+    await user.click(within(referencesPanel).getByRole("button", { name: "Создать рабочую область" }));
+
+    await waitFor(() => {
+      expect(within(referencesPanel).getByText("Южная сеть")).toBeTruthy();
+    });
+
+    await openSection(user, /материалы/i);
+    const materialsPanel = getPanel("materials");
+    await user.click(within(materialsPanel).getAllByLabelText("Рабочая область")[0]);
+
+    expect(await screen.findByRole("option", { name: "Южная сеть" })).toBeTruthy();
   });
 
   it("keeps rag and direct form state plus selected instructions isolated when switching sections", async () => {
@@ -641,7 +866,7 @@ describe("App", () => {
     expect(directAssistantCheckbox.getAttribute("aria-checked")).toBe("true");
     expect(directContextCheckbox.getAttribute("aria-checked")).toBe("false");
 
-    await openSection(user, /dashboard/i);
+    await openSection(user, /дашборд/i);
     await openSection(user, /rag studio/i);
 
     const ragPromptAfterSwitch = within(getPanel("rag")).getByLabelText("Вопрос") as HTMLTextAreaElement;
@@ -731,7 +956,7 @@ describe("App", () => {
       expect(globalThis.fetch).toHaveBeenCalled();
     });
 
-    await openSection(user, /instructions/i);
+    await openSection(user, /инструкции/i);
 
     const instructionsPanel = getPanel("instructions");
     await user.click(within(instructionsPanel).getAllByRole("button", { name: "Открыть" })[0]);
@@ -756,9 +981,9 @@ describe("App", () => {
 
     render(<App />);
 
-    expect(await screen.findByRole("button", { name: /dashboard/i })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: /дашборд/i })).toBeTruthy();
 
-    await openSection(user, /materials/i);
+    await openSection(user, /материалы/i);
 
     const materialsPanel = getPanel("materials");
     expect(within(materialsPanel).getByRole("heading", { name: "Материалы для RAG" })).toBeTruthy();
@@ -777,9 +1002,9 @@ describe("App", () => {
     await assertRagPresentationAcrossSections({
       user,
       overviewHeadline: "1/1",
-      overviewMessage: "Активные материалы и readiness считаются по одной модели состояния.",
+      overviewMessage: "Readiness считается по active lineage, READY/PARTIAL_READY, действующему статусу документа и валидному периоду.",
       materialsMessage:
-        "RAG использует только активные READY и PARTIAL_READY версии, а historical остаются в каталоге для аудита.",
+        "RAG использует только active lineage версии со статусом READY/PARTIAL_READY, documentStatus=ACTIVE и валидным периодом; historical остаются в каталоге для аудита.",
       chatHelperText:
         "Вопрос уйдёт в qwen2.5:7b с локально подобранным контекстом из активных материалов.",
       isSubmitDisabled: false,
@@ -908,7 +1133,7 @@ describe("App", () => {
       expect(globalThis.fetch).toHaveBeenCalled();
     });
 
-    await openSection(user, /dashboard/i);
+    await openSection(user, /дашборд/i);
     const overviewPanel = getPanel("overview");
     expect(within(overviewPanel).getByText("DEGRADED")).toBeTruthy();
     expect(within(overviewPanel).getByText("PostgreSQL fallback")).toBeTruthy();

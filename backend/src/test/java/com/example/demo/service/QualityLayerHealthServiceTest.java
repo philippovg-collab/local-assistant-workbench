@@ -9,8 +9,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 
 import com.example.demo.config.RolloutProperties;
+import com.example.demo.model.DocumentStatus;
 import com.example.demo.model.DocumentType;
 import com.example.demo.model.MaterialIndexingStatus;
+import com.example.demo.model.MaterialLanguageCode;
 import com.example.demo.model.MaterialMetadataInput;
 import com.example.demo.model.MaterialMetadataSnapshot;
 import com.example.demo.model.MaterialVersionState;
@@ -35,8 +37,16 @@ class QualityLayerHealthServiceTest {
                 MaterialIndexingStatus.READY,
                 MaterialMetadataSnapshot.fromInput(new MaterialMetadataInput(
                     DocumentType.CONTRACT,
-                    LocalDate.parse("2026-04-15"),
+                    "general",
+                    DocumentStatus.ACTIVE,
+                    null,
                     "KZ-2026-0415-ENERGY",
+                    MaterialLanguageCode.RU,
+                    List.of("dispatch"),
+                    LocalDate.parse("2026-04-01"),
+                    LocalDate.parse("2026-06-30"),
+                    null,
+                    LocalDate.parse("2026-04-15"),
                     "Dana Sarsen",
                     "Grid operations",
                     "v2",
@@ -45,9 +55,7 @@ class QualityLayerHealthServiceTest {
                     SourceTrustLevel.HIGH,
                     "North Upgrade",
                     "GridBuild LLP",
-                    "APPROVED",
-                    LocalDate.parse("2026-04-01"),
-                    LocalDate.parse("2026-06-30")
+                    "ACTIVE"
                 ))
             ),
             ChunkProfile.STRUCTURED_V1.propertyValue(),
@@ -99,9 +107,9 @@ class QualityLayerHealthServiceTest {
         assertFalse(health.flags().metadataV1());
         assertEquals(2, health.metadataCoverage().activeTotal());
         assertEquals(1, health.metadataCoverage().activeWithEffectiveMetadata());
+        assertEquals(1, health.metadataCoverage().workspace().covered());
         assertEquals(1, health.metadataCoverage().documentType().covered());
-        assertEquals(1, health.metadataCoverage().sourceTrust().covered());
-        assertEquals(1, health.metadataCoverage().authorOrDepartment().covered());
+        assertEquals(2, health.metadataCoverage().documentStatus().covered());
         assertEquals(2, health.activeBackfillCoverage().activeTotal());
         assertEquals(1, health.activeBackfillCoverage().structuredProfileActive());
         assertEquals(1, health.activeBackfillCoverage().pendingBackfill());
@@ -115,7 +123,7 @@ class QualityLayerHealthServiceTest {
             1,
             1,
             1,
-            1,
+            2,
             1,
             0
         ));

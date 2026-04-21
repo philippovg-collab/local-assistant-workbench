@@ -82,6 +82,16 @@ public class MaterialController {
         return materialService.saveUpload(title, file, metadata);
     }
 
+    @PostMapping(path = "/{id}/versions", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public MaterialSummary uploadMaterialVersion(
+        @PathVariable String id,
+        @RequestPart("file") MultipartFile file,
+        @RequestParam(required = false) String title,
+        @Valid @RequestPart(value = "metadata", required = false) MaterialMetadataInput metadata
+    ) {
+        return materialService.saveUploadVersion(requireValidMaterialId(id), title, file, metadata);
+    }
+
     @DeleteMapping("/{id}")
     public void deleteMaterial(@PathVariable String id) {
         materialService.delete(requireValidMaterialId(id));

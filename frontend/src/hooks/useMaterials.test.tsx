@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { act } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiClientError, apiClient } from "../api/client";
-import type { MaterialUploadPolicy } from "../types";
+import type { MaterialMetadataInput, MaterialUploadPolicy } from "../types";
 import { buildMaterialListResponse, buildMaterialSummary } from "../testBuilders";
 import { useMaterials } from "./useMaterials";
 
@@ -16,9 +16,11 @@ vi.mock("../api/client", async () => {
       ...actual.apiClient,
       createTextMaterial: vi.fn(),
       deleteMaterial: vi.fn(),
+      fetchMaterialLineage: vi.fn(),
       fetchMaterialUploadPolicy: vi.fn(),
       fetchMaterials: vi.fn(),
       uploadMaterial: vi.fn(),
+      uploadMaterialVersion: vi.fn(),
     },
   };
 });
@@ -44,6 +46,19 @@ function buildPolicy(overrides: Partial<MaterialUploadPolicy> = {}) {
   };
 }
 
+const baseMetadata: MaterialMetadataInput = {
+  workspaceKey: "general",
+  documentType: "OTHER",
+  documentStatus: "ACTIVE",
+};
+
+const policyMetadata: MaterialMetadataInput = {
+  workspaceKey: "general",
+  documentType: "POLICY",
+  documentStatus: "ACTIVE",
+  manualTags: ["policy", "grid"],
+};
+
 function MaterialsHookHarness() {
   const materials = useMaterials();
 
@@ -56,9 +71,7 @@ function MaterialsHookHarness() {
             title: "",
             content: "  ",
             metadata: {
-              documentType: "OTHER",
-              sourceTrust: "UNKNOWN",
-              author: "Ops lead",
+              ...baseMetadata,
             },
           }))
         }
@@ -73,9 +86,7 @@ function MaterialsHookHarness() {
             items: [{
               file: new File(["12345"], "too-big.txt", { type: "text/plain" }),
               metadata: {
-                documentType: "OTHER",
-                sourceTrust: "UNKNOWN",
-                author: "Ops lead",
+                ...baseMetadata,
               },
             }],
           }))
@@ -91,9 +102,7 @@ function MaterialsHookHarness() {
             items: [{
               file: new File(["hello"], "unsupported.png", { type: "image/png" }),
               metadata: {
-                documentType: "OTHER",
-                sourceTrust: "UNKNOWN",
-                author: "Ops lead",
+                ...baseMetadata,
               },
             }],
           }))
@@ -109,9 +118,7 @@ function MaterialsHookHarness() {
             items: [{
               file: new File(["hello"], "scan.pdf", { type: "application/pdf" }),
               metadata: {
-                documentType: "OTHER",
-                sourceTrust: "UNKNOWN",
-                author: "Ops lead",
+                ...baseMetadata,
               },
             }],
           }))
@@ -127,9 +134,7 @@ function MaterialsHookHarness() {
             items: [{
               file: new File(["hello"], "pricing.txt", { type: "text/plain" }),
               metadata: {
-                documentType: "OTHER",
-                sourceTrust: "UNKNOWN",
-                author: "Ops lead",
+                ...baseMetadata,
               },
             }],
           }))
@@ -146,9 +151,7 @@ function MaterialsHookHarness() {
               title: "Custom material",
               file: new File(["hello"], "single-title.txt", { type: "text/plain" }),
               metadata: {
-                documentType: "OTHER",
-                sourceTrust: "UNKNOWN",
-                author: "Ops lead",
+                ...baseMetadata,
               },
             }],
           }))
@@ -165,19 +168,13 @@ function MaterialsHookHarness() {
               {
                 file: new File(["alpha"], "first.txt", { type: "text/plain" }),
                 metadata: {
-                  documentType: "POLICY",
-                  sourceTrust: "HIGH",
-                  author: "Ops lead",
-                  tags: ["policy", "grid"],
+                  ...policyMetadata,
                 },
               },
               {
                 file: new File(["beta"], "second.txt", { type: "text/plain" }),
                 metadata: {
-                  documentType: "POLICY",
-                  sourceTrust: "HIGH",
-                  author: "Ops lead",
-                  tags: ["policy", "grid"],
+                  ...policyMetadata,
                 },
               },
             ],
@@ -195,17 +192,13 @@ function MaterialsHookHarness() {
               {
                 file: new File(["alpha"], "first-ok.txt", { type: "text/plain" }),
                 metadata: {
-                  documentType: "OTHER",
-                  sourceTrust: "UNKNOWN",
-                  author: "Ops lead",
+                  ...baseMetadata,
                 },
               },
               {
                 file: new File(["beta"], "second-fails.txt", { type: "text/plain" }),
                 metadata: {
-                  documentType: "OTHER",
-                  sourceTrust: "UNKNOWN",
-                  author: "Ops lead",
+                  ...baseMetadata,
                 },
               },
             ],
@@ -222,15 +215,24 @@ function MaterialsHookHarness() {
             title: "Metadata note",
             content: "Материал с metadata.",
             metadata: {
-              documentType: "POLICY",
-              sourceTrust: "HIGH",
-              author: "Ops lead",
-              tags: ["policy", "grid"],
+              ...policyMetadata,
             },
           }))
         }
       >
         create-with-metadata
+      </button>
+
+      <button
+        type="button"
+        onClick={() =>
+          swallow(materials.uploadMaterialVersion("material-1", {
+            file: new File(["version"], "version.txt", { type: "text/plain" }),
+            title: "Version title",
+          }))
+        }
+      >
+        upload-version
       </button>
 
       <output data-testid="action-error">{materials.actionError ?? ""}</output>
@@ -411,6 +413,41 @@ describe("useMaterials", () => {
     });
   });
 
+  it("uploads a controlled material version and reloads the catalog", async () => {
+    const user = userEvent.setup();
+
+    vi.mocked(apiClient.fetchMaterials).mockResolvedValue(buildMaterialListResponse());
+    vi.mocked(apiClient.fetchMaterialUploadPolicy).mockResolvedValue(buildPolicy());
+    vi.mocked(apiClient.uploadMaterialVersion).mockResolvedValue(buildMaterialSummary({
+      id: "mat-v2",
+      title: "Version title",
+      sourceType: "file",
+      originalFileName: "version.txt",
+      status: "PENDING",
+      createdAt: "2026-04-21T00:00:00Z",
+      contentLength: 7,
+      preview: "version",
+    }));
+
+    render(<MaterialsHookHarness />);
+
+    await waitFor(() => {
+      expect(apiClient.fetchMaterials).toHaveBeenCalled();
+      expect(apiClient.fetchMaterialUploadPolicy).toHaveBeenCalled();
+    });
+
+    await user.click(screen.getByText("upload-version"));
+
+    await waitFor(() => {
+      expect(apiClient.uploadMaterialVersion).toHaveBeenCalledWith(
+        "material-1",
+        expect.objectContaining({ title: "Version title" }),
+      );
+      expect(apiClient.fetchMaterials).toHaveBeenCalledTimes(2);
+    });
+    expect(screen.getByTestId("message").textContent).toContain("Файл новой версии");
+  });
+
   it("normalizes legacy upload policy payloads without pdf metadata", async () => {
     vi.mocked(apiClient.fetchMaterials).mockResolvedValue(buildMaterialListResponse());
     vi.mocked(apiClient.fetchMaterialUploadPolicy).mockResolvedValue({
@@ -546,12 +583,7 @@ describe("useMaterials", () => {
     const [firstUpload, secondUpload] = vi.mocked(apiClient.uploadMaterial).mock.calls.map(([input]) => input);
     expect(firstUpload.title).toBe("");
     expect(firstUpload.file.name).toBe("first.txt");
-    expect(firstUpload.metadata).toEqual({
-      documentType: "POLICY",
-      sourceTrust: "HIGH",
-      author: "Ops lead",
-      tags: ["policy", "grid"],
-    });
+    expect(firstUpload.metadata).toEqual(policyMetadata);
     expect(secondUpload.title).toBe("");
     expect(secondUpload.file.name).toBe("second.txt");
     expect(secondUpload.metadata).toEqual(firstUpload.metadata);
@@ -678,10 +710,7 @@ describe("useMaterials", () => {
         title: "Metadata note",
         content: "Материал с metadata.",
         metadata: {
-          documentType: "POLICY",
-          sourceTrust: "HIGH",
-          author: "Ops lead",
-          tags: ["policy", "grid"],
+          ...policyMetadata,
         },
       });
     });

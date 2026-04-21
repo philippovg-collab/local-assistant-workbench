@@ -44,6 +44,11 @@ public class MaterialIngestionService {
     private static final String SUPERSEDE_REASON_NEW_ACTIVE_VERSION = "material.superseded_by_new_active_version";
     private static final String SUPERSEDE_REASON_REACTIVATED_VERSION = "material.superseded_by_reactivated_version";
 
+    private enum DuplicateContentBehavior {
+        REUSE_OR_REACTIVATE,
+        REJECT
+    }
+
     private final MaterialCatalogRepository catalogRepository;
     private final MaterialLineageRepository lineageRepository;
     private final DocumentTextExtractor extractor;
@@ -165,6 +170,67 @@ public class MaterialIngestionService {
 
     @Transactional
     public MaterialSummary saveUpload(String title, MultipartFile file, MaterialMetadataInput metadataInput) {
+        return saveUploadInternal(
+            title,
+            file,
+            metadataInput,
+            null,
+            null,
+            true,
+            DuplicateContentBehavior.REUSE_OR_REACTIVATE
+        );
+    }
+
+    @Transactional
+    public MaterialSummary saveUploadVersion(
+        String materialId,
+        String title,
+        MultipartFile file,
+        MaterialMetadataInput metadataInput
+    ) {
+        StoredMaterialRecord targetRecord = catalogRepository.findById(materialId).orElseThrow(() -> new ApiException(
+            HttpStatus.NOT_FOUND,
+            "material.not_found",
+            "Material '" + materialId + "' does not exist"
+        ));
+        if (targetRecord.versionState() != MaterialVersionState.ACTIVE) {
+            throw new ApiException(
+                HttpStatus.CONFLICT,
+                "material.version_upload_requires_active_version",
+                "Only ACTIVE material versions can receive controlled replacement uploads"
+            );
+        }
+        if (!StringUtils.hasText(targetRecord.sourceKey())) {
+            throw new ApiException(
+                HttpStatus.CONFLICT,
+                "material.version_upload_missing_lineage",
+                "Material '" + materialId + "' does not have a lineage source key"
+            );
+        }
+
+        MaterialMetadataInput effectiveMetadataInput = metadataInput == null
+            ? editableMetadataInputFrom(targetRecord.metadata())
+            : metadataInput;
+        return saveUploadInternal(
+            title,
+            file,
+            effectiveMetadataInput,
+            targetRecord.title(),
+            targetRecord.sourceKey(),
+            false,
+            DuplicateContentBehavior.REJECT
+        );
+    }
+
+    private MaterialSummary saveUploadInternal(
+        String title,
+        MultipartFile file,
+        MaterialMetadataInput metadataInput,
+        String fallbackTitle,
+        String forcedSourceKey,
+        boolean inheritManualTagsWhenEmpty,
+        DuplicateContentBehavior duplicateContentBehavior
+    ) {
         InputLimits.validateMaterialMetadata(metadataInput);
         if (file == null || file.isEmpty()) {
             throw new ApiException(
@@ -185,7 +251,9 @@ public class MaterialIngestionService {
         String originalFileName = file.getOriginalFilename();
         String resolvedTitle = StringUtils.hasText(title)
             ? title.trim()
-            : StringUtils.hasText(originalFileName) ? originalFileName.trim() : "Uploaded material";
+            : StringUtils.hasText(fallbackTitle)
+                ? fallbackTitle.trim()
+                : StringUtils.hasText(originalFileName) ? originalFileName.trim() : "Uploaded material";
         String lineageTitle = StringUtils.hasText(title) ? title.trim() : null;
         String mediaType = file.getContentType();
 
@@ -218,7 +286,10 @@ public class MaterialIngestionService {
                         contentSupport.headerTextForHints(document),
                         document.metadataHints()
                     ),
-                    document
+                    document,
+                    forcedSourceKey,
+                    inheritManualTagsWhenEmpty,
+                    duplicateContentBehavior
                 );
             } catch (ApiException exception) {
                 logKnownMaterialFailure("persist", "file", resolvedTitle, originalFileName, mediaType, exception);
@@ -243,6 +314,32 @@ public class MaterialIngestionService {
                 exception
             );
         }
+    }
+
+    private MaterialMetadataInput editableMetadataInputFrom(MaterialMetadataSnapshot metadata) {
+        MaterialMetadataSnapshot safeMetadata = metadata == null ? MaterialMetadataSnapshot.empty() : metadata;
+        return new MaterialMetadataInput(
+            safeMetadata.documentType(),
+            safeMetadata.workspaceKey(),
+            safeMetadata.documentStatus(),
+            safeMetadata.projectKey(),
+            safeMetadata.documentNumber(),
+            safeMetadata.languageCode(),
+            safeMetadata.manualTags(),
+            safeMetadata.periodStart(),
+            safeMetadata.periodEnd(),
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            List.of(),
+            null,
+            null,
+            null,
+            null
+        );
     }
 
     @Transactional
@@ -290,6 +387,32 @@ public class MaterialIngestionService {
         MaterialMetadataSnapshot metadata,
         DocumentParseResult document
     ) {
+        return persistMaterial(
+            title,
+            sourceType,
+            originalFileName,
+            mediaType,
+            lineageTitle,
+            metadata,
+            document,
+            null,
+            true,
+            DuplicateContentBehavior.REUSE_OR_REACTIVATE
+        );
+    }
+
+    private MaterialSummary persistMaterial(
+        String title,
+        String sourceType,
+        String originalFileName,
+        String mediaType,
+        String lineageTitle,
+        MaterialMetadataSnapshot metadata,
+        DocumentParseResult document,
+        String forcedSourceKey,
+        boolean inheritManualTagsWhenEmpty,
+        DuplicateContentBehavior duplicateContentBehavior
+    ) {
         List<StoredMaterialSegment> normalizedSegments = contentSupport.toStoredSegments(document);
         String storedContent = contentSupport.joinBlocks(document);
         if (!StringUtils.hasText(storedContent)) {
@@ -310,13 +433,18 @@ public class MaterialIngestionService {
 
         String normalizedContent = contentSupport.normalizeForHash(storedContent);
         String contentHash = contentSupport.sha256(normalizedContent);
-        MaterialLineageIdentity lineageIdentity = contentSupport.buildLineageIdentity(
-            sourceType,
-            lineageTitle,
-            originalFileName,
-            storedContent
-        );
-        String sourceKey = lineageRepository.resolveSourceKey(lineageIdentity);
+        String sourceKey;
+        if (StringUtils.hasText(forcedSourceKey)) {
+            sourceKey = forcedSourceKey.trim();
+        } else {
+            MaterialLineageIdentity lineageIdentity = contentSupport.buildLineageIdentity(
+                sourceType,
+                lineageTitle,
+                originalFileName,
+                storedContent
+            );
+            sourceKey = lineageRepository.resolveSourceKey(lineageIdentity);
+        }
         ChunkProfile chunkProfile = contentSupport.configuredChunkProfile(rolloutProperties.isStructuredV1());
         List<StoredMaterialChunk> initialChunks = contentSupport.buildChunks(document, chunkProfile);
         List<StoredMaterialChunk> rawChunks = initialChunks.isEmpty()
@@ -327,9 +455,19 @@ public class MaterialIngestionService {
         java.util.Optional<StoredMaterialRecord> existingRecord =
             catalogRepository.findBySourceKeyAndContentHash(sourceKey, contentHash);
         if (existingRecord.isPresent()) {
+            if (duplicateContentBehavior == DuplicateContentBehavior.REJECT) {
+                throw new ApiException(
+                    HttpStatus.CONFLICT,
+                    "material.version_duplicate_content",
+                    "This content already exists in the selected material lineage"
+                );
+            }
             return handleExistingMaterial(existingRecord.get(), sourceKey);
         }
 
+        MaterialMetadataSnapshot metadataForNewMaterial = inheritManualTagsWhenEmpty
+            ? inheritManualTagsIfNeeded(metadata, sourceKey)
+            : metadata;
         return saveNewMaterial(
             title,
             sourceType,
@@ -339,12 +477,24 @@ public class MaterialIngestionService {
             normalizedContent,
             contentHash,
             sourceKey,
-            metadata,
+            metadataForNewMaterial,
             document,
             chunkProfile,
             rawChunks,
             normalizedSegments
         );
+    }
+
+    private MaterialMetadataSnapshot inheritManualTagsIfNeeded(MaterialMetadataSnapshot metadata, String sourceKey) {
+        if (!rolloutProperties.isMetadataV1() || metadata == null || !metadata.manualTags().isEmpty()) {
+            return metadata;
+        }
+        return catalogRepository.findLatestBySourceKeyAndVersionState(sourceKey, MaterialVersionState.ACTIVE)
+            .map(StoredMaterialRecord::metadata)
+            .map(MaterialMetadataSnapshot::manualTags)
+            .filter(tags -> !tags.isEmpty())
+            .map(metadata::withManualTags)
+            .orElse(metadata);
     }
 
     private MaterialSummary saveNewMaterial(

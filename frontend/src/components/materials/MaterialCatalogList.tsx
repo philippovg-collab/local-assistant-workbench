@@ -1,14 +1,20 @@
 import { useState } from "react";
-import { FileClock, FileText, Filter, History, RefreshCcw, Trash2 } from "lucide-react";
+import { FileClock, FileText, Filter, History, RefreshCcw, Trash2, Upload } from "lucide-react";
 import { EmptyState } from "@/components/app/EmptyState";
 import { SectionIntro } from "@/components/app/SectionIntro";
 import { MaterialMetadataDisplay } from "@/components/MaterialMetadataDisplay";
+import { MaterialVersionUploadForm } from "@/components/materials/MaterialVersionUploadForm";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
-import type { MaterialSummary } from "@/types";
+import type {
+  MaterialSummary,
+  MaterialVersionUploadInput,
+  ReferenceProject,
+  ReferenceWorkspace,
+} from "@/types";
 import { formatDate } from "@/utils/format";
 import {
   filterLabels,
@@ -31,9 +37,13 @@ type MaterialCatalogListProps = {
   isLoadingMore: boolean;
   deletingMaterialId: string | null;
   reindexingMaterialId: string | null;
+  versionUploadingMaterialId: string | null;
   loadingLineageMaterialId: string | null;
+  referenceProjects?: ReferenceProject[];
+  referenceWorkspaces?: ReferenceWorkspace[];
   onDelete: (materialId: string) => Promise<unknown>;
   onReindex: (materialId: string) => Promise<unknown>;
+  onUploadVersion: (materialId: string, input: MaterialVersionUploadInput) => Promise<unknown>;
   onLoadLineage: (materialId: string) => Promise<unknown>;
   onLoadMore: () => Promise<unknown>;
 };
@@ -47,13 +57,18 @@ export function MaterialCatalogList({
   isLoadingMore,
   deletingMaterialId,
   reindexingMaterialId,
+  versionUploadingMaterialId,
   loadingLineageMaterialId,
+  referenceProjects = [],
+  referenceWorkspaces = [],
   onDelete,
   onReindex,
+  onUploadVersion,
   onLoadLineage,
   onLoadMore,
 }: MaterialCatalogListProps) {
   const [filterMode, setFilterMode] = useState<MaterialFilterMode>("active");
+  const [versionUploadMaterialId, setVersionUploadMaterialId] = useState<string | null>(null);
   const visibleMaterials = visibleMaterialsForFilter(materials, filterMode);
   const effectiveMaterialTotal = Math.max(materialTotal, materials.length);
 
@@ -186,6 +201,22 @@ export function MaterialCatalogList({
                           {reindexingMaterialId === material.id ? "Повторяем..." : "Повторить индекс"}
                         </Button>
                       ) : null}
+                      {isActiveMaterialVersion(material) ? (
+                        <Button
+                          disabled={versionUploadingMaterialId === material.id}
+                          size="sm"
+                          type="button"
+                          variant="outline"
+                          onClick={() => setVersionUploadMaterialId((current) => (
+                            current === material.id ? null : material.id
+                          ))}
+                        >
+                          <Upload className="h-4 w-4" />
+                          {versionUploadingMaterialId === material.id
+                            ? "Загружаем..."
+                            : "Загрузить новую версию"}
+                        </Button>
+                      ) : null}
                       <Button
                         disabled={deletingMaterialId === material.id}
                         size="sm"
@@ -203,7 +234,19 @@ export function MaterialCatalogList({
 
                   <p className="text-sm leading-7 text-foreground">{material.preview}</p>
 
-                  <MaterialMetadataDisplay metadata={material.metadata} />
+                  <MaterialMetadataDisplay
+                    metadata={material.metadata}
+                    references={{ projects: referenceProjects, workspaces: referenceWorkspaces }}
+                  />
+
+                  {versionUploadMaterialId === material.id ? (
+                    <MaterialVersionUploadForm
+                      isUploading={versionUploadingMaterialId === material.id}
+                      material={material}
+                      onCancel={() => setVersionUploadMaterialId(null)}
+                      onUploadVersion={onUploadVersion}
+                    />
+                  ) : null}
 
                   <div className="flex flex-wrap gap-3 text-sm leading-6 text-muted-foreground">
                     <span>Обновлён {formatDate(material.updatedAt ?? material.createdAt)}</span>

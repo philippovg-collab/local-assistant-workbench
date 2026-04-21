@@ -2,11 +2,13 @@ import { Badge } from "@/components/ui/badge";
 import type { MaterialMetadata } from "@/types";
 import {
   buildMaterialMetadataEntries,
+  type MaterialMetadataDisplayReferences,
   provenanceLabel,
 } from "@/utils/materialMetadata";
 
 type MaterialMetadataDisplayProps = {
   metadata?: MaterialMetadata | null;
+  references?: MaterialMetadataDisplayReferences;
 };
 
 const badgeVariantForOrigin = (origin: "MANUAL" | "INFERRED" | "DEFAULT") => {
@@ -20,8 +22,8 @@ const badgeVariantForOrigin = (origin: "MANUAL" | "INFERRED" | "DEFAULT") => {
   }
 };
 
-export function MaterialMetadataDisplay({ metadata }: MaterialMetadataDisplayProps) {
-  const entries = buildMaterialMetadataEntries(metadata);
+export function MaterialMetadataDisplay({ metadata, references }: MaterialMetadataDisplayProps) {
+  const entries = buildMaterialMetadataEntries(metadata, references);
 
   if (entries.length === 0) {
     return null;
@@ -30,7 +32,7 @@ export function MaterialMetadataDisplay({ metadata }: MaterialMetadataDisplayPro
   return (
     <div className="space-y-2">
       <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-        Metadata
+        Метаданные
       </p>
       <div className="flex flex-wrap gap-2">
         {entries.map((entry) => (

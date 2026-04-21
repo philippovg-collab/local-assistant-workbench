@@ -24,7 +24,12 @@ import type {
   MaterialLineageResponse,
   MaterialUploadPolicy,
   MaterialSummary,
+  MaterialVersionUploadInput,
   ModelInfo,
+  ReferenceProject,
+  ReferenceProjectInput,
+  ReferenceWorkspace,
+  ReferenceWorkspaceInput,
 } from "../types";
 
 const API_URL = (import.meta.env.VITE_API_URL ?? "").trim().replace(/\/$/, "");
@@ -231,6 +236,21 @@ export const apiClient = {
       body: formData,
     });
   },
+  uploadMaterialVersion(materialId: string, input: MaterialVersionUploadInput) {
+    const formData = new FormData();
+    formData.append("file", input.file);
+    if (input.title?.trim()) {
+      formData.append("title", input.title.trim());
+    }
+    if (input.metadata) {
+      formData.append("metadata", new Blob([JSON.stringify(input.metadata)], { type: "application/json" }));
+    }
+
+    return requestJson<MaterialSummary>(`/api/materials/${materialId}/versions`, {
+      method: "POST",
+      body: formData,
+    });
+  },
   fetchMaterial(materialId: string, signal?: AbortSignal) {
     return requestJson<MaterialDetail>(`/api/materials/${materialId}`, { signal });
   },
@@ -295,6 +315,61 @@ export const apiClient = {
   },
   fetchKnowledgePresets(signal?: AbortSignal) {
     return requestJson<KnowledgePresetSummary[]>("/api/knowledge-presets", { signal });
+  },
+  fetchReferenceWorkspaces(input: { activeOnly?: boolean } = {}, signal?: AbortSignal) {
+    const params = new URLSearchParams();
+    if (input.activeOnly !== undefined) {
+      params.set("activeOnly", String(input.activeOnly));
+    }
+    const query = params.toString();
+    return requestJson<ReferenceWorkspace[]>(`/api/reference/workspaces${query ? `?${query}` : ""}`, { signal });
+  },
+  createReferenceWorkspace(input: ReferenceWorkspaceInput) {
+    return requestJson<ReferenceWorkspace>("/api/reference/workspaces", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(input),
+    });
+  },
+  updateReferenceWorkspace(workspaceKey: string, input: ReferenceWorkspaceInput) {
+    return requestJson<ReferenceWorkspace>(`/api/reference/workspaces/${encodeURIComponent(workspaceKey)}`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(input),
+    });
+  },
+  fetchReferenceProjects(input: { activeOnly?: boolean; workspaceKey?: string | null } = {}, signal?: AbortSignal) {
+    const params = new URLSearchParams();
+    if (input.activeOnly !== undefined) {
+      params.set("activeOnly", String(input.activeOnly));
+    }
+    if (input.workspaceKey?.trim()) {
+      params.set("workspaceKey", input.workspaceKey.trim());
+    }
+    const query = params.toString();
+    return requestJson<ReferenceProject[]>(`/api/reference/projects${query ? `?${query}` : ""}`, { signal });
+  },
+  createReferenceProject(input: ReferenceProjectInput) {
+    return requestJson<ReferenceProject>("/api/reference/projects", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(input),
+    });
+  },
+  updateReferenceProject(projectKey: string, input: ReferenceProjectInput) {
+    return requestJson<ReferenceProject>(`/api/reference/projects/${encodeURIComponent(projectKey)}`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(input),
+    });
   },
   fetchKnowledgePreset(presetId: string, signal?: AbortSignal) {
     return requestJson<KnowledgePresetDetail>(`/api/knowledge-presets/${presetId}`, { signal });

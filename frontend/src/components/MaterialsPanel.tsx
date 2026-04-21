@@ -10,6 +10,9 @@ import type {
   MaterialSummary,
   MaterialUploadItemInput,
   MaterialUploadPolicy,
+  MaterialVersionUploadInput,
+  ReferenceProject,
+  ReferenceWorkspace,
 } from "@/types";
 import type { RagReadinessPresentation } from "@/utils/readiness";
 
@@ -27,12 +30,18 @@ type MaterialsPanelProps = {
   actionError: string | null;
   deletingMaterialId: string | null;
   reindexingMaterialId: string | null;
+  versionUploadingMaterialId: string | null;
   selectedLineage: MaterialLineageResponse | null;
   lineageError: string | null;
   loadingLineageMaterialId: string | null;
   metadataV1Enabled: boolean;
+  referenceWorkspaces: ReferenceWorkspace[];
+  referenceProjects: ReferenceProject[];
+  isReferenceDataLoading: boolean;
+  referenceDataError: string | null;
   onCreateText: (input: { title: string; content: string; metadata?: MaterialMetadataInput }) => Promise<unknown>;
   onUpload: (input: { items: MaterialUploadItemInput[] }) => Promise<unknown>;
+  onUploadVersion: (materialId: string, input: MaterialVersionUploadInput) => Promise<unknown>;
   onDelete: (materialId: string) => Promise<unknown>;
   onReindex: (materialId: string) => Promise<unknown>;
   onLoadLineage: (materialId: string) => Promise<unknown>;
@@ -57,12 +66,18 @@ export function MaterialsPanel({
   actionError,
   deletingMaterialId,
   reindexingMaterialId,
+  versionUploadingMaterialId,
   selectedLineage,
   lineageError,
   loadingLineageMaterialId,
   metadataV1Enabled,
+  referenceWorkspaces,
+  referenceProjects,
+  isReferenceDataLoading,
+  referenceDataError,
   onCreateText,
   onUpload,
+  onUploadVersion,
   onDelete,
   onReindex,
   onLoadLineage,
@@ -81,14 +96,22 @@ export function MaterialsPanel({
 
       <div className="grid gap-6 xl:grid-cols-2">
         <TextMaterialForm
+          isReferenceDataLoading={isReferenceDataLoading}
           metadataDisabledReason={metadataDisabledReason}
           metadataV1Enabled={metadataV1Enabled}
+          referenceDataError={referenceDataError}
+          referenceProjects={referenceProjects}
+          referenceWorkspaces={referenceWorkspaces}
           onCreateText={onCreateText}
         />
         <MaterialUploadForm
+          isReferenceDataLoading={isReferenceDataLoading}
           metadataDisabledReason={metadataDisabledReason}
           metadataV1Enabled={metadataV1Enabled}
           policyWarning={policyWarning}
+          referenceDataError={referenceDataError}
+          referenceProjects={referenceProjects}
+          referenceWorkspaces={referenceWorkspaces}
           uploadPolicy={uploadPolicy}
           onUpload={onUpload}
         />
@@ -124,15 +147,21 @@ export function MaterialsPanel({
         materialTotal={materialTotal}
         materials={materials}
         ragPresentation={ragPresentation}
+        referenceProjects={referenceProjects}
+        referenceWorkspaces={referenceWorkspaces}
         reindexingMaterialId={reindexingMaterialId}
+        versionUploadingMaterialId={versionUploadingMaterialId}
         onDelete={onDelete}
         onLoadLineage={onLoadLineage}
         onLoadMore={onLoadMore}
         onReindex={onReindex}
+        onUploadVersion={onUploadVersion}
       />
 
       <MaterialLineagePanel
         lineageError={lineageError}
+        referenceProjects={referenceProjects}
+        referenceWorkspaces={referenceWorkspaces}
         selectedLineage={selectedLineage}
         onClearLineage={onClearLineage}
       />

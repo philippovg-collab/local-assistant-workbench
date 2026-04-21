@@ -1,29 +1,29 @@
 import type {
+  DocumentStatus,
   DocumentType,
   KnowledgeDocumentClass,
+  MaterialLanguageCode,
   MaterialMetadata,
   MaterialMetadataInput,
   MetadataValueOrigin,
+  ReferenceProject,
+  ReferenceWorkspace,
   SourceTrustLevel,
 } from "@/types";
 
+export type MaterialLanguageFormValue = MaterialLanguageCode | "AUTO";
+
 export type MaterialMetadataFormState = {
+  workspaceKey: string;
   documentType: DocumentType | "";
-  knowledgeDocumentClass: KnowledgeDocumentClass | "";
-  documentDate: string;
+  documentStatus: DocumentStatus | "";
+  projectKey: string;
   documentNumber: string;
-  author: string;
-  department: string;
-  versionLabel: string;
-  language: string;
-  tags: string;
-  sourceTrust: SourceTrustLevel | "";
-  project: string;
-  counterparty: string;
-  businessStatus: string;
+  languageCode: MaterialLanguageFormValue;
   periodStart: string;
   periodEnd: string;
-  workspaceKey: string;
+  openEnded: boolean;
+  manualTags: string;
 };
 
 export type MaterialMetadataFormErrors = Partial<Record<keyof MaterialMetadataFormState, string>>;
@@ -41,24 +41,42 @@ export type MaterialMetadataDisplayEntry = {
   origin: MetadataValueOrigin;
 };
 
+export type MaterialMetadataDisplayReferences = {
+  projects?: Pick<ReferenceProject, "key" | "nameRu">[];
+  workspaces?: Pick<ReferenceWorkspace, "key" | "nameRu">[];
+};
+
 export const documentTypeLabels: Record<DocumentType, string> = {
-  POLICY: "Policy",
-  CONTRACT: "Contract",
-  REPORT: "Report",
-  PROCEDURE: "Procedure",
-  PRESENTATION: "Presentation",
-  SPREADSHEET: "Spreadsheet",
-  LETTER: "Letter",
-  MANUAL: "Manual",
+  POLICY: "Политика",
+  CONTRACT: "Договор",
+  REPORT: "Отчёт",
+  PROCEDURE: "Процедура",
+  PRESENTATION: "Презентация",
+  SPREADSHEET: "Таблица",
+  LETTER: "Письмо",
+  MANUAL: "Руководство",
   FAQ: "FAQ",
-  OTHER: "Other",
+  OTHER: "Другое",
+};
+
+export const documentStatusLabels: Record<DocumentStatus, string> = {
+  ACTIVE: "Действует",
+  DRAFT: "Черновик",
+  ARCHIVED: "Архив",
+  REVOKED: "Отозван",
+};
+
+export const materialLanguageCodeLabels: Record<MaterialLanguageCode, string> = {
+  RU: "Русский",
+  KK: "Казахский",
+  EN: "Английский",
 };
 
 export const sourceTrustLabels: Record<SourceTrustLevel, string> = {
-  HIGH: "High trust",
-  MEDIUM: "Medium trust",
-  LOW: "Low trust",
-  UNKNOWN: "Unknown trust",
+  HIGH: "Высокое доверие",
+  MEDIUM: "Среднее доверие",
+  LOW: "Низкое доверие",
+  UNKNOWN: "Неизвестно",
 };
 
 export const materialKnowledgeDocumentClassLabels: Record<KnowledgeDocumentClass, string> = {
@@ -71,25 +89,31 @@ export const materialKnowledgeDocumentClassLabels: Record<KnowledgeDocumentClass
 
 export const DEFAULT_MATERIAL_METADATA: MaterialMetadata = {
   documentType: "OTHER",
+  documentStatus: "ACTIVE",
+  workspaceKey: null,
+  projectKey: null,
+  documentNumber: null,
+  languageCode: null,
+  manualTags: [],
+  autoTags: [],
+  effectiveTags: [],
+  periodStart: null,
+  periodEnd: null,
+  tags: [],
   knowledgeDocumentClass: "other",
   documentDate: null,
-  documentNumber: null,
   author: null,
   department: null,
   versionLabel: null,
   language: null,
-  tags: [],
   sourceTrust: "UNKNOWN",
   project: null,
   counterparty: null,
   businessStatus: null,
-  periodStart: null,
-  periodEnd: null,
-  workspaceKey: null,
   provenance: {
     fieldOrigins: {
       documentType: "DEFAULT",
-      knowledgeDocumentClass: "DEFAULT",
+      documentStatus: "DEFAULT",
       sourceTrust: "DEFAULT",
     },
     fieldConfidence: {},
@@ -97,41 +121,41 @@ export const DEFAULT_MATERIAL_METADATA: MaterialMetadata = {
 };
 
 const metadataFieldLabels: Record<keyof Omit<MaterialMetadata, "provenance">, string> = {
-  documentType: "Тип",
+  documentType: "Тип документа",
+  documentStatus: "Статус документа",
+  workspaceKey: "Рабочая область",
+  projectKey: "Проект",
+  documentNumber: "Номер документа",
+  languageCode: "Язык",
+  manualTags: "Ручные теги",
+  autoTags: "Авто-теги",
+  effectiveTags: "Теги",
+  periodStart: "Действует с",
+  periodEnd: "Действует по",
+  tags: "Теги",
   knowledgeDocumentClass: "Класс знаний",
-  documentDate: "Дата",
-  documentNumber: "Номер",
+  documentDate: "Дата документа",
   author: "Автор",
   department: "Подразделение",
   versionLabel: "Версия",
   language: "Язык",
-  tags: "Теги",
   sourceTrust: "Доверие",
   project: "Проект",
   counterparty: "Контрагент",
   businessStatus: "Статус",
-  periodStart: "Период с",
-  periodEnd: "Период по",
-  workspaceKey: "Workspace",
 };
 
 export const emptyMaterialMetadataFormState = (): MaterialMetadataFormState => ({
+  workspaceKey: "",
   documentType: "",
-  knowledgeDocumentClass: "",
-  documentDate: "",
+  documentStatus: "ACTIVE",
+  projectKey: "",
   documentNumber: "",
-  author: "",
-  department: "",
-  versionLabel: "",
-  language: "",
-  tags: "",
-  sourceTrust: "",
-  project: "",
-  counterparty: "",
-  businessStatus: "",
+  languageCode: "AUTO",
   periodStart: "",
   periodEnd: "",
-  workspaceKey: "",
+  openEnded: true,
+  manualTags: "",
 });
 
 export const parseTagsInput = (value: string) => {
@@ -152,25 +176,22 @@ const normalizeOptionalText = (value: string) => {
 };
 
 export const toMaterialMetadataInput = (state: MaterialMetadataFormState): MaterialMetadataInput => {
-  const tags = parseTagsInput(state.tags);
+  const manualTags = parseTagsInput(state.manualTags);
+  const projectKey = normalizeOptionalText(state.projectKey);
+  const documentNumber = normalizeOptionalText(state.documentNumber);
+  const periodStart = normalizeOptionalText(state.periodStart);
+  const periodEnd = state.openEnded ? undefined : normalizeOptionalText(state.periodEnd);
 
   return {
-    documentType: state.documentType || undefined,
-    knowledgeDocumentClass: state.knowledgeDocumentClass || undefined,
-    documentDate: state.documentDate || undefined,
-    documentNumber: normalizeOptionalText(state.documentNumber),
-    author: normalizeOptionalText(state.author),
-    department: normalizeOptionalText(state.department),
-    versionLabel: normalizeOptionalText(state.versionLabel),
-    language: normalizeOptionalText(state.language),
-    tags: tags.length > 0 ? tags : undefined,
-    sourceTrust: state.sourceTrust || undefined,
-    project: normalizeOptionalText(state.project),
-    counterparty: normalizeOptionalText(state.counterparty),
-    businessStatus: normalizeOptionalText(state.businessStatus),
-    periodStart: state.periodStart || undefined,
-    periodEnd: state.periodEnd || undefined,
     workspaceKey: normalizeOptionalText(state.workspaceKey),
+    documentType: state.documentType || undefined,
+    documentStatus: state.documentStatus || undefined,
+    ...(projectKey ? { projectKey } : {}),
+    ...(documentNumber ? { documentNumber } : {}),
+    languageCode: state.languageCode === "AUTO" ? null : state.languageCode,
+    ...(periodStart ? { periodStart } : {}),
+    ...(periodEnd ? { periodEnd } : {}),
+    ...(manualTags.length > 0 ? { manualTags } : {}),
   };
 };
 
@@ -178,7 +199,25 @@ export const validateMaterialMetadata = (state: MaterialMetadataFormState): Mate
   const fieldErrors: MaterialMetadataFormErrors = {};
   const messages: string[] = [];
 
-  if (state.periodStart && state.periodEnd && state.periodStart > state.periodEnd) {
+  if (!state.workspaceKey.trim()) {
+    const message = "Выберите рабочую область.";
+    fieldErrors.workspaceKey = message;
+    messages.push(message);
+  }
+
+  if (!state.documentType) {
+    const message = "Выберите тип документа.";
+    fieldErrors.documentType = message;
+    messages.push(message);
+  }
+
+  if (!state.documentStatus) {
+    const message = "Выберите статус документа.";
+    fieldErrors.documentStatus = message;
+    messages.push(message);
+  }
+
+  if (!state.openEnded && state.periodStart && state.periodEnd && state.periodStart > state.periodEnd) {
     const message = "Дата начала периода не может быть позже даты окончания.";
     fieldErrors.periodStart = message;
     fieldErrors.periodEnd = message;
@@ -198,6 +237,9 @@ export const materialMetadataWithDefaults = (
   ...DEFAULT_MATERIAL_METADATA,
   ...metadata,
   tags: metadata?.tags ?? DEFAULT_MATERIAL_METADATA.tags,
+  manualTags: metadata?.manualTags ?? DEFAULT_MATERIAL_METADATA.manualTags,
+  autoTags: metadata?.autoTags ?? DEFAULT_MATERIAL_METADATA.autoTags,
+  effectiveTags: metadata?.effectiveTags ?? DEFAULT_MATERIAL_METADATA.effectiveTags,
   provenance: {
     fieldOrigins: {
       ...DEFAULT_MATERIAL_METADATA.provenance.fieldOrigins,
@@ -210,116 +252,128 @@ export const materialMetadataWithDefaults = (
 export const provenanceLabel = (origin: MetadataValueOrigin) => {
   switch (origin) {
     case "MANUAL":
-      return "manual";
+      return "вручную";
     case "INFERRED":
-      return "auto";
+      return "авто";
     default:
-      return "default";
+      return "по умолчанию";
   }
+};
+
+const originFor = (metadata: MaterialMetadata, field: string): MetadataValueOrigin =>
+  metadata.provenance.fieldOrigins[field] ?? "DEFAULT";
+
+const languageLabel = (metadata: MaterialMetadata) => {
+  if (metadata.languageCode) {
+    return materialLanguageCodeLabels[metadata.languageCode];
+  }
+  if (metadata.language) {
+    return metadata.language;
+  }
+  return null;
+};
+
+const tagsForDisplay = (metadata: MaterialMetadata) => {
+  const manualTags = metadata.manualTags ?? [];
+  const autoTags = metadata.autoTags ?? [];
+  const effectiveTags = metadata.effectiveTags ?? [];
+  const legacyTags = metadata.tags ?? [];
+  const hasSplitTags = manualTags.length > 0 || autoTags.length > 0 || effectiveTags.length > 0;
+
+  if (!hasSplitTags && legacyTags.length > 0) {
+    return {
+      manualTags: legacyTags,
+      autoTags: [],
+      effectiveTags: [],
+      isLegacyFallback: true,
+    };
+  }
+
+  return {
+    manualTags,
+    autoTags,
+    effectiveTags,
+    isLegacyFallback: false,
+  };
 };
 
 export const buildMaterialMetadataEntries = (
   metadata?: Partial<MaterialMetadata> | null,
+  references: MaterialMetadataDisplayReferences = {},
 ): MaterialMetadataDisplayEntry[] => {
   const resolved = materialMetadataWithDefaults(metadata);
-  const rawEntries: Array<MaterialMetadataDisplayEntry | null> = [
+  const tagDisplay = tagsForDisplay(resolved);
+  const language = languageLabel(resolved);
+  const workspaceName = references.workspaces?.find((workspace) => workspace.key === resolved.workspaceKey)?.nameRu;
+  const projectName = references.projects?.find((project) => project.key === resolved.projectKey)?.nameRu;
+  const entries: Array<MaterialMetadataDisplayEntry | null> = [
+    resolved.workspaceKey ? {
+      key: "workspaceKey",
+      label: metadataFieldLabels.workspaceKey,
+      value: workspaceName || resolved.workspaceKey,
+      origin: originFor(resolved, "workspaceKey"),
+    } : null,
     {
       key: "documentType",
       label: metadataFieldLabels.documentType,
       value: documentTypeLabels[resolved.documentType],
-      origin: resolved.provenance.fieldOrigins.documentType ?? "DEFAULT",
+      origin: originFor(resolved, "documentType"),
     },
     {
-      key: "knowledgeDocumentClass",
-      label: metadataFieldLabels.knowledgeDocumentClass,
-      value: materialKnowledgeDocumentClassLabels[resolved.knowledgeDocumentClass],
-      origin: resolved.provenance.fieldOrigins.knowledgeDocumentClass ?? "DEFAULT",
+      key: "documentStatus",
+      label: metadataFieldLabels.documentStatus,
+      value: documentStatusLabels[resolved.documentStatus],
+      origin: originFor(resolved, "documentStatus"),
     },
-    resolved.documentDate ? {
-      key: "documentDate",
-      label: metadataFieldLabels.documentDate,
-      value: resolved.documentDate,
-      origin: resolved.provenance.fieldOrigins.documentDate ?? "DEFAULT",
+    resolved.projectKey ? {
+      key: "projectKey",
+      label: metadataFieldLabels.projectKey,
+      value: projectName || resolved.projectKey,
+      origin: originFor(resolved, "projectKey"),
     } : null,
     resolved.documentNumber ? {
       key: "documentNumber",
       label: metadataFieldLabels.documentNumber,
       value: resolved.documentNumber,
-      origin: resolved.provenance.fieldOrigins.documentNumber ?? "DEFAULT",
+      origin: originFor(resolved, "documentNumber"),
     } : null,
-    resolved.author ? {
-      key: "author",
-      label: metadataFieldLabels.author,
-      value: resolved.author,
-      origin: resolved.provenance.fieldOrigins.author ?? "DEFAULT",
-    } : null,
-    resolved.department ? {
-      key: "department",
-      label: metadataFieldLabels.department,
-      value: resolved.department,
-      origin: resolved.provenance.fieldOrigins.department ?? "DEFAULT",
-    } : null,
-    resolved.versionLabel ? {
-      key: "versionLabel",
-      label: metadataFieldLabels.versionLabel,
-      value: resolved.versionLabel,
-      origin: resolved.provenance.fieldOrigins.versionLabel ?? "DEFAULT",
-    } : null,
-    resolved.language ? {
-      key: "language",
-      label: metadataFieldLabels.language,
-      value: resolved.language,
-      origin: resolved.provenance.fieldOrigins.language ?? "DEFAULT",
-    } : null,
-    resolved.tags.length > 0 ? {
-      key: "tags",
-      label: metadataFieldLabels.tags,
-      value: resolved.tags.join(", "),
-      origin: resolved.provenance.fieldOrigins.tags ?? "DEFAULT",
-    } : null,
-    {
-      key: "sourceTrust",
-      label: metadataFieldLabels.sourceTrust,
-      value: sourceTrustLabels[resolved.sourceTrust],
-      origin: resolved.provenance.fieldOrigins.sourceTrust ?? "DEFAULT",
-    },
-    resolved.project ? {
-      key: "project",
-      label: metadataFieldLabels.project,
-      value: resolved.project,
-      origin: resolved.provenance.fieldOrigins.project ?? "DEFAULT",
-    } : null,
-    resolved.counterparty ? {
-      key: "counterparty",
-      label: metadataFieldLabels.counterparty,
-      value: resolved.counterparty,
-      origin: resolved.provenance.fieldOrigins.counterparty ?? "DEFAULT",
-    } : null,
-    resolved.businessStatus ? {
-      key: "businessStatus",
-      label: metadataFieldLabels.businessStatus,
-      value: resolved.businessStatus,
-      origin: resolved.provenance.fieldOrigins.businessStatus ?? "DEFAULT",
+    language ? {
+      key: "languageCode",
+      label: metadataFieldLabels.languageCode,
+      value: language,
+      origin: originFor(resolved, resolved.languageCode ? "languageCode" : "language"),
     } : null,
     resolved.periodStart ? {
       key: "periodStart",
       label: metadataFieldLabels.periodStart,
       value: resolved.periodStart,
-      origin: resolved.provenance.fieldOrigins.periodStart ?? "DEFAULT",
+      origin: originFor(resolved, "periodStart"),
     } : null,
     resolved.periodEnd ? {
       key: "periodEnd",
       label: metadataFieldLabels.periodEnd,
       value: resolved.periodEnd,
-      origin: resolved.provenance.fieldOrigins.periodEnd ?? "DEFAULT",
+      origin: originFor(resolved, "periodEnd"),
     } : null,
-    resolved.workspaceKey ? {
-      key: "workspaceKey",
-      label: metadataFieldLabels.workspaceKey,
-      value: resolved.workspaceKey,
-      origin: resolved.provenance.fieldOrigins.workspaceKey ?? "DEFAULT",
+    tagDisplay.manualTags.length > 0 ? {
+      key: "manualTags",
+      label: metadataFieldLabels.manualTags,
+      value: tagDisplay.manualTags.join(", "),
+      origin: originFor(resolved, tagDisplay.isLegacyFallback ? "tags" : "manualTags"),
+    } : null,
+    tagDisplay.autoTags.length > 0 ? {
+      key: "autoTags",
+      label: metadataFieldLabels.autoTags,
+      value: tagDisplay.autoTags.join(", "),
+      origin: originFor(resolved, "autoTags"),
+    } : null,
+    tagDisplay.manualTags.length > 0 && tagDisplay.autoTags.length > 0 && tagDisplay.effectiveTags.length > 0 ? {
+      key: "effectiveTags",
+      label: metadataFieldLabels.effectiveTags,
+      value: tagDisplay.effectiveTags.join(", "),
+      origin: originFor(resolved, "effectiveTags"),
     } : null,
   ];
 
-  return rawEntries.filter((entry): entry is MaterialMetadataDisplayEntry => entry !== null);
+  return entries.filter((entry): entry is MaterialMetadataDisplayEntry => entry !== null);
 };

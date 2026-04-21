@@ -246,7 +246,7 @@ class MaterialRetrievalServiceTest {
                 List.of("finance"),
                 null,
                 "North Upgrade",
-                null,
+                "north-upgrade",
                 null,
                 null,
                 null,
@@ -274,7 +274,7 @@ class MaterialRetrievalServiceTest {
                 List.of("finance"),
                 null,
                 "North Upgrade",
-                null,
+                "north-upgrade",
                 null,
                 null,
                 null,
@@ -310,6 +310,7 @@ class MaterialRetrievalServiceTest {
             "north-contract-lineage",
             MaterialMetadataSnapshot.fromInput(new MaterialMetadataInput(
                 DocumentType.CONTRACT,
+                null,
                 LocalDate.parse("2026-04-15"),
                 "KZ-2026-0415-ENERGY",
                 "Dana Sarsen",
@@ -319,8 +320,9 @@ class MaterialRetrievalServiceTest {
                 List.of("dispatch", "grid"),
                 SourceTrustLevel.HIGH,
                 "North Upgrade",
+                "north-upgrade",
                 "GridBuild LLP",
-                "APPROVED",
+                "ACTIVE",
                 LocalDate.parse("2026-04-01"),
                 LocalDate.parse("2026-06-30")
             )),
@@ -415,10 +417,10 @@ class MaterialRetrievalServiceTest {
                 "Grid operations",
                 "North Upgrade",
                 "GridBuild LLP",
-                "APPROVED",
+                "ACTIVE",
                 "ru",
                 List.of("dispatch"),
-                SourceTrustLevel.MEDIUM
+                null
             )
         );
 
@@ -434,11 +436,11 @@ class MaterialRetrievalServiceTest {
         assertEquals(DocumentBlockType.TABLE, source.chunkType());
         assertEquals("KZ-2026-0415-ENERGY", source.metadata().documentNumber());
         assertEquals("North Upgrade", source.metadata().project());
-        assertEquals(SourceTrustLevel.HIGH, source.metadata().sourceTrust());
+        assertEquals(SourceTrustLevel.UNKNOWN, source.metadata().sourceTrust());
     }
 
     @Test
-    void keepsLegacyDerivedMetadataDiscoverableThroughKnowledgeScope() {
+    void doesNotDeriveWorkspaceFromLegacyProjectName() {
         InMemoryMaterialRepository repository = new InMemoryMaterialRepository();
         DeterministicEmbeddingClient embeddingClient = new DeterministicEmbeddingClient();
         MaterialRetrievalService service = createService(repository, embeddingClient);
@@ -478,9 +480,8 @@ class MaterialRetrievalServiceTest {
             new KnowledgeScope(List.of(), List.of(KnowledgeDocumentClass.CONTRACTS), List.of(), "north-upgrade", false)
         );
 
-        assertEquals(1, result.scopedMaterialCount());
-        assertFalse(result.sources().isEmpty());
-        assertEquals("Legacy contract", result.sources().getFirst().title());
+        assertEquals(0, result.scopedMaterialCount());
+        assertTrue(result.sources().isEmpty());
     }
 
     @Test

@@ -73,7 +73,7 @@ app:
     shadow-enabled: false
     shadow-sample-percent: 10
   rollout:
-    metadata-v1: false
+    metadata-v1: true
     structured-v1: false
     metadata-filters-v1: false
     search-api-v1: false

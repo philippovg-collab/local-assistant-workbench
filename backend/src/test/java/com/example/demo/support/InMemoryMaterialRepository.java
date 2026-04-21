@@ -27,11 +27,14 @@ import com.example.demo.service.material.port.QualityLayerMetricsRepository;
 import com.example.demo.service.material.port.SemanticSearchRepository;
 
 import com.example.demo.model.KnowledgeScope;
+import com.example.demo.model.DocumentStatus;
 import com.example.demo.model.MaterialIndexingStatus;
+import com.example.demo.model.MaterialMetadataSnapshot;
 import com.example.demo.model.MaterialSummary;
 import com.example.demo.model.RetrievalFilters;
 import com.example.demo.model.MaterialVersionState;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
@@ -223,6 +226,21 @@ public class InMemoryMaterialRepository implements
     }
 
     @Override
+    public synchronized StoredMaterialRecord updateMetadata(
+        String materialId,
+        MaterialMetadataSnapshot metadata,
+        Instant updatedAt
+    ) {
+        StoredMaterialRecord record = recordsById.get(materialId);
+        if (record == null) {
+            return null;
+        }
+        StoredMaterialRecord updated = copyWithMetadata(record, metadata, updatedAt);
+        recordsById.put(materialId, updated);
+        return updated;
+    }
+
+    @Override
     public synchronized void lockLineage(String sourceKey) {
         // synchronized repository methods already serialize the in-memory test double.
     }
@@ -257,8 +275,7 @@ public class InMemoryMaterialRepository implements
     @Override
     public synchronized int countReadyMaterials() {
         return (int) recordsById.values().stream()
-            .filter(record -> record.versionState() == MaterialVersionState.ACTIVE)
-            .filter(record -> record.status() == MaterialIndexingStatus.READY || record.status() == MaterialIndexingStatus.PARTIAL_READY)
+            .filter(this::isSearchable)
             .count();
     }
 
@@ -266,9 +283,9 @@ public class InMemoryMaterialRepository implements
     public synchronized QualityLayerCoverageSnapshot qualityLayerCoverageSnapshot() {
         int activeTotal = 0;
         int activeWithEffectiveMetadata = 0;
+        int workspaceCovered = 0;
         int documentTypeCovered = 0;
-        int sourceTrustCovered = 0;
-        int authorOrDepartmentCovered = 0;
+        int documentStatusCovered = 0;
         int structuredProfileActive = 0;
         int partialReadyActive = 0;
 
@@ -284,11 +301,11 @@ public class InMemoryMaterialRepository implements
             if (record.metadata().documentType() != null && record.metadata().documentType() != com.example.demo.model.DocumentType.OTHER) {
                 documentTypeCovered += 1;
             }
-            if (record.metadata().sourceTrust() != null && record.metadata().sourceTrust() != com.example.demo.model.SourceTrustLevel.UNKNOWN) {
-                sourceTrustCovered += 1;
+            if (hasText(record.metadata().workspaceKey())) {
+                workspaceCovered += 1;
             }
-            if (hasText(record.metadata().author()) || hasText(record.metadata().department())) {
-                authorOrDepartmentCovered += 1;
+            if (record.metadata().documentStatus() != null) {
+                documentStatusCovered += 1;
             }
             if (ChunkProfile.STRUCTURED_V1.propertyValue().equals(chunkProfilesByMaterialId.get(record.id()))) {
                 structuredProfileActive += 1;
@@ -301,9 +318,9 @@ public class InMemoryMaterialRepository implements
         return new QualityLayerCoverageSnapshot(
             activeTotal,
             activeWithEffectiveMetadata,
+            workspaceCovered,
             documentTypeCovered,
-            sourceTrustCovered,
-            authorOrDepartmentCovered,
+            documentStatusCovered,
             structuredProfileActive,
             partialReadyActive
         );
@@ -1050,8 +1067,13 @@ public class InMemoryMaterialRepository implements
     }
 
     private boolean isSearchable(StoredMaterialRecord record) {
+        LocalDate today = LocalDate.now();
+        MaterialMetadataSnapshot metadata = record.metadata() == null ? MaterialMetadataSnapshot.empty() : record.metadata();
         return record.versionState() == MaterialVersionState.ACTIVE
-            && (record.status() == MaterialIndexingStatus.READY || record.status() == MaterialIndexingStatus.PARTIAL_READY);
+            && (record.status() == MaterialIndexingStatus.READY || record.status() == MaterialIndexingStatus.PARTIAL_READY)
+            && metadata.documentStatus() == DocumentStatus.ACTIVE
+            && (metadata.periodStart() == null || !metadata.periodStart().isAfter(today))
+            && (metadata.periodEnd() == null || !metadata.periodEnd().isBefore(today));
     }
 
     private boolean matchesKnowledgeScope(
@@ -1100,20 +1122,10 @@ public class InMemoryMaterialRepository implements
     }
 
     private boolean hasMeaningfulMetadata(StoredMaterialRecord record) {
-        return record.metadata().documentType() != null && record.metadata().documentType() != com.example.demo.model.DocumentType.OTHER
-            || record.metadata().sourceTrust() != null && record.metadata().sourceTrust() != com.example.demo.model.SourceTrustLevel.UNKNOWN
-            || hasText(record.metadata().author())
-            || hasText(record.metadata().department())
-            || record.metadata().documentDate() != null
-            || hasText(record.metadata().documentNumber())
-            || hasText(record.metadata().versionLabel())
-            || hasText(record.metadata().language())
-            || !record.metadata().tags().isEmpty()
-            || hasText(record.metadata().project())
-            || hasText(record.metadata().counterparty())
-            || hasText(record.metadata().businessStatus())
-            || record.metadata().periodStart() != null
-            || record.metadata().periodEnd() != null;
+        return hasText(record.metadata().workspaceKey())
+            && record.metadata().documentType() != null
+            && record.metadata().documentType() != com.example.demo.model.DocumentType.OTHER
+            && record.metadata().documentStatus() != null;
     }
 
     private boolean hasText(String value) {
@@ -1297,6 +1309,40 @@ public class InMemoryMaterialRepository implements
             supersedeReason,
             record.lineageVersion(),
             record.metadata()
+        );
+    }
+
+    private StoredMaterialRecord copyWithMetadata(
+        StoredMaterialRecord record,
+        MaterialMetadataSnapshot metadata,
+        Instant updatedAt
+    ) {
+        return new StoredMaterialRecord(
+            record.id(),
+            record.title(),
+            record.sourceType(),
+            record.originalFileName(),
+            record.mediaType(),
+            record.content(),
+            record.normalizedContent(),
+            record.contentHash(),
+            record.sourceKey(),
+            record.extractor(),
+            record.ocrUsed(),
+            record.pageCount(),
+            record.chunks(),
+            record.status(),
+            record.versionState(),
+            record.statusReasonCode(),
+            record.statusReasonMessage(),
+            record.createdAt(),
+            updatedAt,
+            attemptsByMaterialId.getOrDefault(record.id(), 0),
+            nextRetryAtByMaterialId.get(record.id()),
+            record.supersededByMaterialId(),
+            record.supersedeReason(),
+            record.lineageVersion(),
+            metadata == null ? MaterialMetadataSnapshot.empty() : metadata
         );
     }
 

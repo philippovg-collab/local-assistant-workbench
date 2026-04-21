@@ -107,6 +107,7 @@ const renderPanel = (
         chunkType: "TABLE",
         metadata: {
           documentType: "CONTRACT",
+          documentStatus: "ACTIVE",
           knowledgeDocumentClass: "contracts",
           documentDate: "2026-04-15",
           documentNumber: "KZ-2026-0415-ENERGY",
@@ -282,7 +283,7 @@ describe("RagChatPanel", () => {
     expect(scoreSummary).toBeTruthy();
     fireEvent.click(scoreSummary!);
     expect(screen.getByText(/identifier bonus: 20/i)).toBeTruthy();
-    expect(screen.getByText(/sourceTrust: HIGH/i)).toBeTruthy();
+    expect(screen.queryByText(/sourceTrust:/i)).toBeNull();
   });
 
   const materialDetailFixture = (): MaterialDetail => ({

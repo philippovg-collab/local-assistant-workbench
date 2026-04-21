@@ -47,7 +47,7 @@ class HealthControllerIT extends PostgresIntegrationTestSupport {
     void reportsLiveStorageReadinessWhenRuntimeIsHealthy() throws Exception {
         mockMvc.perform(get("/api/health"))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.status").value("UP"))
+            .andExpect(jsonPath("$.status").value("DEGRADED"))
             .andExpect(jsonPath("$.runtimeCachedAt").isNotEmpty())
             .andExpect(jsonPath("$.directStatus").value("UP"))
             .andExpect(jsonPath("$.ragStatus").value("DOWN"))
@@ -58,7 +58,13 @@ class HealthControllerIT extends PostgresIntegrationTestSupport {
             .andExpect(jsonPath("$.ocrStatus").value("UP"))
             .andExpect(jsonPath("$.databaseStatus").value("UP"))
             .andExpect(jsonPath("$.vectorStatus").value("UP"))
-            .andExpect(jsonPath("$.ocrLanguages[0]").value("kaz"));
+            .andExpect(jsonPath("$.ocrLanguages[0]").value("kaz"))
+            .andExpect(jsonPath("$.readyMaterialCount").value(0))
+            .andExpect(jsonPath("$.qualityLayer.metadataCoverage.workspace.covered").value(0))
+            .andExpect(jsonPath("$.qualityLayer.metadataCoverage.documentType.covered").value(0))
+            .andExpect(jsonPath("$.qualityLayer.metadataCoverage.documentStatus.covered").value(0))
+            .andExpect(jsonPath("$.qualityLayer.metadataCoverage.sourceTrust").doesNotExist())
+            .andExpect(jsonPath("$.qualityLayer.metadataCoverage.authorOrDepartment").doesNotExist());
     }
 
     @TestConfiguration

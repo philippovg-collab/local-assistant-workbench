@@ -7,7 +7,7 @@ describe("frontend API contracts", () => {
     const metadata: MaterialMetadata = DEFAULT_MATERIAL_METADATA;
 
     expect(metadata.documentType).toBe("OTHER");
-    expect(metadata.knowledgeDocumentClass).toBe("other");
-    expect(metadata.sourceTrust).toBe("UNKNOWN");
+    expect(metadata.documentStatus).toBe("ACTIVE");
+    expect(metadata.manualTags).toEqual([]);
   });
 });

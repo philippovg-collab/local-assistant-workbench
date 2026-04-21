@@ -79,21 +79,34 @@ public class MaterialSearchSyncLifecycleService {
         Instant updatedAt
     ) {
         lineageRepository.lockLineage(record.sourceKey());
-        List<String> supersededMaterialIds = new ArrayList<>();
-        catalogRepository.supersedeActiveVersions(
-            record.sourceKey(),
-            record.id(),
-            record.id(),
-            supersedeReason,
-            updatedAt
-        ).forEach(material -> appendMaterialId(supersededMaterialIds, material));
-        StoredMaterialRecord savedRecord = catalogRepository.save(record, chunkProfile, rawChunks, segments);
+        StoredMaterialRecord savedRecord = catalogRepository.save(
+            record.withVersionState(MaterialVersionState.SUPERSEDED, null, null),
+            chunkProfile,
+            rawChunks,
+            segments
+        );
         if (!savedRecord.id().equals(record.id())) {
             return savedRecord;
         }
 
+        List<String> supersededMaterialIds = new ArrayList<>();
+        catalogRepository.supersedeActiveVersions(
+            record.sourceKey(),
+            savedRecord.id(),
+            savedRecord.id(),
+            supersedeReason,
+            updatedAt
+        ).forEach(material -> appendMaterialId(supersededMaterialIds, material));
+        StoredMaterialRecord activatedRecord = catalogRepository.updateVersionState(
+            savedRecord.id(),
+            MaterialVersionState.ACTIVE,
+            null,
+            null,
+            updatedAt
+        );
+
         persistSearchSyncMaterials(supersededMaterialIds, SearchSyncOperationType.DELETE, updatedAt);
-        return savedRecord;
+        return activatedRecord;
     }
 
     @Transactional

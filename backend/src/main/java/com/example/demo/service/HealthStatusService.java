@@ -375,7 +375,7 @@ public class HealthStatusService {
         return new KnowledgeReadiness(
             "DEGRADED",
             "knowledge.no_ready_active_versions",
-            "Активные материалы есть, но ни один ещё не готов для retrieval.",
+            "Активные материалы есть, но ни один не проходит retrieval-ready условия: READY/PARTIAL_READY, documentStatus=ACTIVE и валидный период.",
             materialCount,
             activeMaterialCount,
             historicalMaterialCount,

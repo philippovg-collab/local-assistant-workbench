@@ -170,7 +170,7 @@ class ElasticsearchIndexSyncServiceTest {
     }
 
     @Test
-    void retriesUpsertWithoutDeletingExistingDocumentsWhenSnapshotIsNotSearchable() throws Exception {
+    void deletesExistingDocumentsAndCompletesUpsertWhenSnapshotIsNotSearchable() throws Exception {
         MaterialSearchSyncQueueRepository queueRepository = org.mockito.Mockito.mock(MaterialSearchSyncQueueRepository.class);
         MaterialSearchableSnapshotRepository snapshotRepository = org.mockito.Mockito.mock(MaterialSearchableSnapshotRepository.class);
         ElasticsearchHealthService healthService = org.mockito.Mockito.mock(ElasticsearchHealthService.class);
@@ -203,13 +203,60 @@ class ElasticsearchIndexSyncServiceTest {
 
         service.requestProcessing();
 
+        verify(elasticsearchClient).deleteByQuery(org.mockito.ArgumentMatchers.any(DeleteByQueryRequest.class));
+        verify(elasticsearchClient, never()).bulk(org.mockito.ArgumentMatchers.any(BulkRequest.class));
+        verify(queueRepository).completeSearchSyncEntry(eq(entry.materialId()), eq(entry.claimedAt()), any());
+        verify(queueRepository, never()).markSearchSyncEntryForRetry(
+            eq(entry.materialId()),
+            any(),
+            any(),
+            any(),
+            any(),
+            any()
+        );
+    }
+
+    @Test
+    void retriesSearchableSnapshotWhenChunkDocumentsAreEmpty() throws Exception {
+        MaterialSearchSyncQueueRepository queueRepository = org.mockito.Mockito.mock(MaterialSearchSyncQueueRepository.class);
+        MaterialSearchableSnapshotRepository snapshotRepository = org.mockito.Mockito.mock(MaterialSearchableSnapshotRepository.class);
+        ElasticsearchHealthService healthService = org.mockito.Mockito.mock(ElasticsearchHealthService.class);
+        ElasticsearchClient elasticsearchClient = org.mockito.Mockito.mock(ElasticsearchClient.class);
+        MaterialSearchSyncQueueEntry entry = entry("material-a", 1, Instant.parse("2026-04-17T10:00:07Z"));
+
+        when(queueRepository.claimNextSearchSyncBatch(any(), anyInt()))
+            .thenReturn(List.of(entry))
+            .thenReturn(List.of());
+        when(queueRepository.hasPendingSearchSyncEvents(any())).thenReturn(false);
+        when(snapshotRepository.resolveSearchableSnapshot("material-a")).thenReturn(new SearchableMaterialSnapshot(
+            "material-a",
+            true,
+            "source-a",
+            "Material A",
+            "file",
+            "material-a.txt",
+            "text/plain",
+            Instant.parse("2026-04-17T10:00:00Z"),
+            List.of()
+        ));
+
+        ElasticsearchIndexSyncService service = createService(
+            properties(3, 5, 60),
+            queueRepository,
+            snapshotRepository,
+            healthService,
+            elasticsearchClient
+        );
+
+        service.requestProcessing();
+
         verify(elasticsearchClient, never()).deleteByQuery(org.mockito.ArgumentMatchers.any(DeleteByQueryRequest.class));
         verify(elasticsearchClient, never()).bulk(org.mockito.ArgumentMatchers.any(BulkRequest.class));
         verify(queueRepository).markSearchSyncEntryForRetry(
             eq(entry.materialId()),
             eq(entry.claimedAt()),
             eq("search.sync_failed"),
-            argThat((String message) -> message.contains("not searchable")),
+            argThat((String message) -> message.contains("no searchable chunk documents")),
             any(),
             any()
         );

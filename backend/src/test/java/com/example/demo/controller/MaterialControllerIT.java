@@ -48,7 +48,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
 
-@SpringBootTest
+@SpringBootTest(properties = "app.rollout.structured-v1=true")
 @AutoConfigureMockMvc
 @Import(IntegrationTestOverrides.class)
 class MaterialControllerIT extends PostgresIntegrationTestSupport {
@@ -93,26 +93,25 @@ class MaterialControllerIT extends PostgresIntegrationTestSupport {
 
     @Test
     void deletingActiveMaterialPromotesLatestSupersededVersion() throws Exception {
-        MaterialSummary first = createTextMaterial("Pricing FAQ", "Старая цена: 9000 тенге.");
-        MaterialSummary second = createTextMaterial("Pricing FAQ", "Новая цена: 12000 тенге.");
+        MaterialSummary first = createTextMaterial("Pricing Delete FAQ", "Старая цена: 9000 тенге.");
+        MaterialSummary second = createTextMaterial("Pricing Delete FAQ", "Новая цена: 12000 тенге.");
 
         mockMvc.perform(delete("/api/materials/{id}", second.id()))
             .andExpect(status().isOk());
 
-        mockMvc.perform(get("/api/materials"))
+        mockMvc.perform(get("/api/materials/{id}/lineage", first.id()))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.items", hasSize(1)))
-            .andExpect(jsonPath("$.total").value(1))
-            .andExpect(jsonPath("$.hasMore").value(false))
-            .andExpect(jsonPath("$.items[0].id").value(first.id()))
-            .andExpect(jsonPath("$.items[0].versionState").value("ACTIVE"))
-            .andExpect(jsonPath("$.items[0].preview").value(containsString("9000")));
+            .andExpect(jsonPath("$.activeMaterialId").value(first.id()))
+            .andExpect(jsonPath("$.versions", hasSize(1)))
+            .andExpect(jsonPath("$.versions[0].id").value(first.id()))
+            .andExpect(jsonPath("$.versions[0].versionState").value("ACTIVE"))
+            .andExpect(jsonPath("$.versions[0].preview").value(containsString("9000")));
     }
 
     @Test
     void returnsOrderedLineageForMaterial() throws Exception {
-        MaterialSummary first = createTextMaterial("Pricing FAQ", "Старая цена: 9000 тенге.");
-        MaterialSummary second = createTextMaterial("Pricing FAQ", "Новая цена: 12000 тенге.");
+        MaterialSummary first = createTextMaterial("Pricing Lineage FAQ", "Старая цена: 9000 тенге.");
+        MaterialSummary second = createTextMaterial("Pricing Lineage FAQ", "Новая цена: 12000 тенге.");
 
         mockMvc.perform(get("/api/materials/{id}/lineage", first.id()))
             .andExpect(status().isOk())
@@ -124,8 +123,63 @@ class MaterialControllerIT extends PostgresIntegrationTestSupport {
     }
 
     @Test
+    void uploadsControlledVersionIntoExistingLineage() throws Exception {
+        MaterialSummary first = createTextMaterial("Pricing Controlled FAQ", "Старая цена: 9000 тенге.");
+        String firstSourceKey = jdbcTemplate.queryForObject(
+            "SELECT source_key FROM materials WHERE id = ?",
+            String.class,
+            java.util.UUID.fromString(first.id())
+        );
+        Integer firstLineageVersion = jdbcTemplate.queryForObject(
+            "SELECT lineage_version FROM materials WHERE id = ?",
+            Integer.class,
+            java.util.UUID.fromString(first.id())
+        );
+        MockMultipartFile file = new MockMultipartFile(
+            "file",
+            "unrelated-name.txt",
+            "text/plain",
+            "Новая цена: 12000 тенге.".getBytes(StandardCharsets.UTF_8)
+        );
+
+        String responseBody = mockMvc.perform(multipart("/api/materials/{id}/versions", first.id()).file(file))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.title").value("Pricing Controlled FAQ"))
+            .andExpect(jsonPath("$.versionState").value("ACTIVE"))
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+        MaterialSummary second = objectMapper.readValue(responseBody, MaterialSummary.class);
+
+        String secondSourceKey = jdbcTemplate.queryForObject(
+            "SELECT source_key FROM materials WHERE id = ?",
+            String.class,
+            java.util.UUID.fromString(second.id())
+        );
+        Integer secondLineageVersion = jdbcTemplate.queryForObject(
+            "SELECT lineage_version FROM materials WHERE id = ?",
+            Integer.class,
+            java.util.UUID.fromString(second.id())
+        );
+        String firstVersionState = jdbcTemplate.queryForObject(
+            "SELECT version_state FROM materials WHERE id = ?",
+            String.class,
+            java.util.UUID.fromString(first.id())
+        );
+
+        Assertions.assertEquals(firstSourceKey, secondSourceKey);
+        Assertions.assertEquals(firstLineageVersion + 1, secondLineageVersion);
+        Assertions.assertEquals("SUPERSEDED", firstVersionState);
+        mockMvc.perform(get("/api/materials/{id}/lineage", first.id()))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.activeMaterialId").value(second.id()))
+            .andExpect(jsonPath("$.versions[0].id").value(second.id()))
+            .andExpect(jsonPath("$.versions[1].id").value(first.id()));
+    }
+
+    @Test
     void reindexesFailedActiveMaterial() throws Exception {
-        MaterialSummary material = createTextMaterial("Pricing FAQ", "Цена: 12000 тенге.");
+        MaterialSummary material = createTextMaterial("Pricing Reindex FAQ", "Цена: 12000 тенге.");
 
         jdbcTemplate.update(
             """

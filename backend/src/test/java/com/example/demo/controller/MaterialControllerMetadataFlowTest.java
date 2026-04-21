@@ -95,11 +95,12 @@ class MaterialControllerMetadataFlowTest {
             .andExpect(jsonPath("$.metadata.documentNumber").value("POL-2026-17"))
             .andExpect(jsonPath("$.metadata.workspaceKey").value("north-upgrade"))
             .andExpect(jsonPath("$.metadata.tags", hasItem("policy")))
-            .andExpect(jsonPath("$.metadata.sourceTrust").value("HIGH"))
+            .andExpect(jsonPath("$.metadata.sourceTrust").value("UNKNOWN"))
+            .andExpect(jsonPath("$.metadata.documentStatus").value("ACTIVE"))
             .andExpect(jsonPath("$.metadata.provenance.fieldOrigins.documentType").value("MANUAL"))
-            .andExpect(jsonPath("$.metadata.provenance.fieldOrigins.knowledgeDocumentClass").value("MANUAL"))
+            .andExpect(jsonPath("$.metadata.provenance.fieldOrigins.knowledgeDocumentClass").value("INFERRED"))
             .andExpect(jsonPath("$.metadata.provenance.fieldOrigins.workspaceKey").value("MANUAL"))
-            .andExpect(jsonPath("$.metadata.provenance.fieldOrigins.sourceTrust").value("MANUAL"));
+            .andExpect(jsonPath("$.metadata.provenance.fieldOrigins.sourceTrust").value("DEFAULT"));
 
         mockMvc.perform(get("/api/materials"))
             .andExpect(status().isOk())
@@ -131,10 +132,12 @@ class MaterialControllerMetadataFlowTest {
             .andExpect(jsonPath("$.metadata.department").value("Grid operations"))
             .andExpect(jsonPath("$.metadata.versionLabel").value("v2"))
             .andExpect(jsonPath("$.metadata.language").value("ru"))
-            .andExpect(jsonPath("$.metadata.workspaceKey").value("north-upgrade"))
+            .andExpect(jsonPath("$.metadata.languageCode").value("RU"))
+            .andExpect(jsonPath("$.metadata.workspaceKey").value("general"))
+            .andExpect(jsonPath("$.metadata.documentStatus").value("ACTIVE"))
             .andExpect(jsonPath("$.metadata.provenance.fieldOrigins.documentType").value("INFERRED"))
             .andExpect(jsonPath("$.metadata.provenance.fieldOrigins.knowledgeDocumentClass").value("INFERRED"))
-            .andExpect(jsonPath("$.metadata.provenance.fieldOrigins.workspaceKey").value("INFERRED"))
+            .andExpect(jsonPath("$.metadata.provenance.fieldOrigins.workspaceKey").value("DEFAULT"))
             .andExpect(jsonPath("$.metadata.provenance.fieldOrigins.author").value("INFERRED"))
             .andExpect(jsonPath("$.metadata.provenance.fieldOrigins.sourceTrust").value("DEFAULT"))
             .andExpect(jsonPath("$.metadata.provenance.fieldConfidence.documentType").exists())
@@ -231,14 +234,14 @@ class MaterialControllerMetadataFlowTest {
             .andExpect(jsonPath("$.title").value("contract-KZ-2026-0415-ENERGY-v2-ru.txt"))
             .andExpect(jsonPath("$.metadata.documentType").value("POLICY"))
             .andExpect(jsonPath("$.metadata.knowledgeDocumentClass").value("regulations"))
-            .andExpect(jsonPath("$.metadata.author").value("Manual owner"))
+            .andExpect(jsonPath("$.metadata.author").value("Dana Sarsen"))
             .andExpect(jsonPath("$.metadata.department").value("Grid operations"))
             .andExpect(jsonPath("$.metadata.versionLabel").value("v2"))
             .andExpect(jsonPath("$.metadata.workspaceKey").value("manual-policy-space"))
             .andExpect(jsonPath("$.metadata.tags", hasItem("grid")))
             .andExpect(jsonPath("$.metadata.sourceTrust").value("UNKNOWN"))
             .andExpect(jsonPath("$.metadata.provenance.fieldOrigins.documentType").value("MANUAL"))
-            .andExpect(jsonPath("$.metadata.provenance.fieldOrigins.author").value("MANUAL"))
+            .andExpect(jsonPath("$.metadata.provenance.fieldOrigins.author").value("INFERRED"))
             .andExpect(jsonPath("$.metadata.provenance.fieldOrigins.knowledgeDocumentClass").value("INFERRED"))
             .andExpect(jsonPath("$.metadata.provenance.fieldOrigins.workspaceKey").value("MANUAL"))
             .andExpect(jsonPath("$.metadata.provenance.fieldOrigins.department").value("INFERRED"))
@@ -301,7 +304,8 @@ class MaterialControllerMetadataFlowTest {
                 contentSupport,
                 lifecycleService,
                 indexingService,
-                afterCommitExecutor
+                afterCommitExecutor,
+                new MaterialMetadataResolver()
             ),
             new MaterialIngestionService(
                 repository,

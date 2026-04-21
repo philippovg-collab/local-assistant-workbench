@@ -115,7 +115,7 @@ const buildDegradedMessage = (health: HealthResponse | null) => {
   const degradedReason = getRagDegradedReason(health);
   return degradedReason
     ? `RAG backend сейчас деградирован: ${degradedReason}`
-    : "Активные материалы есть, но ни один ещё не готов для retrieval.";
+    : "Активные материалы есть, но ни один не проходит retrieval-ready условия: READY/PARTIAL_READY, documentStatus=ACTIVE и валидный период.";
 };
 
 export const buildRagReadinessPresentation = ({
@@ -137,7 +137,7 @@ export const buildRagReadinessPresentation = ({
     headline = "Readiness degraded";
   }
 
-  let overviewMessage = "Активные материалы и readiness считаются по одной модели состояния.";
+  let overviewMessage = "Readiness считается по active lineage, READY/PARTIAL_READY, действующему статусу документа и валидному периоду.";
   if (!health) {
     overviewMessage = "Проверяем backend readiness и состояние knowledge base.";
   } else if (ragReadiness.state === "empty") {
@@ -167,7 +167,7 @@ export const buildRagReadinessPresentation = ({
       materialsMessage = degradedMessage;
     } else {
       materialsMessage =
-        "RAG использует только активные READY и PARTIAL_READY версии, а historical остаются в каталоге для аудита.";
+        "RAG использует только active lineage версии со статусом READY/PARTIAL_READY, documentStatus=ACTIVE и валидным периодом; historical остаются в каталоге для аудита.";
     }
   }
 

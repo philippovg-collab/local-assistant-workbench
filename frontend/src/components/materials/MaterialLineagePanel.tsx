@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
-import type { MaterialLineageResponse } from "@/types";
+import type { MaterialLineageResponse, ReferenceProject, ReferenceWorkspace } from "@/types";
 import {
   formatLineageMeta,
   lineageVersions,
@@ -17,12 +17,16 @@ import {
 
 type MaterialLineagePanelProps = {
   lineageError: string | null;
+  referenceProjects?: ReferenceProject[];
+  referenceWorkspaces?: ReferenceWorkspace[];
   selectedLineage: MaterialLineageResponse | null;
   onClearLineage: () => void;
 };
 
 export function MaterialLineagePanel({
   lineageError,
+  referenceProjects = [],
+  referenceWorkspaces = [],
   selectedLineage,
   onClearLineage,
 }: MaterialLineagePanelProps) {
@@ -74,7 +78,10 @@ export function MaterialLineagePanel({
                 <Separator />
                 <p className="text-sm leading-7 text-foreground">{version.preview}</p>
 
-                <MaterialMetadataDisplay metadata={version.metadata} />
+                <MaterialMetadataDisplay
+                  metadata={version.metadata}
+                  references={{ projects: referenceProjects, workspaces: referenceWorkspaces }}
+                />
 
                 {version.versionState === "SUPERSEDED" ? (
                   <Alert variant="warning">

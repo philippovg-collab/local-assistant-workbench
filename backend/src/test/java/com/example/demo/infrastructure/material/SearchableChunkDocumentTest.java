@@ -102,10 +102,10 @@ class SearchableChunkDocumentTest {
         assertEquals("Grid operations", documents.get(0).department());
         assertEquals("North Upgrade", documents.get(0).project());
         assertEquals("GridBuild LLP", documents.get(0).counterparty());
-        assertEquals("APPROVED", documents.get(0).businessStatus());
+        assertEquals("ACTIVE", documents.get(0).businessStatus());
         assertEquals("ru", documents.get(0).language());
         assertEquals(List.of("dispatch", "grid"), documents.get(0).tags());
-        assertEquals("HIGH", documents.get(0).sourceTrust());
+        assertEquals("UNKNOWN", documents.get(0).sourceTrust());
         assertEquals("file", documents.get(0).sourceType());
         assertEquals(snapshot.updatedAt(), documents.get(0).updatedAt());
         assertEquals("material-123:1", documents.get(1).documentId());

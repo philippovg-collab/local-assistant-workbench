@@ -164,7 +164,8 @@ class LegacyMaterialImporterIT extends PostgresIntegrationTestSupport {
                 contentSupport,
                 lifecycleService,
                 materialIndexingService,
-                afterCommitExecutor
+                afterCommitExecutor,
+                new MaterialMetadataResolver()
             ),
             new MaterialIngestionService(
                 catalogRepository,

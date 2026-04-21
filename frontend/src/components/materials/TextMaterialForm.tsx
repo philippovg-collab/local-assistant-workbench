@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { MaterialMetadataFormSection } from "@/components/MaterialMetadataFormSection";
-import type { MaterialMetadataInput } from "@/types";
+import type { MaterialMetadataInput, ReferenceProject, ReferenceWorkspace } from "@/types";
 import {
   emptyMaterialMetadataFormState,
   type MaterialMetadataValidation,
@@ -19,12 +19,20 @@ import {
 type TextMaterialFormProps = {
   metadataV1Enabled: boolean;
   metadataDisabledReason: string;
+  referenceWorkspaces: ReferenceWorkspace[];
+  referenceProjects: ReferenceProject[];
+  isReferenceDataLoading: boolean;
+  referenceDataError: string | null;
   onCreateText: (input: { title: string; content: string; metadata?: MaterialMetadataInput }) => Promise<unknown>;
 };
 
 export function TextMaterialForm({
   metadataV1Enabled,
   metadataDisabledReason,
+  referenceWorkspaces,
+  referenceProjects,
+  isReferenceDataLoading,
+  referenceDataError,
   onCreateText,
 }: TextMaterialFormProps) {
   const [textTitle, setTextTitle] = useState("");
@@ -32,9 +40,14 @@ export function TextMaterialForm({
   const [textMetadata, setTextMetadata] = useState(emptyMaterialMetadataFormState);
   const [textMetadataValidation, setTextMetadataValidation] = useState<MaterialMetadataValidation | null>(null);
   const [isSavingText, setIsSavingText] = useState(false);
+  const isMetadataUnavailable = metadataV1Enabled
+    && (isReferenceDataLoading || Boolean(referenceDataError) || referenceWorkspaces.length === 0);
 
   const handleTextSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (isMetadataUnavailable) {
+      return;
+    }
     if (metadataV1Enabled) {
       const validation = validateMaterialMetadata(textMetadata);
       if (!validation.isValid) {
@@ -109,7 +122,11 @@ export function TextMaterialForm({
             disabledReason={metadataDisabledReason}
             errors={textMetadataValidation?.fieldErrors}
             idPrefix="text-material"
+            isReferenceDataLoading={isReferenceDataLoading}
+            projects={referenceProjects}
+            referenceDataError={referenceDataError}
             state={textMetadata}
+            workspaces={referenceWorkspaces}
             onChange={(next) => {
               setTextMetadata(next);
               if (textMetadataValidation) {
@@ -125,7 +142,7 @@ export function TextMaterialForm({
             </Alert>
           ) : null}
 
-          <Button disabled={isSavingText || !textContent.trim()} type="submit">
+          <Button disabled={isSavingText || !textContent.trim() || isMetadataUnavailable} type="submit">
             <FileText className="h-4 w-4" />
             {isSavingText ? "Сохраняем..." : "Сохранить текст"}
           </Button>

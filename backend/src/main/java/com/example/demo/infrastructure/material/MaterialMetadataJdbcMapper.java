@@ -1,7 +1,9 @@
 package com.example.demo.infrastructure.material;
 
+import com.example.demo.model.DocumentStatus;
 import com.example.demo.model.DocumentType;
 import com.example.demo.model.KnowledgeDocumentClass;
+import com.example.demo.model.MaterialLanguageCode;
 import com.example.demo.model.MaterialMetadataProvenance;
 import com.example.demo.model.MaterialMetadataSnapshot;
 import com.example.demo.model.SourceTrustLevel;
@@ -34,12 +36,18 @@ final class MaterialMetadataJdbcMapper {
             resultSet.getString("department"),
             resultSet.getString("version_label"),
             resultSet.getString("language_code"),
+            languageCodeOf(resultSet.getString("language_code")),
+            List.of(),
+            List.of(),
+            List.of(),
             List.of(),
             SourceTrustLevel.valueOf(resultSet.getString("source_trust")),
             resultSet.getString("project_name"),
+            resultSet.getString("project_key"),
             firstNonBlank(resultSet.getString("workspace_key"), payload.workspaceKey()),
             resultSet.getString("counterparty"),
             resultSet.getString("business_status"),
+            documentStatusOf(resultSet.getString("document_status")),
             toLocalDateOrNull(resultSet.getDate("period_start")),
             toLocalDateOrNull(resultSet.getDate("period_end")),
             payload.provenance()
@@ -97,6 +105,20 @@ final class MaterialMetadataJdbcMapper {
             return fallback;
         }
         return KnowledgeDocumentClass.valueOf(storedValue);
+    }
+
+    private static DocumentStatus documentStatusOf(String storedValue) {
+        if (storedValue == null || storedValue.isBlank()) {
+            return DocumentStatus.ACTIVE;
+        }
+        return DocumentStatus.valueOf(storedValue);
+    }
+
+    private static MaterialLanguageCode languageCodeOf(String storedValue) {
+        if (storedValue == null || storedValue.isBlank()) {
+            return null;
+        }
+        return MaterialLanguageCode.valueOf(storedValue);
     }
 
     private static LocalDate toLocalDateOrNull(java.sql.Date value) {

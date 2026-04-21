@@ -70,8 +70,8 @@ class MaterialRuntimeTopologyIT extends PostgresIntegrationTestSupport {
         assertInstanceOf(PostgresMaterialCatalogAdapter.class, catalogRepository);
         assertInstanceOf(PostgresMaterialLineageAdapter.class, lineageRepository);
         assertInstanceOf(PostgresMaterialChunkingAdapter.class, chunkingRepository);
-        assertInstanceOf(PostgresMaterialRetrievalSearchAdapter.class, semanticSearchRepository);
-        assertInstanceOf(PostgresMaterialRetrievalSearchAdapter.class, lexicalSearchProvider);
+        assertInstanceOf(PostgresMaterialSemanticSearchAdapter.class, semanticSearchRepository);
+        assertInstanceOf(PostgresMaterialLexicalSearchAdapter.class, lexicalSearchProvider);
         assertInstanceOf(PostgresMaterialIndexingQueueAdapter.class, indexingQueueRepository);
         assertInstanceOf(PostgresMaterialSearchSyncQueueAdapter.class, searchSyncQueueRepository);
         assertInstanceOf(PostgresMaterialSearchableSnapshotAdapter.class, searchableSnapshotRepository);

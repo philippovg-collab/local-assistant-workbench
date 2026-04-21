@@ -54,7 +54,7 @@ public class MaterialInfrastructureConfig {
         JdbcTemplate jdbcTemplate,
         PlatformTransactionManager transactionManager
     ) {
-        return new PostgresMaterialRetrievalSearchAdapter(jdbcTemplate, transactionManager);
+        return new PostgresMaterialSemanticSearchAdapter(jdbcTemplate, transactionManager);
     }
 
     @Bean
@@ -62,7 +62,7 @@ public class MaterialInfrastructureConfig {
         JdbcTemplate jdbcTemplate,
         PlatformTransactionManager transactionManager
     ) {
-        return new PostgresMaterialRetrievalSearchAdapter(jdbcTemplate, transactionManager);
+        return new PostgresMaterialLexicalSearchAdapter(jdbcTemplate, transactionManager);
     }
 
     @Bean

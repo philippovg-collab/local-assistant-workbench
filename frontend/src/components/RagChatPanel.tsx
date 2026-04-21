@@ -25,7 +25,6 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type {
   AnswerMode,
   ChatAuditRunDetail,
@@ -38,10 +37,9 @@ import type {
   ModelInfo,
   RetrievalFilters,
   RetrievalQueryHints,
-  SourceTrustLevel,
 } from "@/types";
 import { formatDate } from "@/utils/format";
-import { parseTagsInput, sourceTrustLabels } from "@/utils/materialMetadata";
+import { parseTagsInput } from "@/utils/materialMetadata";
 import {
   formatRetrievalFilterValue,
   hasRetrievalFilterValue,
@@ -116,8 +114,6 @@ const retrievalFilterLabels: Record<RetrievalFilterKey, string> = {
   tags: "Теги / ключевые слова",
   sourceTrustMin: "Минимальное доверие",
 };
-
-const sourceTrustOptions: SourceTrustLevel[] = ["HIGH", "MEDIUM", "LOW", "UNKNOWN"];
 
 type SourceTarget = {
   materialId: string;
@@ -506,28 +502,6 @@ export function RagChatPanel({
                       onChange={(event) => onRetrievalFilterChange("tags", parseTagsInput(event.target.value))}
                     />
                   </div>
-                  <div className="space-y-2">
-                    <label className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Минимальное доверие</label>
-                    <Select
-                      disabled={!metadataFiltersEnabled}
-                      value={retrievalFilters.sourceTrustMin ?? "none"}
-                      onValueChange={(value) =>
-                        onRetrievalFilterChange("sourceTrustMin", value === "none" ? null : (value as SourceTrustLevel))
-                      }
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Любой уровень" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="none">Любой уровень</SelectItem>
-                        {sourceTrustOptions.map((option) => (
-                          <SelectItem key={option} value={option}>
-                            {sourceTrustLabels[option]}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
                 </div>
               </SheetContent>
             </Sheet>
@@ -724,14 +698,12 @@ export function RagChatPanel({
                               </summary>
                               <div className="mt-3 grid gap-2 text-xs text-muted-foreground md:grid-cols-2">
                                 <div>chunkType: {source.chunkType ?? "NARRATIVE"}</div>
-                                <div>sourceTrust: {source.metadata?.sourceTrust ?? "UNKNOWN"}</div>
                                 <div>baseRrf: {source.scoreBreakdown.baseRrf}</div>
                                 <div>semantic bonus: {source.scoreBreakdown.semanticRankBonus}</div>
                                 <div>lexical bonus: {source.scoreBreakdown.lexicalRankBonus}</div>
                                 <div>identifier bonus: {source.scoreBreakdown.identifierBonus}</div>
                                 <div>heading bonus: {source.scoreBreakdown.headingBonus}</div>
                                 <div>metadata bonus: {source.scoreBreakdown.metadataBonus}</div>
-                                <div>trust boost: {source.scoreBreakdown.sourceTrustBoost}</div>
                                 <div>appendix penalty: {source.scoreBreakdown.appendixPenalty}</div>
                                 <div>boilerplate penalty: {source.scoreBreakdown.boilerplatePenalty}</div>
                                 <div>low-confidence penalty: {source.scoreBreakdown.lowConfidencePenalty}</div>

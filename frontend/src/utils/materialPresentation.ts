@@ -126,6 +126,12 @@ export const translateMaterialError = (
         return "Повторная индексация доступна только для активной версии материала.";
       case "material.reindex_not_allowed_for_status":
         return "Повторная индексация доступна только для материалов со статусом FAILED или PARTIAL_READY.";
+      case "material.version_upload_requires_active_version":
+        return "Новую версию можно загрузить только для активной версии материала.";
+      case "material.version_duplicate_content":
+        return "Этот файл уже есть в истории версий материала. Выбери файл с изменённым содержимым.";
+      case "material.version_upload_missing_lineage":
+        return "У материала нет lineage-ключа, поэтому новую версию нельзя загрузить автоматически.";
       default:
         if (error.code?.startsWith("material.storage_") || error.code?.startsWith("materials.storage_")) {
           return "Не удалось сохранить материал в локальном хранилище backend. Повтори попытку ещё раз.";

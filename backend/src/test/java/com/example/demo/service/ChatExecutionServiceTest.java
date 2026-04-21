@@ -717,7 +717,8 @@ class ChatExecutionServiceTest {
                 contentSupport,
                 lifecycleService,
                 indexingService,
-                afterCommitExecutor
+                afterCommitExecutor,
+                new MaterialMetadataResolver()
             ),
             new MaterialIngestionService(
                 repository,

@@ -19,6 +19,8 @@ import com.example.demo.model.MaterialDetail;
 import com.example.demo.model.MaterialListResponse;
 import com.example.demo.model.MaterialLineageResponse;
 import com.example.demo.model.MaterialLineageVersion;
+import com.example.demo.model.MaterialMetadataInput;
+import com.example.demo.model.MaterialMetadataSnapshot;
 import com.example.demo.model.MaterialPdfUploadPolicyResponse;
 import com.example.demo.model.MaterialSummary;
 import com.example.demo.model.MaterialUploadPolicyResponse;
@@ -32,6 +34,7 @@ import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -66,6 +69,7 @@ public class MaterialQueryService {
     private final MaterialIndexingService indexingService;
     private final AfterCommitExecutor afterCommitExecutor;
     private final RolloutProperties rolloutProperties;
+    private final MaterialMetadataResolver metadataResolver;
 
     @Autowired
     public MaterialQueryService(
@@ -78,7 +82,8 @@ public class MaterialQueryService {
         MaterialSearchSyncLifecycleService lifecycleService,
         MaterialIndexingService indexingService,
         AfterCommitExecutor afterCommitExecutor,
-        RolloutProperties rolloutProperties
+        RolloutProperties rolloutProperties,
+        MaterialMetadataResolver metadataResolver
     ) {
         this.repository = repository;
         this.chunkingRepository = chunkingRepository;
@@ -90,6 +95,7 @@ public class MaterialQueryService {
         this.indexingService = indexingService;
         this.afterCommitExecutor = afterCommitExecutor;
         this.rolloutProperties = rolloutProperties == null ? new RolloutProperties() : rolloutProperties;
+        this.metadataResolver = Objects.requireNonNull(metadataResolver, "metadataResolver");
     }
 
     public MaterialQueryService(
@@ -101,7 +107,8 @@ public class MaterialQueryService {
         MaterialContentSupport contentSupport,
         MaterialSearchSyncLifecycleService lifecycleService,
         MaterialIndexingService indexingService,
-        AfterCommitExecutor afterCommitExecutor
+        AfterCommitExecutor afterCommitExecutor,
+        MaterialMetadataResolver metadataResolver
     ) {
         this(
             repository,
@@ -113,7 +120,8 @@ public class MaterialQueryService {
             lifecycleService,
             indexingService,
             afterCommitExecutor,
-            RolloutProperties.enabledForTests()
+            RolloutProperties.enabledForTests(),
+            metadataResolver
         );
     }
 
@@ -178,16 +186,61 @@ public class MaterialQueryService {
             );
         }
 
-        String preservedReasonCode = isPartialWarning(record) ? record.statusReasonCode() : null;
-        String preservedReasonMessage = isPartialWarning(record) ? record.statusReasonMessage() : null;
+        Instant now = Instant.now();
+        StoredMaterialRecord recordForReindex = refreshMetadataForReindex(record, now);
+        String preservedReasonCode = isPartialWarning(recordForReindex) ? recordForReindex.statusReasonCode() : null;
+        String preservedReasonMessage = isPartialWarning(recordForReindex) ? recordForReindex.statusReasonMessage() : null;
         StoredMaterialRecord updatedRecord = lifecycleService.markIndexingPending(
-            record.id(),
+            recordForReindex.id(),
             preservedReasonCode,
             preservedReasonMessage,
-            Instant.now()
+            now
         );
         afterCommitExecutor.afterCommit(indexingService::requestProcessing);
         return contentSupport.toSummary(updatedRecord);
+    }
+
+    private StoredMaterialRecord refreshMetadataForReindex(StoredMaterialRecord record, Instant updatedAt) {
+        if (!rolloutProperties.isMetadataV1()) {
+            return record;
+        }
+
+        MaterialMetadataSnapshot refreshedMetadata = metadataResolver.resolve(
+            metadataInputForReindex(record.metadata()),
+            record.title(),
+            record.sourceType(),
+            record.originalFileName(),
+            record.mediaType(),
+            record.content()
+        );
+        StoredMaterialRecord updatedRecord = repository.updateMetadata(record.id(), refreshedMetadata, updatedAt);
+        return updatedRecord == null ? record : updatedRecord;
+    }
+
+    private MaterialMetadataInput metadataInputForReindex(MaterialMetadataSnapshot metadata) {
+        MaterialMetadataSnapshot safeMetadata = metadata == null ? MaterialMetadataSnapshot.empty() : metadata;
+        return new MaterialMetadataInput(
+            safeMetadata.documentType(),
+            safeMetadata.workspaceKey(),
+            safeMetadata.documentStatus(),
+            safeMetadata.projectKey(),
+            safeMetadata.documentNumber(),
+            safeMetadata.languageCode(),
+            safeMetadata.manualTags(),
+            safeMetadata.periodStart(),
+            safeMetadata.periodEnd(),
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            List.of(),
+            null,
+            null,
+            null,
+            null
+        );
     }
 
     public RechunkActiveMaterialsResponse rechunkActiveMaterials() {

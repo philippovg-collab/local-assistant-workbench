@@ -6,6 +6,7 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -13,11 +14,13 @@ import org.springframework.context.annotation.Configuration;
 public class AsyncInfrastructureConfig {
 
     @Bean(name = "materialIndexingExecutor", destroyMethod = "shutdown")
+    @ConditionalOnMissingBean(name = "materialIndexingExecutor")
     Executor materialIndexingExecutor() {
         return boundedExecutor("material-indexing", 2, 64);
     }
 
     @Bean(name = "searchSyncExecutor", destroyMethod = "shutdown")
+    @ConditionalOnMissingBean(name = "searchSyncExecutor")
     Executor searchSyncExecutor() {
         return boundedExecutor("search-sync", 2, 64);
     }

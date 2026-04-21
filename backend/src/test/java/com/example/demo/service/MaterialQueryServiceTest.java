@@ -18,9 +18,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.example.demo.api.ApiException;
 import com.example.demo.config.MaterialProperties;
+import com.example.demo.config.RolloutProperties;
+import com.example.demo.model.DocumentType;
 import com.example.demo.model.MaterialLineageResponse;
 import com.example.demo.model.MaterialIndexingStatus;
 import com.example.demo.model.MaterialListResponse;
+import com.example.demo.model.MaterialMetadataInput;
+import com.example.demo.model.MaterialMetadataSnapshot;
 import com.example.demo.model.MaterialSummary;
 import com.example.demo.model.RechunkActiveMaterialsBatchRequest;
 import com.example.demo.model.RechunkActiveMaterialsBatchResponse;
@@ -49,7 +53,8 @@ class MaterialQueryServiceTest {
             new MaterialContentSupport(properties),
             TestMaterialServices.lifecycleService(repository, repository, repository, repository, repository),
             org.mockito.Mockito.mock(MaterialIndexingService.class),
-            new AfterCommitExecutor()
+            new AfterCommitExecutor(),
+            new MaterialMetadataResolver()
         );
 
         MaterialUploadPolicyResponse response = service.getUploadPolicy();
@@ -80,7 +85,8 @@ class MaterialQueryServiceTest {
             new MaterialContentSupport(properties),
             TestMaterialServices.lifecycleService(repository, repository, repository, repository, repository),
             org.mockito.Mockito.mock(MaterialIndexingService.class),
-            new AfterCommitExecutor()
+            new AfterCommitExecutor(),
+            new MaterialMetadataResolver()
         );
 
         MaterialUploadPolicyResponse response = service.getUploadPolicy();
@@ -104,7 +110,8 @@ class MaterialQueryServiceTest {
             new MaterialContentSupport(properties),
             org.mockito.Mockito.mock(MaterialSearchSyncLifecycleService.class),
             org.mockito.Mockito.mock(MaterialIndexingService.class),
-            new AfterCommitExecutor()
+            new AfterCommitExecutor(),
+            new MaterialMetadataResolver()
         );
 
         assertTrue(service.listSummaries().isEmpty());
@@ -141,7 +148,8 @@ class MaterialQueryServiceTest {
             new MaterialContentSupport(properties),
             org.mockito.Mockito.mock(MaterialSearchSyncLifecycleService.class),
             org.mockito.Mockito.mock(MaterialIndexingService.class),
-            new AfterCommitExecutor()
+            new AfterCommitExecutor(),
+            new MaterialMetadataResolver()
         );
 
         MaterialListResponse page = service.listSummariesPage(100, 100);
@@ -320,6 +328,96 @@ class MaterialQueryServiceTest {
         assertEquals(MaterialIndexingStatus.PENDING, updated.status());
         assertEquals(null, updated.statusReasonCode());
         org.mockito.Mockito.verify(indexingService).requestProcessing();
+    }
+
+    @Test
+    void reindexPreservesManualTagsAndRecomputesAutoTags() {
+        MaterialProperties properties = new MaterialProperties();
+        InMemoryMaterialRepository repository = new InMemoryMaterialRepository();
+        MaterialIndexingService indexingService = org.mockito.Mockito.mock(MaterialIndexingService.class);
+        MaterialQueryService service = createService(repository, properties, indexingService);
+        MaterialMetadataSnapshot metadata = MaterialMetadataSnapshot
+            .fromInput(new MaterialMetadataInput(
+                DocumentType.REPORT,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                List.of("manual-grid"),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+            ))
+            .withTagLayers(List.of("manual-grid"), List.of("stale-auto"));
+        StoredMaterialRecord failed = materialRecord(
+            "Relay Upgrade Report",
+            "Ошибка индексации.",
+            "relay-lineage",
+            MaterialVersionState.ACTIVE,
+            Instant.parse("2026-04-17T10:00:00Z"),
+            Instant.parse("2026-04-17T10:00:00Z"),
+            MaterialIndexingStatus.FAILED,
+            "embedding.provider_unavailable",
+            "Embedding недоступен"
+        ).withMetadata(metadata);
+        repository.save(failed, List.of());
+
+        service.reindex(failed.id());
+
+        StoredMaterialRecord updated = repository.findById(failed.id()).orElseThrow();
+        assertEquals(List.of("manual-grid"), updated.metadata().manualTags());
+        assertEquals(List.of("relay", "upgrade"), updated.metadata().autoTags());
+        assertEquals(List.of("manual-grid", "relay", "upgrade"), updated.metadata().effectiveTags());
+        assertEquals(List.of("manual-grid", "relay", "upgrade"), updated.metadata().tags());
+    }
+
+    @Test
+    void reindexUsesInjectedMetadataResolver() {
+        MaterialProperties properties = new MaterialProperties();
+        InMemoryMaterialRepository repository = new InMemoryMaterialRepository();
+        MaterialIndexingService indexingService = org.mockito.Mockito.mock(MaterialIndexingService.class);
+        MaterialMetadataResolver metadataResolver = org.mockito.Mockito.mock(MaterialMetadataResolver.class);
+        MaterialMetadataSnapshot resolvedMetadata = MaterialMetadataSnapshot.empty()
+            .withManualTags(List.of("resolver-used"));
+        org.mockito.Mockito.when(metadataResolver.resolve(
+            org.mockito.ArgumentMatchers.any(MaterialMetadataInput.class),
+            org.mockito.ArgumentMatchers.any(),
+            org.mockito.ArgumentMatchers.any(),
+            org.mockito.ArgumentMatchers.any(),
+            org.mockito.ArgumentMatchers.any(),
+            org.mockito.ArgumentMatchers.any()
+        )).thenReturn(resolvedMetadata);
+        MaterialQueryService service = createService(repository, properties, indexingService, metadataResolver);
+        StoredMaterialRecord failed = materialRecord(
+            "Pricing FAQ",
+            "Ошибка индексации.",
+            "pricing-lineage",
+            MaterialVersionState.ACTIVE,
+            Instant.parse("2026-04-17T10:00:00Z"),
+            Instant.parse("2026-04-17T10:00:00Z"),
+            MaterialIndexingStatus.FAILED,
+            "embedding.provider_unavailable",
+            "Embedding недоступен"
+        );
+        repository.save(failed, List.of());
+
+        service.reindex(failed.id());
+
+        StoredMaterialRecord updated = repository.findById(failed.id()).orElseThrow();
+        assertEquals(List.of("resolver-used"), updated.metadata().manualTags());
+        org.mockito.Mockito.verify(metadataResolver).resolve(
+            org.mockito.ArgumentMatchers.any(MaterialMetadataInput.class),
+            org.mockito.ArgumentMatchers.eq("Pricing FAQ"),
+            org.mockito.ArgumentMatchers.any(),
+            org.mockito.ArgumentMatchers.any(),
+            org.mockito.ArgumentMatchers.any(),
+            org.mockito.ArgumentMatchers.eq("Ошибка индексации.")
+        );
     }
 
     @Test
@@ -748,6 +846,15 @@ class MaterialQueryServiceTest {
         MaterialProperties properties,
         MaterialIndexingService indexingService
     ) {
+        return createService(repository, properties, indexingService, new MaterialMetadataResolver());
+    }
+
+    private MaterialQueryService createService(
+        InMemoryMaterialRepository repository,
+        MaterialProperties properties,
+        MaterialIndexingService indexingService,
+        MaterialMetadataResolver metadataResolver
+    ) {
         MaterialSearchSyncLifecycleService lifecycleService = TestMaterialServices.lifecycleService(
             repository,
             repository,
@@ -764,7 +871,9 @@ class MaterialQueryServiceTest {
             new MaterialContentSupport(properties),
             lifecycleService,
             indexingService,
-            new AfterCommitExecutor()
+            new AfterCommitExecutor(),
+            RolloutProperties.enabledForTests(),
+            metadataResolver
         );
     }
 

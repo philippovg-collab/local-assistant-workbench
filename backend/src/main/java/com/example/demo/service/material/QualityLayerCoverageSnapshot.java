@@ -3,9 +3,9 @@ package com.example.demo.service.material;
 public record QualityLayerCoverageSnapshot(
     int activeTotal,
     int activeWithEffectiveMetadata,
+    int workspaceCovered,
     int documentTypeCovered,
-    int sourceTrustCovered,
-    int authorOrDepartmentCovered,
+    int documentStatusCovered,
     int structuredProfileActive,
     int partialReadyActive
 ) {

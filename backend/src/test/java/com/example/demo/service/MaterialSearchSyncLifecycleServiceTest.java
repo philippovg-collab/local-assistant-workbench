@@ -259,7 +259,8 @@ class MaterialSearchSyncLifecycleServiceTest {
                 contentSupport,
                 lifecycleService,
                 indexingService,
-                new AfterCommitExecutor()
+                new AfterCommitExecutor(),
+                new MaterialMetadataResolver()
             ),
             new MaterialIngestionService(
                 repository,

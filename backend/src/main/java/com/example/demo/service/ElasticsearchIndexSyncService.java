@@ -203,7 +203,8 @@ public class ElasticsearchIndexSyncService {
 
         SearchableMaterialSnapshot snapshot = searchableSnapshotRepository.resolveSearchableSnapshot(materialId);
         if (!snapshot.searchable()) {
-            throw new IllegalStateException("Material is not searchable yet; preserving existing Elasticsearch documents");
+            deleteExistingDocuments(materialId);
+            return;
         }
 
         List<SearchableChunkDocument> documents = SearchableChunkDocument.fromSnapshot(snapshot);

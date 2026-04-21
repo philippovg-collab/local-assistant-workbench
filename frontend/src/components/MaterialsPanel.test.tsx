@@ -4,7 +4,40 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { MaterialsPanel } from "./MaterialsPanel";
 import { buildMaterialSummary } from "../testBuilders";
 import { buildRagReadinessPresentation, deriveRagReadiness } from "../utils/readiness";
-import type { HealthResponse } from "../types";
+import type { HealthResponse, ReferenceProject, ReferenceWorkspace } from "../types";
+
+const referenceWorkspaces: ReferenceWorkspace[] = [
+  {
+    key: "general",
+    nameRu: "Общая",
+    active: true,
+    sortOrder: 0,
+    isDefault: true,
+    createdAt: "2026-04-20T10:00:00Z",
+    updatedAt: "2026-04-20T10:00:00Z",
+  },
+  {
+    key: "north-upgrade",
+    nameRu: "Северная модернизация",
+    active: true,
+    sortOrder: 1,
+    isDefault: false,
+    createdAt: "2026-04-20T10:00:00Z",
+    updatedAt: "2026-04-20T10:00:00Z",
+  },
+];
+
+const referenceProjects: ReferenceProject[] = [
+  {
+    key: "north-line",
+    workspaceKey: "north-upgrade",
+    nameRu: "Северная линия",
+    active: true,
+    sortOrder: 0,
+    createdAt: "2026-04-20T10:00:00Z",
+    updatedAt: "2026-04-20T10:00:00Z",
+  },
+];
 
 const renderPanel = (
   overrides: Partial<Parameters<typeof MaterialsPanel>[0]> = {},
@@ -42,20 +75,22 @@ const renderPanel = (
       error={null}
 	      isLoading={false}
 	      isLoadingMore={false}
-	      lineageError={null}
-	      loadingLineageMaterialId={null}
-	      hasMoreMaterials={false}
-	      materials={materials}
-	      materialTotal={materials.length}
-	      metadataV1Enabled={false}
+      lineageError={null}
+      loadingLineageMaterialId={null}
+      hasMoreMaterials={false}
+      isReferenceDataLoading={false}
+      materials={materials}
+      materialTotal={materials.length}
+      metadataV1Enabled={false}
 	      message={null}
 	      onClearLineage={vi.fn()}
 	      onCreateText={vi.fn()}
 	      onDelete={vi.fn()}
 	      onLoadLineage={vi.fn()}
-	      onLoadMore={vi.fn()}
-	      onReindex={vi.fn()}
+      onLoadMore={vi.fn()}
+      onReindex={vi.fn()}
       onUpload={vi.fn()}
+      onUploadVersion={vi.fn()}
       policyWarning={null}
       ragPresentation={
         overrides.ragPresentation ?? buildRagReadinessPresentation({
@@ -66,17 +101,35 @@ const renderPanel = (
           selectedModel: "qwen2.5:7b",
         })
       }
+      referenceDataError={null}
+      referenceProjects={referenceProjects}
+      referenceWorkspaces={referenceWorkspaces}
       reindexingMaterialId={null}
       selectedLineage={null}
       uploadPolicy={null}
+      versionUploadingMaterialId={null}
       {...overrides}
     />,
   );
 };
 
+const chooseSelectOption = async (
+  user: ReturnType<typeof userEvent.setup>,
+  label: string,
+  option: string,
+  index = 0,
+) => {
+  await waitFor(() => {
+    expect((screen.getAllByLabelText(label)[index] as HTMLButtonElement).disabled).toBe(false);
+  });
+  await user.click(screen.getAllByLabelText(label)[index]);
+  await user.click(await screen.findByRole("option", { name: option }));
+};
+
 describe("MaterialsPanel", () => {
   afterEach(() => {
     cleanup();
+    vi.clearAllMocks();
   });
 
   it("includes pdf in the upload accept list and mentions OCR fallback", () => {
@@ -226,6 +279,82 @@ describe("MaterialsPanel", () => {
     expect(screen.getByText(/исключены из retrieval и readiness/i)).toBeTruthy();
   });
 
+  it("renders reference names instead of machine keys in material metadata cards", () => {
+    renderPanel({
+      materials: [
+        buildMaterialSummary({
+          id: "metadata-card",
+          title: "Grid policy",
+          metadata: {
+            workspaceKey: "general",
+            projectKey: "north-line",
+            documentType: "POLICY",
+            documentStatus: "ACTIVE",
+            provenance: {
+              fieldOrigins: {
+                workspaceKey: "MANUAL",
+                projectKey: "MANUAL",
+                documentType: "MANUAL",
+                documentStatus: "MANUAL",
+              },
+              fieldConfidence: {},
+            },
+          },
+        }),
+      ],
+    });
+
+    expect(screen.getByText("Grid policy")).toBeTruthy();
+    expect(screen.getAllByText("Общая").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Северная линия").length).toBeGreaterThan(0);
+    expect(screen.queryByText((_, element) => element?.textContent?.includes("Рабочая область: general") ?? false))
+      .toBeNull();
+    expect(screen.queryByText((_, element) => element?.textContent?.includes("Проект: north-line") ?? false))
+      .toBeNull();
+  });
+
+  it("renders reference names in lineage metadata", () => {
+    renderPanel({
+      selectedLineage: {
+        requestedMaterialId: "lineage-version",
+        activeMaterialId: "lineage-version",
+        versions: [
+          {
+            ...buildMaterialSummary({
+              id: "lineage-version",
+              title: "Lineage grid policy",
+              metadata: {
+                workspaceKey: "general",
+                projectKey: "north-line",
+                documentType: "POLICY",
+                documentStatus: "ACTIVE",
+                provenance: {
+                  fieldOrigins: {
+                    workspaceKey: "MANUAL",
+                    projectKey: "MANUAL",
+                    documentType: "MANUAL",
+                    documentStatus: "MANUAL",
+                  },
+                  fieldConfidence: {},
+                },
+              },
+            }),
+            supersededByMaterialId: null,
+            supersedeReason: null,
+          },
+        ],
+      },
+    });
+
+    expect(screen.getByText("История версий")).toBeTruthy();
+    expect(screen.getAllByText("Общая").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Северная линия").length).toBeGreaterThan(0);
+    expect(screen.queryByText((_, element) => element?.textContent?.includes("Рабочая область: general") ?? false))
+      .toBeNull();
+    expect(screen.queryByText((_, element) => element?.textContent?.includes("Проект: north-line") ?? false))
+      .toBeNull();
+  });
+
   it("filters the catalog to problematic materials and exposes reindex actions only there", async () => {
     const user = userEvent.setup();
     renderPanel({
@@ -264,6 +393,71 @@ describe("MaterialsPanel", () => {
     expect(screen.queryByText("Ready tariff")).toBeNull();
     expect(screen.getByText("Broken tariff")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Повторить индекс" })).toBeTruthy();
+  });
+
+  it("shows controlled version upload only for active material versions", async () => {
+    const user = userEvent.setup();
+    renderPanel({
+      materials: [
+        buildMaterialSummary({
+          id: "active-ready",
+          title: "Ready tariff",
+          sourceType: "file",
+          originalFileName: "ready.pdf",
+          status: "READY",
+          versionState: "ACTIVE",
+        }),
+        buildMaterialSummary({
+          id: "historical-1",
+          title: "Old tariff",
+          sourceType: "file",
+          originalFileName: "old.pdf",
+          status: "READY",
+          versionState: "SUPERSEDED",
+        }),
+      ],
+    });
+
+    await user.click(screen.getByRole("button", { name: "Все версии" }));
+
+    expect(screen.getByText("Ready tariff")).toBeTruthy();
+    expect(screen.getByText("Old tariff")).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: "Загрузить новую версию" })).toHaveLength(1);
+  });
+
+  it("submits controlled version upload from the active material card", async () => {
+    const user = userEvent.setup();
+    const onUploadVersion = vi.fn().mockResolvedValue(undefined);
+    const file = new File(["version two"], "version-two.txt", { type: "text/plain" });
+    renderPanel({
+      onUploadVersion,
+      materials: [
+        buildMaterialSummary({
+          id: "active-ready",
+          title: "Ready tariff",
+          sourceType: "file",
+          originalFileName: "ready.pdf",
+          status: "READY",
+          versionState: "ACTIVE",
+        }),
+      ],
+    });
+
+    await user.click(screen.getByRole("button", { name: "Загрузить новую версию" }));
+    await user.type(screen.getByPlaceholderText("Ready tariff"), "Ready tariff override");
+    const fileInput = screen.getByLabelText("Файл новой версии") as HTMLInputElement;
+    await user.upload(fileInput, file);
+    await waitFor(() => {
+      expect((screen.getByRole("button", { name: "Отправить новую версию" }) as HTMLButtonElement).disabled).toBe(false);
+    });
+    fireEvent.submit(fileInput.closest("form") as HTMLFormElement);
+
+    await waitFor(() => {
+      expect(onUploadVersion).toHaveBeenCalledWith("active-ready", {
+        file,
+        title: "Ready tariff override",
+      });
+    });
   });
 
   it("renders backend catalog total separately from the loaded page", () => {
@@ -328,13 +522,24 @@ describe("MaterialsPanel", () => {
     expect(screen.getByText(/Активная версия: active-2/i)).toBeTruthy();
   });
 
-  it("allows text submit with empty metadata so backend can auto-fill fields", async () => {
+  it("requires document type and submits canonical metadata when metadata rollout is enabled", async () => {
     const user = userEvent.setup();
     const onCreateText = vi.fn().mockResolvedValue(undefined);
 
     renderPanel({ metadataV1Enabled: true, onCreateText });
 
     await user.type(screen.getByLabelText("Содержимое"), "Новый материал");
+    await waitFor(() => {
+      expect((screen.getByRole("button", { name: "Сохранить текст" }) as HTMLButtonElement).disabled).toBe(false);
+    });
+    await user.click(screen.getByRole("button", { name: "Сохранить текст" }));
+
+    await waitFor(() => {
+      expect(screen.getAllByText("Выберите тип документа.").length).toBeGreaterThan(1);
+    });
+    expect(onCreateText).not.toHaveBeenCalled();
+
+    await chooseSelectOption(user, "Тип документа", "Политика");
     await user.click(screen.getByRole("button", { name: "Сохранить текст" }));
 
     await waitFor(() => {
@@ -343,9 +548,12 @@ describe("MaterialsPanel", () => {
     const payload = onCreateText.mock.calls[0][0];
     expect(payload.title).toBe("");
     expect(payload.content).toBe("Новый материал");
-    expect(payload.metadata).toBeTruthy();
-    expect(Object.values(payload.metadata).some((value) => value === "")).toBe(false);
-    expect(screen.queryByText(/выбери тип документа/i)).toBeNull();
+    expect(payload.metadata).toEqual({
+      workspaceKey: "general",
+      documentType: "POLICY",
+      documentStatus: "ACTIVE",
+      languageCode: null,
+    });
   });
 
   it("allows text submit without metadata when metadata rollout is disabled", async () => {
@@ -361,27 +569,25 @@ describe("MaterialsPanel", () => {
       title: "",
       content: "Новый материал",
     });
-    expect(screen.queryByText(/выбери тип документа/i)).toBeNull();
+    expect(screen.queryByText("Выберите тип документа.")).toBeNull();
   });
 
-  it("supports per-file title and metadata overrides in batch upload", async () => {
+  it("supports per-file title override while sharing canonical metadata in batch upload", async () => {
     const user = userEvent.setup();
     const onUpload = vi.fn().mockResolvedValue(undefined);
     renderPanel({ metadataV1Enabled: true, onUpload });
+
+    await chooseSelectOption(user, "Тип документа", "Договор", 1);
 
     const fileInput = screen.getByLabelText("Файлы") as HTMLInputElement;
     const firstFile = new File(["first"], "first.txt", { type: "text/plain" });
     const secondFile = new File(["second"], "second.txt", { type: "text/plain" });
 
     await user.upload(fileInput, [firstFile, secondFile]);
-    await user.click(screen.getAllByRole("button", { name: "Настроить атрибуты" })[0]);
+    await user.click(screen.getAllByRole("button", { name: "Настроить название" })[0]);
     await user.type(
       screen.getByPlaceholderText("Оставь пустым, чтобы backend использовал имя файла"),
       "Первый override",
-    );
-    await user.type(
-      screen.getByPlaceholderText("Оставь пустым, чтобы использовать общие теги"),
-      "contract, premium",
     );
 
     fireEvent.submit(fileInput.closest("form") as HTMLFormElement);
@@ -392,13 +598,21 @@ describe("MaterialsPanel", () => {
           expect.objectContaining({
             file: firstFile,
             title: "Первый override",
-            metadata: expect.objectContaining({
-              tags: ["contract", "premium"],
-            }),
+            metadata: {
+              workspaceKey: "general",
+              documentType: "CONTRACT",
+              documentStatus: "ACTIVE",
+              languageCode: null,
+            },
           }),
           expect.objectContaining({
             file: secondFile,
-            metadata: expect.any(Object),
+            metadata: {
+              workspaceKey: "general",
+              documentType: "CONTRACT",
+              documentStatus: "ACTIVE",
+              languageCode: null,
+            },
           }),
         ],
       });
@@ -413,6 +627,13 @@ describe("MaterialsPanel", () => {
           title: "Provenance sample",
 	          metadata: {
 	            documentType: "CONTRACT",
+	            documentStatus: "ACTIVE",
+            workspaceKey: "general",
+            projectKey: "north-upgrade",
+            languageCode: "RU",
+            manualTags: ["energy", "grid"],
+            autoTags: ["auto-grid"],
+            effectiveTags: ["energy", "grid", "auto-grid"],
 	            knowledgeDocumentClass: "contracts",
 	            documentDate: "2026-04-15",
             documentNumber: "KZ-2026-0415-ENERGY",
@@ -420,7 +641,7 @@ describe("MaterialsPanel", () => {
             department: "Grid operations",
             versionLabel: "v2",
             language: "ru",
-            tags: ["energy", "grid"],
+            tags: ["energy", "grid", "auto-grid"],
             sourceTrust: "UNKNOWN",
             project: "North Upgrade",
             counterparty: null,
@@ -430,6 +651,12 @@ describe("MaterialsPanel", () => {
             provenance: {
               fieldOrigins: {
                 documentType: "MANUAL",
+                workspaceKey: "MANUAL",
+                projectKey: "MANUAL",
+                languageCode: "INFERRED",
+                manualTags: "MANUAL",
+                autoTags: "INFERRED",
+                effectiveTags: "MANUAL",
                 documentDate: "INFERRED",
                 documentNumber: "INFERRED",
                 author: "MANUAL",
@@ -452,16 +679,26 @@ describe("MaterialsPanel", () => {
     });
 
     expect(
-      screen.getAllByText((_, element) => element?.textContent?.includes("Тип: Contract") ?? false).length,
+      screen.getAllByText((_, element) => element?.textContent?.includes("Тип документа: Договор") ?? false).length,
     ).toBeGreaterThan(0);
     expect(
-      screen.getAllByText((_, element) => element?.textContent?.includes("Номер: KZ-2026-0415-ENERGY") ?? false).length,
+      screen.getAllByText((_, element) => element?.textContent?.includes("Номер документа: KZ-2026-0415-ENERGY") ?? false).length,
     ).toBeGreaterThan(0);
-    expect(screen.getByText(/KZ-2026-0415-ENERGY/i)).toBeTruthy();
-    expect(screen.getAllByText("manual").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("auto").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("default").length).toBeGreaterThan(0);
-    expect(screen.queryByText(/Корпус:/i)).toBeNull();
-    expect(screen.queryByText(/Workspace:/i)).toBeNull();
+    expect(screen.getAllByText((_, element) => element?.textContent?.includes("Рабочая область: Общая") ?? false).length)
+      .toBeGreaterThan(0);
+    expect(screen.getAllByText((_, element) => element?.textContent?.includes("Статус документа: Действует") ?? false).length)
+      .toBeGreaterThan(0);
+    expect(screen.getAllByText((_, element) => element?.textContent?.includes("Ручные теги: energy, grid") ?? false).length)
+      .toBeGreaterThan(0);
+    expect(screen.getAllByText((_, element) => element?.textContent?.includes("Авто-теги: auto-grid") ?? false).length)
+      .toBeGreaterThan(0);
+    expect(screen.getAllByText((_, element) => element?.textContent?.includes("Теги: energy, grid, auto-grid") ?? false).length)
+      .toBeGreaterThan(0);
+    expect(screen.getAllByText("вручную").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("авто").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("по умолчанию").length).toBeGreaterThan(0);
+    expect(screen.queryByText(/Класс знаний:/i)).toBeNull();
+    expect(screen.queryByText(/Автор:/i)).toBeNull();
+    expect(screen.queryByText(/Доверие:/i)).toBeNull();
   });
 });

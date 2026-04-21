@@ -6,6 +6,7 @@ import type {
   MaterialMetadataInput,
   MaterialSummary,
   MaterialUploadPolicy,
+  MaterialVersionUploadInput,
 } from "@/types";
 import {
   buildIngestionMessage,
@@ -35,6 +36,7 @@ export const useMaterialMutations = ({
   const [actionError, setActionError] = useState<string | null>(null);
   const [deletingMaterialId, setDeletingMaterialId] = useState<string | null>(null);
   const [reindexingMaterialId, setReindexingMaterialId] = useState<string | null>(null);
+  const [versionUploadingMaterialId, setVersionUploadingMaterialId] = useState<string | null>(null);
 
   const createTextMaterial = async (input: { title: string; content: string; metadata?: MaterialMetadataInput }) => {
     setActionError(null);
@@ -119,6 +121,42 @@ export const useMaterialMutations = ({
     }
   };
 
+  const uploadMaterialVersion = async (materialId: string, input: MaterialVersionUploadInput) => {
+    setVersionUploadingMaterialId(materialId);
+    setActionError(null);
+    setMessage(null);
+    let activePolicy = uploadPolicy;
+    let handledError = false;
+
+    try {
+      const policy = await ensureUploadPolicy();
+      activePolicy = policy;
+
+      const validationError = validateUploadInput({ items: [input] }, policy);
+      if (validationError) {
+        setActionError(validationError);
+        handledError = true;
+        throw new Error(validationError);
+      }
+
+      const created = await apiClient.uploadMaterialVersion(materialId, input);
+      await loadMaterials();
+      await refreshLineageIfContains(materialId);
+      setMessage(buildIngestionMessage(created, "Файл новой версии"));
+      return created;
+    } catch (uploadError) {
+      if (!handledError) {
+        setActionError(withFileLabel(
+          input.file,
+          translateMaterialError(uploadError, "Не удалось загрузить новую версию", activePolicy),
+        ));
+      }
+      throw uploadError;
+    } finally {
+      setVersionUploadingMaterialId((current) => (current === materialId ? null : current));
+    }
+  };
+
   const reindexMaterial = async (materialId: string) => {
     setReindexingMaterialId(materialId);
     setActionError(null);
@@ -147,8 +185,10 @@ export const useMaterialMutations = ({
     actionError,
     deletingMaterialId,
     reindexingMaterialId,
+    versionUploadingMaterialId,
     createTextMaterial,
     uploadMaterial,
+    uploadMaterialVersion,
     deleteMaterial,
     reindexMaterial,
   };

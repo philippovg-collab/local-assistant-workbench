@@ -4,9 +4,9 @@ public record MetadataCoverage(
     int activeTotal,
     int activeWithEffectiveMetadata,
     double ratio,
+    CoverageStat workspace,
     CoverageStat documentType,
-    CoverageStat sourceTrust,
-    CoverageStat authorOrDepartment
+    CoverageStat documentStatus
 ) {
     public static MetadataCoverage empty() {
         return new MetadataCoverage(

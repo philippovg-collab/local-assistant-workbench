@@ -336,4 +336,38 @@ public record StoredMaterialRecord(
             metadata
         );
     }
+
+    public StoredMaterialRecord withVersionState(
+        MaterialVersionState updatedVersionState,
+        String updatedSupersededByMaterialId,
+        String updatedSupersedeReason
+    ) {
+        return new StoredMaterialRecord(
+            id,
+            title,
+            sourceType,
+            originalFileName,
+            mediaType,
+            content,
+            normalizedContent,
+            contentHash,
+            sourceKey,
+            extractor,
+            ocrUsed,
+            pageCount,
+            chunks,
+            status,
+            updatedVersionState,
+            statusReasonCode,
+            statusReasonMessage,
+            createdAt,
+            updatedAt,
+            indexingAttempts,
+            nextRetryAt,
+            updatedSupersededByMaterialId,
+            updatedSupersedeReason,
+            lineageVersion,
+            metadata
+        );
+    }
 }

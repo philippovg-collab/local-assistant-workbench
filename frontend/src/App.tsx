@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type Dispatch, type FormEvent, type S
 import {
   BookOpenText,
   BrainCircuit,
+  Database,
   Files,
   LayoutDashboard,
   Loader2,
@@ -33,6 +34,7 @@ import { InstructionLibraryPanel } from "@/components/InstructionLibraryPanel";
 import { KnowledgePresetLibraryPanel } from "@/components/KnowledgePresetLibraryPanel";
 import { MaterialsPanel } from "@/components/MaterialsPanel";
 import { RagChatPanel } from "@/components/RagChatPanel";
+import { ReferenceDataPanel } from "@/components/ReferenceDataPanel";
 import { StatusSummary } from "@/components/StatusSummary";
 import { cn } from "@/lib/utils";
 import { useChatExecution } from "@/hooks/useChatExecution";
@@ -42,6 +44,7 @@ import { useInstructions } from "@/hooks/useInstructions";
 import { useKnowledgePresets } from "@/hooks/useKnowledgePresets";
 import { useMaterials } from "@/hooks/useMaterials";
 import { useModels } from "@/hooks/useModels";
+import { useReferenceData } from "@/hooks/useReferenceData";
 import type { AuthSession } from "@/types";
 import {
   buildDirectReadinessPresentation,
@@ -53,7 +56,7 @@ import { DEFAULT_KNOWLEDGE_SCOPE } from "@/utils/workbenchPresentation";
 
 const kegocLogo = "https://ai.kegoc.kz/assets/kegoc-logo-new-nY5PHfMg.svg";
 
-type WorkspaceTab = "overview" | "materials" | "instructions" | "rag" | "direct";
+type WorkspaceTab = "overview" | "materials" | "instructions" | "references" | "rag" | "direct";
 type AuthStatus = "loading" | "authenticated" | "unauthenticated";
 
 type WorkbenchAppProps = {
@@ -70,21 +73,27 @@ const tabs: Array<{
 }> = [
   {
     id: "overview",
-    label: "Dashboard",
+    label: "Дашборд",
     description: "Общий health, readiness и production signals",
     icon: LayoutDashboard,
   },
   {
     id: "materials",
-    label: "Materials",
+    label: "Материалы",
     description: "Управление knowledge base и lineage",
     icon: Files,
   },
   {
     id: "instructions",
-    label: "Instructions",
+    label: "Инструкции",
     description: "Instruction stack и knowledge presets",
     icon: NotebookPen,
+  },
+  {
+    id: "references",
+    label: "Справочники",
+    description: "Рабочие области и проекты",
+    icon: Database,
   },
   {
     id: "rag",
@@ -112,6 +121,11 @@ function WorkbenchApp({ session, isLoggingOut, onLogout }: WorkbenchAppProps) {
   const knowledgePresets = useKnowledgePresets();
   const chatRuns = useChatRuns();
   const ragReadiness = deriveRagReadiness(health);
+  const metadataV1Enabled = health?.qualityLayer?.flags.metadataV1 === true;
+  const referenceData = useReferenceData({
+    activeOnly: false,
+    enabled: metadataV1Enabled || activeTab === "references",
+  });
   const scenarioInstructions = instructions.instructions.filter(
     (instruction) => (instruction.scopeLevel ?? "chat_scenario") === "chat_scenario" && (instruction.active ?? true),
   );
@@ -490,7 +504,7 @@ function WorkbenchApp({ session, isLoggingOut, onLogout }: WorkbenchAppProps) {
               materials={materials.materials}
               materialTotal={materials.materialTotal}
               hasMoreMaterials={materials.hasMoreMaterials}
-              metadataV1Enabled={health?.qualityLayer?.flags.metadataV1 === true}
+              metadataV1Enabled={metadataV1Enabled}
               message={materials.message}
               onClearLineage={materials.clearLineage}
               onCreateText={materials.createTextMaterial}
@@ -499,11 +513,17 @@ function WorkbenchApp({ session, isLoggingOut, onLogout }: WorkbenchAppProps) {
               onLoadLineage={(materialId) => materials.loadLineage(materialId)}
               onReindex={materials.reindexMaterial}
               onUpload={materials.uploadMaterial}
+              onUploadVersion={materials.uploadMaterialVersion}
               policyWarning={materials.policyWarning}
               ragPresentation={ragPresentation}
+              referenceDataError={referenceData.error}
+              referenceProjects={referenceData.projects}
+              referenceWorkspaces={referenceData.workspaces}
               reindexingMaterialId={materials.reindexingMaterialId}
               selectedLineage={materials.selectedLineage}
               uploadPolicy={materials.uploadPolicy}
+              isReferenceDataLoading={referenceData.isLoading}
+              versionUploadingMaterialId={materials.versionUploadingMaterialId}
             />
           </section>
 
@@ -556,6 +576,15 @@ function WorkbenchApp({ session, isLoggingOut, onLogout }: WorkbenchAppProps) {
                 selectedPreset={knowledgePresets.selectedPreset}
               />
             </div>
+          </section>
+
+          <section
+            aria-labelledby="nav-references"
+            hidden={activeTab !== "references"}
+            id="panel-references"
+            role="region"
+          >
+            <ReferenceDataPanel referenceData={referenceData} />
           </section>
 
           <section
