@@ -12,6 +12,10 @@ public record RetrievalTrace(
     int finalChunks,
     String supportVerdict
 ) {
+    public RetrievalTrace {
+        supportVerdict = supportVerdict == null ? (finalChunks <= 0 ? "none" : "weak") : supportVerdict;
+    }
+
     public RetrievalTrace(
         int totalMaterials,
         int totalActiveMaterials,

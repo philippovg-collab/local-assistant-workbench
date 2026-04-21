@@ -13,6 +13,7 @@ import com.example.demo.api.ApiException;
 import com.example.demo.config.MaterialProperties;
 import com.example.demo.config.OcrProperties;
 import com.example.demo.config.RagProperties;
+import com.example.demo.config.RolloutProperties;
 import com.example.demo.embedding.EmbeddingClient;
 import com.example.demo.infrastructure.material.OcrCapabilityService;
 import com.example.demo.infrastructure.material.OcrClient;
@@ -24,6 +25,7 @@ import com.example.demo.infrastructure.material.TikaDocumentTextExtractor;
 import com.example.demo.model.DocumentStatus;
 import com.example.demo.model.DocumentType;
 import com.example.demo.model.MaterialLanguageCode;
+import com.example.demo.model.MaterialDetail;
 import com.example.demo.model.MaterialIndexingStatus;
 import com.example.demo.model.MaterialLineageResponse;
 import com.example.demo.model.MaterialMetadataInput;
@@ -38,6 +40,7 @@ import com.example.demo.support.TestMaterialServices;
 import java.io.ByteArrayOutputStream;
 import java.time.LocalDate;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -239,6 +242,111 @@ class MaterialServiceTest {
         assertEquals(MetadataValueOrigin.DEFAULT, stored.metadata().provenance().fieldOrigins().get("sourceTrust"));
         assertTrue(stored.metadata().provenance().fieldConfidence().containsKey("documentType"));
         assertTrue(stored.metadata().provenance().fieldConfidence().containsKey("author"));
+    }
+
+    @Test
+    void textMaterialUsesLlmAutoTagsFromMaterialContent() {
+        StubMaterialAutoTaggingService autoTaggingService = new StubMaterialAutoTaggingService(
+            List.of("manual-grid", "relay protection", "transformer automation")
+        );
+        MaterialService service = createService(
+            new DeterministicEmbeddingClient(),
+            new InMemoryMaterialRepository(),
+            autoTaggingService
+        );
+
+        MaterialSummary summary = service.saveText(
+            "Generic note",
+            "Материал описывает релейную защиту трансформатора и автоматику подстанции.",
+            new MaterialMetadataInput(
+                DocumentType.REPORT,
+                "general",
+                DocumentStatus.ACTIVE,
+                null,
+                null,
+                MaterialLanguageCode.RU,
+                List.of("manual-grid"),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                List.of(),
+                null,
+                null,
+                null,
+                null
+            )
+        );
+        MaterialDetail detail = service.getDetail(summary.id());
+
+        assertEquals(1, autoTaggingService.requests.size());
+        MaterialAutoTaggingService.TaggingRequest request = autoTaggingService.requests.getFirst();
+        assertTrue(request.contentText().contains("релейную защиту трансформатора"));
+        assertEquals("Generic note", request.title());
+        assertEquals(List.of("manual-grid"), detail.metadata().manualTags());
+        assertEquals(List.of("relay protection", "transformer automation"), detail.metadata().autoTags());
+        assertEquals(
+            List.of("manual-grid", "relay protection", "transformer automation"),
+            detail.metadata().effectiveTags()
+        );
+    }
+
+    @Test
+    void uploadedFileUsesExtractedTextForLlmAutoTags() {
+        StubMaterialAutoTaggingService autoTaggingService = new StubMaterialAutoTaggingService(
+            List.of("substation automation", "emergency response")
+        );
+        MaterialService service = createService(
+            new DeterministicEmbeddingClient(),
+            new InMemoryMaterialRepository(),
+            autoTaggingService
+        );
+
+        MaterialSummary summary = service.saveUpload(
+            "Attachment",
+            new MockMultipartFile(
+                "file",
+                "attachment.txt",
+                "text/plain",
+                "В приложенном файле описана автоматика подстанции и аварийное реагирование.".getBytes(StandardCharsets.UTF_8)
+            )
+        );
+        MaterialDetail detail = service.getDetail(summary.id());
+
+        assertEquals(1, autoTaggingService.requests.size());
+        MaterialAutoTaggingService.TaggingRequest request = autoTaggingService.requests.getFirst();
+        assertTrue(request.contentText().contains("автоматика подстанции"));
+        assertEquals("attachment.txt", request.originalFileName());
+        assertEquals(List.of("substation automation", "emergency response"), detail.metadata().autoTags());
+    }
+
+    @Test
+    void emptyLlmAutoTagsFallBackToTitleAndFilenameHeuristics() {
+        StubMaterialAutoTaggingService autoTaggingService = new StubMaterialAutoTaggingService(List.of());
+        MaterialService service = createService(
+            new DeterministicEmbeddingClient(),
+            new InMemoryMaterialRepository(),
+            autoTaggingService
+        );
+
+        MaterialSummary summary = service.saveUpload(
+            "Contract KZ-2026-0415-ENERGY 2026-04-15 v2 ru",
+            new MockMultipartFile(
+                "file",
+                "contract-KZ-2026-0415-ENERGY-2026-04-15-v2-ru.txt",
+                "text/plain",
+                "Основные условия договора и график поставки.".getBytes(StandardCharsets.UTF_8)
+            )
+        );
+        MaterialDetail detail = service.getDetail(summary.id());
+
+        assertEquals(1, autoTaggingService.requests.size());
+        assertTrue(detail.metadata().autoTags().contains("energy"));
+        assertEquals(MetadataValueOrigin.INFERRED, detail.metadata().provenance().fieldOrigins().get("autoTags"));
     }
 
     @Test
@@ -704,6 +812,154 @@ class MaterialServiceTest {
     }
 
     @Test
+    void editMaterialCreatesNewActiveVersionInSameLineage() {
+        MaterialService service = createService(new DeterministicEmbeddingClient());
+
+        MaterialSummary first = service.saveUpload(
+            "Grid policy",
+            new MockMultipartFile(
+                "file",
+                "grid-policy-v1.txt",
+                "text/plain",
+                "Первая редакция документа.".getBytes(StandardCharsets.UTF_8)
+            )
+        );
+        MaterialSummary edited = service.editMaterial(
+            first.id(),
+            "Grid policy edited",
+            "Ручная редакция извлечённого текста.",
+            new MaterialMetadataInput(
+                DocumentType.POLICY,
+                "general",
+                DocumentStatus.ACTIVE,
+                null,
+                "POL-77",
+                MaterialLanguageCode.RU,
+                List.of("edited"),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                List.of(),
+                null,
+                null,
+                null,
+                null
+            )
+        );
+
+        MaterialLineageResponse lineage = service.getLineage(first.id());
+        MaterialSummary storedFirst = service.listSummaries().stream()
+            .filter(summary -> summary.id().equals(first.id()))
+            .findFirst()
+            .orElseThrow();
+        MaterialDetail editedDetail = service.getDetail(edited.id());
+
+        assertTrue(!first.id().equals(edited.id()));
+        assertEquals(MaterialIndexingStatus.PENDING, edited.status());
+        assertEquals(edited.id(), lineage.activeMaterialId());
+        assertEquals(2, lineage.versions().size());
+        assertEquals(MaterialVersionState.SUPERSEDED, storedFirst.versionState());
+        assertEquals(MaterialVersionState.ACTIVE, edited.versionState());
+        assertEquals("Grid policy edited", editedDetail.title());
+        assertEquals("file", editedDetail.sourceType());
+        assertEquals("grid-policy-v1.txt", editedDetail.originalFileName());
+        assertEquals("Ручная редакция извлечённого текста.", editedDetail.content());
+        assertEquals("POL-77", editedDetail.metadata().documentNumber());
+    }
+
+    @Test
+    void editMaterialAllowsMetadataOnlyRevisionWithSameContent() {
+        MaterialService service = createService(new DeterministicEmbeddingClient());
+
+        MaterialSummary first = service.saveText(
+            "Grid policy",
+            "Одинаковый текст материала.",
+            new MaterialMetadataInput(
+                DocumentType.POLICY,
+                "general",
+                DocumentStatus.DRAFT,
+                null,
+                null,
+                null,
+                List.of("old"),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                List.of(),
+                null,
+                null,
+                null,
+                null
+            )
+        );
+        MaterialSummary edited = service.editMaterial(
+            first.id(),
+            "Grid policy retagged",
+            "Одинаковый текст материала.",
+            new MaterialMetadataInput(
+                DocumentType.REPORT,
+                "general",
+                DocumentStatus.ACTIVE,
+                null,
+                "REP-9",
+                null,
+                List.of("new"),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                List.of(),
+                null,
+                null,
+                null,
+                null
+            )
+        );
+
+        MaterialLineageResponse lineage = service.getLineage(edited.id());
+        MaterialDetail editedDetail = service.getDetail(edited.id());
+
+        assertTrue(!first.id().equals(edited.id()));
+        assertEquals(2, lineage.versions().size());
+        assertEquals(edited.id(), lineage.activeMaterialId());
+        assertEquals("Одинаковый текст материала.", editedDetail.content());
+        assertEquals(DocumentType.REPORT, editedDetail.metadata().documentType());
+        assertEquals("REP-9", editedDetail.metadata().documentNumber());
+        assertEquals(List.of("new"), editedDetail.metadata().manualTags());
+    }
+
+    @Test
+    void editMaterialRejectsHistoricalTargets() {
+        MaterialService service = createService(new DeterministicEmbeddingClient());
+
+        MaterialSummary first = service.saveText("Grid policy", "Первая редакция.");
+        service.editMaterial(first.id(), "Grid policy v2", "Вторая редакция.", null);
+
+        ApiException exception = assertThrows(ApiException.class, () -> service.editMaterial(
+            first.id(),
+            "Grid policy v3",
+            "Третья редакция.",
+            null
+        ));
+
+        assertEquals("material.edit_requires_active_version", exception.getCode());
+    }
+
+    @Test
     void ingestionDoesNotUseCatalogFindAllForLineageResolution() {
         MaterialService service = createService(new DeterministicEmbeddingClient(), new NoFindAllRepository());
 
@@ -794,6 +1050,14 @@ class MaterialServiceTest {
     }
 
     private MaterialService createService(EmbeddingClient embeddingClient, InMemoryMaterialRepository repository) {
+        return createService(embeddingClient, repository, null);
+    }
+
+    private MaterialService createService(
+        EmbeddingClient embeddingClient,
+        InMemoryMaterialRepository repository,
+        MaterialAutoTaggingService autoTaggingService
+    ) {
         MaterialProperties properties = new MaterialProperties();
         MaterialFormatRegistry formatRegistry = new MaterialFormatRegistry();
         OcrProperties ocrProperties = new OcrProperties();
@@ -859,7 +1123,9 @@ class MaterialServiceTest {
                 new MaterialMetadataResolver(),
                 lifecycleService,
                 indexingService,
-                afterCommitExecutor
+                afterCommitExecutor,
+                RolloutProperties.enabledForTests(),
+                autoTaggingService
             ),
             TestMaterialServices.retrievalService(
                 repository,
@@ -872,6 +1138,23 @@ class MaterialServiceTest {
                 contentSupport
             )
         );
+    }
+
+    private static final class StubMaterialAutoTaggingService extends MaterialAutoTaggingService {
+
+        private final List<TaggingRequest> requests = new ArrayList<>();
+        private final List<String> tags;
+
+        private StubMaterialAutoTaggingService(List<String> tags) {
+            super(null, null, new MaterialProperties());
+            this.tags = tags == null ? List.of() : List.copyOf(tags);
+        }
+
+        @Override
+        public List<String> suggestTags(TaggingRequest request) {
+            requests.add(request);
+            return tags;
+        }
     }
 
     private static final class FailingEmbeddingClient implements EmbeddingClient {

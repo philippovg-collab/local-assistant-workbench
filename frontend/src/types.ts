@@ -314,6 +314,12 @@ export type MaterialVersionUploadInput = {
   metadata?: MaterialMetadataInput;
 };
 
+export type UpdateMaterialInput = {
+  title: string;
+  content: string;
+  metadata?: MaterialMetadataInput;
+};
+
 export type MaterialChunkDetail = {
   chunkId: string;
   chunkIndex: number;
@@ -499,6 +505,7 @@ export type KnowledgePresetSummary = {
   id: string;
   name: string;
   description?: string | null;
+  workspaceKey?: string | null;
   revision: number;
   active: boolean;
   createdAt: string;
@@ -512,6 +519,7 @@ export type KnowledgePresetDetail = KnowledgePresetSummary & {
 export type ReferenceWorkspace = {
   key: string;
   nameRu: string;
+  description?: string | null;
   active: boolean;
   sortOrder: number;
   isDefault: boolean;
@@ -532,6 +540,28 @@ export type ReferenceProject = {
 export type ReferenceWorkspaceInput = {
   key?: string;
   nameRu: string;
+  description?: string | null;
+  active?: boolean;
+  sortOrder?: number;
+  isDefault?: boolean;
+};
+
+export type RagProjectSummary = {
+  key: string;
+  name: string;
+  description?: string | null;
+  active: boolean;
+  isDefault: boolean;
+  sortOrder: number;
+  materialCount: number;
+  readyMaterialCount: number;
+  updatedAt: string;
+};
+
+export type RagProjectInput = {
+  key?: string;
+  name: string;
+  description?: string | null;
   active?: boolean;
   sortOrder?: number;
   isDefault?: boolean;
@@ -577,6 +607,7 @@ export type ChatAuditRunSummary = {
   failureCode?: string | null;
   failedAt?: string | null;
   latencyMsTotal?: number | null;
+  workspaceKey?: string | null;
 };
 
 export type ChatAuditRunDetail = {
@@ -615,8 +646,21 @@ export type ChatRunSubmissionResponse = {
   id: string;
   status: ChatRunStatus | string;
   createdAt: string;
+  statusUrl?: string;
   traceUrl: string;
   resultUrl: string;
+};
+
+export type ChatRunStatusResponse = {
+  id: string;
+  status: ChatRunStatus | string;
+  createdAt: string;
+  completedAt?: string | null;
+  failedAt?: string | null;
+  latencyMsTotal?: number | null;
+  failureStage?: string | null;
+  failureCode?: string | null;
+  failureMessage?: string | null;
 };
 
 export type ChatRunMessage = {

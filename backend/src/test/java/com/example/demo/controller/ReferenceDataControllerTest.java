@@ -47,6 +47,7 @@ class ReferenceDataControllerTest {
         when(referenceDataService.listWorkspaces(false)).thenReturn(List.of(new ReferenceWorkspace(
             "general",
             "Общая",
+            null,
             true,
             0,
             true,
@@ -69,6 +70,7 @@ class ReferenceDataControllerTest {
         when(referenceDataService.createWorkspace(org.mockito.ArgumentMatchers.any())).thenReturn(new ReferenceWorkspace(
             "north-upgrade",
             "Северная модернизация",
+            "Контур северной модернизации",
             true,
             10,
             false,
@@ -82,6 +84,7 @@ class ReferenceDataControllerTest {
                     {
                       "key": "north-upgrade",
                       "nameRu": "Северная модернизация",
+                      "description": "Контур северной модернизации",
                       "active": true,
                       "sortOrder": 10,
                       "isDefault": false
@@ -95,6 +98,7 @@ class ReferenceDataControllerTest {
         verify(referenceDataService).createWorkspace(requestCaptor.capture());
         org.junit.jupiter.api.Assertions.assertEquals("north-upgrade", requestCaptor.getValue().key());
         org.junit.jupiter.api.Assertions.assertEquals("Северная модернизация", requestCaptor.getValue().nameRu());
+        org.junit.jupiter.api.Assertions.assertEquals("Контур северной модернизации", requestCaptor.getValue().description());
     }
 
     @Test

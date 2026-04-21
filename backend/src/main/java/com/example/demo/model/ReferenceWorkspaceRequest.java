@@ -8,6 +8,8 @@ public record ReferenceWorkspaceRequest(
     String key,
     @Size(max = 256)
     String nameRu,
+    @Size(max = 2000)
+    String description,
     Boolean active,
     Integer sortOrder,
     @JsonProperty("isDefault")

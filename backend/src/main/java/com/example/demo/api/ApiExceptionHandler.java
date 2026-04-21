@@ -11,12 +11,14 @@ import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.multipart.MultipartException;
 import org.springframework.web.multipart.support.MissingServletRequestPartException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 @RestControllerAdvice
 public class ApiExceptionHandler {
@@ -114,6 +116,26 @@ public class ApiExceptionHandler {
             HttpStatus.BAD_REQUEST,
             "request.validation_failed",
             exception.getMessage() == null ? "Request payload contains invalid values" : exception.getMessage(),
+            null
+        );
+    }
+
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<ErrorResponse> handleNoResourceFound(NoResourceFoundException exception) {
+        return buildErrorResponse(
+            HttpStatus.NOT_FOUND,
+            "request.not_found",
+            "Requested API resource does not exist",
+            null
+        );
+    }
+
+    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+    public ResponseEntity<ErrorResponse> handleMethodNotSupported(HttpRequestMethodNotSupportedException exception) {
+        return buildErrorResponse(
+            HttpStatus.METHOD_NOT_ALLOWED,
+            "request.method_not_supported",
+            "HTTP method '" + exception.getMethod() + "' is not supported for this resource",
             null
         );
     }

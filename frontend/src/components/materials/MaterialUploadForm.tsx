@@ -36,6 +36,8 @@ type MaterialUploadFormProps = {
   referenceProjects: ReferenceProject[];
   isReferenceDataLoading: boolean;
   referenceDataError: string | null;
+  activeWorkspaceKey?: string | null;
+  activeWorkspaceName?: string | null;
   onUpload: (input: { items: MaterialUploadItemInput[] }) => Promise<unknown>;
 };
 
@@ -61,6 +63,8 @@ export function MaterialUploadForm({
   referenceProjects,
   isReferenceDataLoading,
   referenceDataError,
+  activeWorkspaceKey,
+  activeWorkspaceName,
   onUpload,
 }: MaterialUploadFormProps) {
   const [uploadTitle, setUploadTitle] = useState("");
@@ -89,8 +93,16 @@ export function MaterialUploadForm({
     ? `Scanned PDF сейчас не поддерживаются: ${translatePdfCapabilityReason(pdfPolicy)}`
     : null;
   const isMultipleUpload = uploadFiles.length > 1;
+  const normalizedActiveWorkspaceKey = (activeWorkspaceKey ?? "").trim();
+  const normalizedActiveWorkspaceName = activeWorkspaceName ?? "";
   const isMetadataUnavailable = metadataV1Enabled
-    && (isReferenceDataLoading || Boolean(referenceDataError) || referenceWorkspaces.length === 0);
+    && (isReferenceDataLoading || Boolean(referenceDataError) || !normalizedActiveWorkspaceKey);
+
+  const withActiveWorkspace = () => ({
+    ...uploadMetadata,
+    workspaceKey: normalizedActiveWorkspaceKey,
+    projectKey: "",
+  });
 
   const updateUploadOverride = (
     file: File,
@@ -105,7 +117,7 @@ export function MaterialUploadForm({
   };
 
   const buildUploadItems = (): MaterialUploadItemInput[] => {
-    const commonMetadata = metadataV1Enabled ? toMaterialMetadataInput(uploadMetadata) : undefined;
+    const commonMetadata = metadataV1Enabled ? toMaterialMetadataInput(withActiveWorkspace()) : undefined;
     return uploadFiles.map((file, index) => {
       const override = uploadFileOverrides[uploadFileKey(file, index)] ?? emptyUploadOverride();
       const metadata = metadataV1Enabled ? commonMetadata : undefined;
@@ -130,7 +142,7 @@ export function MaterialUploadForm({
     }
 
     if (metadataV1Enabled) {
-      const validation = validateMaterialMetadata(uploadMetadata);
+      const validation = validateMaterialMetadata(withActiveWorkspace());
       if (!validation.isValid) {
         setUploadMetadataValidation(validation);
         return;
@@ -221,6 +233,9 @@ export function MaterialUploadForm({
             errors={uploadMetadataValidation?.fieldErrors}
             idPrefix="upload-material"
             isReferenceDataLoading={isReferenceDataLoading}
+            lockedWorkspaceKey={normalizedActiveWorkspaceKey}
+            lockedWorkspaceName={normalizedActiveWorkspaceName}
+            hideProjectField
             projects={referenceProjects}
             referenceDataError={referenceDataError}
             state={uploadMetadata}

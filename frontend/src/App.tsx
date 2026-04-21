@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type Dispatch, type FormEvent, type SetStateAction } from "react";
+import { useCallback, useEffect, useMemo, useState, type Dispatch, type FormEvent, type SetStateAction } from "react";
 import {
   BookOpenText,
   BrainCircuit,
@@ -31,9 +31,9 @@ import {
 } from "@/components/ui/sheet";
 import { DirectChatPanel } from "@/components/DirectChatPanel";
 import { InstructionLibraryPanel } from "@/components/InstructionLibraryPanel";
-import { KnowledgePresetLibraryPanel } from "@/components/KnowledgePresetLibraryPanel";
 import { MaterialsPanel } from "@/components/MaterialsPanel";
 import { RagChatPanel } from "@/components/RagChatPanel";
+import { RagProjectSwitcher } from "@/components/RagProjectSwitcher";
 import { ReferenceDataPanel } from "@/components/ReferenceDataPanel";
 import { StatusSummary } from "@/components/StatusSummary";
 import { cn } from "@/lib/utils";
@@ -44,6 +44,7 @@ import { useInstructions } from "@/hooks/useInstructions";
 import { useKnowledgePresets } from "@/hooks/useKnowledgePresets";
 import { useMaterials } from "@/hooks/useMaterials";
 import { useModels } from "@/hooks/useModels";
+import { useRagProjects } from "@/hooks/useRagProjects";
 import { useReferenceData } from "@/hooks/useReferenceData";
 import type { AuthSession } from "@/types";
 import {
@@ -55,6 +56,7 @@ import { buildSearchPresentation } from "@/utils/searchPresentation";
 import { DEFAULT_KNOWLEDGE_SCOPE } from "@/utils/workbenchPresentation";
 
 const kegocLogo = "https://ai.kegoc.kz/assets/kegoc-logo-new-nY5PHfMg.svg";
+const ACTIVE_RAG_PROJECT_STORAGE_KEY = "kegoc.activeRagProjectKey";
 
 type WorkspaceTab = "overview" | "materials" | "instructions" | "references" | "rag" | "direct";
 type AuthStatus = "loading" | "authenticated" | "unauthenticated";
@@ -86,14 +88,8 @@ const tabs: Array<{
   {
     id: "instructions",
     label: "Инструкции",
-    description: "Instruction stack и knowledge presets",
+    description: "Instruction stack по уровням",
     icon: NotebookPen,
-  },
-  {
-    id: "references",
-    label: "Справочники",
-    description: "Рабочие области и проекты",
-    icon: Database,
   },
   {
     id: "rag",
@@ -107,6 +103,12 @@ const tabs: Array<{
     description: "Прямые запросы к модели без retrieval",
     icon: MessageCircleCode,
   },
+  {
+    id: "references",
+    label: "Справочники",
+    description: "Пресеты корпуса, рабочие области и проекты",
+    icon: Database,
+  },
 ];
 
 function WorkbenchApp({ session, isLoggingOut, onLogout }: WorkbenchAppProps) {
@@ -114,12 +116,37 @@ function WorkbenchApp({ session, isLoggingOut, onLogout }: WorkbenchAppProps) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [ragInstructionIds, setRagInstructionIds] = useState<string[]>([]);
   const [directInstructionIds, setDirectInstructionIds] = useState<string[]>([]);
+  const [activeRagProjectKey, setActiveRagProjectKey] = useState(() => {
+    if (typeof window === "undefined") {
+      return "general";
+    }
+    return window.localStorage.getItem(ACTIVE_RAG_PROJECT_STORAGE_KEY) || "general";
+  });
   const { health, error: healthError } = useHealth();
   const { models, error: modelsError } = useModels();
-  const materials = useMaterials();
   const instructions = useInstructions();
   const knowledgePresets = useKnowledgePresets();
-  const chatRuns = useChatRuns();
+  const ragProjects = useRagProjects({ activeOnly: false });
+  const activeRagProjects = useMemo(
+    () =>
+      [...ragProjects.projects]
+        .filter((project) => project.active)
+        .sort((left, right) => left.sortOrder - right.sortOrder || left.name.localeCompare(right.name, "ru")),
+    [ragProjects.projects],
+  );
+  const activeRagProject = useMemo(
+    () =>
+      activeRagProjects.find((project) => project.key === activeRagProjectKey)
+      ?? activeRagProjects.find((project) => project.isDefault)
+      ?? activeRagProjects[0]
+      ?? null,
+    [activeRagProjectKey, activeRagProjects],
+  );
+  const resolvedActiveRagProjectKey = activeRagProject?.key ?? activeRagProjectKey;
+  const resolvedActiveRagProjectName = activeRagProject?.name ?? resolvedActiveRagProjectKey;
+  const materials = useMaterials({ workspaceKey: resolvedActiveRagProjectKey });
+  const ragChatRuns = useChatRuns(resolvedActiveRagProjectKey);
+  const directChatRuns = useChatRuns();
   const ragReadiness = deriveRagReadiness(health);
   const metadataV1Enabled = health?.qualityLayer?.flags.metadataV1 === true;
   const referenceData = useReferenceData({
@@ -138,6 +165,7 @@ function WorkbenchApp({ session, isLoggingOut, onLogout }: WorkbenchAppProps) {
     initialKnowledgeScope: DEFAULT_KNOWLEDGE_SCOPE,
     rolloutFlags: health?.qualityLayer?.flags ?? null,
     selectedInstructionIds: ragInstructionIds,
+    workspaceKey: resolvedActiveRagProjectKey,
   });
 
   const directChat = useChatExecution({
@@ -151,13 +179,38 @@ function WorkbenchApp({ session, isLoggingOut, onLogout }: WorkbenchAppProps) {
   });
 
   useEffect(() => {
-    const auditRunId = ragChat.response?.auditRunId ?? directChat.response?.auditRunId ?? null;
+    if (!ragProjects.isLoading && activeRagProjects.length > 0) {
+      const currentIsActive = activeRagProjects.some((project) => project.key === activeRagProjectKey);
+      const fallbackKey = activeRagProjects.find((project) => project.isDefault)?.key ?? activeRagProjects[0].key;
+      if (!currentIsActive && fallbackKey !== activeRagProjectKey) {
+        setActiveRagProjectKey(fallbackKey);
+      }
+    }
+  }, [activeRagProjectKey, activeRagProjects, ragProjects.isLoading]);
+
+  useEffect(() => {
+    if (typeof window !== "undefined" && resolvedActiveRagProjectKey) {
+      window.localStorage.setItem(ACTIVE_RAG_PROJECT_STORAGE_KEY, resolvedActiveRagProjectKey);
+    }
+  }, [resolvedActiveRagProjectKey]);
+
+  useEffect(() => {
+    const auditRunId = ragChat.response?.auditRunId ?? null;
     if (!auditRunId) {
       return;
     }
-    void chatRuns.loadRuns();
-    void chatRuns.loadRun(auditRunId);
-  }, [ragChat.response?.auditRunId, directChat.response?.auditRunId]);
+    void ragChatRuns.loadRuns();
+    void ragChatRuns.loadRun(auditRunId);
+  }, [ragChat.response?.auditRunId]);
+
+  useEffect(() => {
+    const auditRunId = directChat.response?.auditRunId ?? null;
+    if (!auditRunId) {
+      return;
+    }
+    void directChatRuns.loadRuns();
+    void directChatRuns.loadRun(auditRunId);
+  }, [directChat.response?.auditRunId]);
 
   useEffect(() => {
     const knownInstructionIds = new Set(scenarioInstructions.map((instruction) => instruction.id));
@@ -209,20 +262,6 @@ function WorkbenchApp({ session, isLoggingOut, onLogout }: WorkbenchAppProps) {
 
   const activeWorkspace = tabs.find((tab) => tab.id === activeTab) ?? tabs[0];
   const backendStatus = health?.status ?? "Unknown";
-  const navMetrics = [
-    {
-      label: "Models",
-      value: models.length > 0 ? String(models.length) : "0",
-    },
-    {
-      label: "Active KB",
-      value: String(health?.activeMaterialCount ?? ragReadiness.activeMaterialsCount),
-    },
-    {
-      label: "Snippets",
-      value: String(instructions.instructions.length),
-    },
-  ];
 
   const renderNavigation = (className?: string) => (
     <nav aria-label="Workspace navigation" className={cn("space-y-2", className)}>
@@ -308,20 +347,6 @@ function WorkbenchApp({ session, isLoggingOut, onLogout }: WorkbenchAppProps) {
             <LogOut className="h-4 w-4" />
             Выйти
           </Button>
-        </div>
-
-        <div className="grid gap-3">
-          {navMetrics.map((metric) => (
-            <div
-              className="rounded-[22px] border border-white/8 bg-white/6 px-4 py-3"
-              key={metric.label}
-            >
-              <p className="text-[11px] uppercase tracking-[0.18em] text-sidebar-foreground/55">
-                {metric.label}
-              </p>
-              <strong className="text-lg font-semibold text-sidebar-foreground">{metric.value}</strong>
-            </div>
-          ))}
         </div>
       </aside>
 
@@ -496,6 +521,7 @@ function WorkbenchApp({ session, isLoggingOut, onLogout }: WorkbenchAppProps) {
             <MaterialsPanel
               actionError={materials.actionError}
               deletingMaterialId={materials.deletingMaterialId}
+              editingMaterialId={materials.editingMaterialId}
               error={materials.error}
               isLoading={materials.isLoading}
               isLoadingMore={materials.isLoadingMore}
@@ -509,6 +535,7 @@ function WorkbenchApp({ session, isLoggingOut, onLogout }: WorkbenchAppProps) {
               onClearLineage={materials.clearLineage}
               onCreateText={materials.createTextMaterial}
               onDelete={materials.deleteMaterial}
+              onEditMaterial={materials.editMaterial}
               onLoadMore={materials.loadMoreMaterials}
               onLoadLineage={(materialId) => materials.loadLineage(materialId)}
               onReindex={materials.reindexMaterial}
@@ -519,6 +546,8 @@ function WorkbenchApp({ session, isLoggingOut, onLogout }: WorkbenchAppProps) {
               referenceDataError={referenceData.error}
               referenceProjects={referenceData.projects}
               referenceWorkspaces={referenceData.workspaces}
+              activeWorkspaceKey={resolvedActiveRagProjectKey}
+              activeWorkspaceName={resolvedActiveRagProjectName}
               reindexingMaterialId={materials.reindexingMaterialId}
               selectedLineage={materials.selectedLineage}
               uploadPolicy={materials.uploadPolicy}
@@ -535,6 +564,8 @@ function WorkbenchApp({ session, isLoggingOut, onLogout }: WorkbenchAppProps) {
           >
             <InstructionLibraryPanel
               actionError={instructions.actionError}
+              activeRagProjectKey={resolvedActiveRagProjectKey}
+              activeRagProjectName={resolvedActiveRagProjectName}
               detailError={instructions.detailError}
               deletingInstructionId={instructions.deletingInstructionId}
               error={instructions.error}
@@ -555,27 +586,6 @@ function WorkbenchApp({ session, isLoggingOut, onLogout }: WorkbenchAppProps) {
               revisions={instructions.revisions}
               selectedInstruction={instructions.selectedInstruction}
             />
-
-            <div className="mt-6">
-              <KnowledgePresetLibraryPanel
-                actionError={knowledgePresets.actionError}
-                error={knowledgePresets.error}
-                isLoading={knowledgePresets.isLoading}
-                message={knowledgePresets.message}
-                onCreatePreset={knowledgePresets.createPreset}
-                onDeletePreset={knowledgePresets.deletePreset}
-                onLoadPreset={(presetId) => knowledgePresets.loadPreset(presetId)}
-                onLoadRevisionDiff={(presetId, fromRevision, toRevision) =>
-                  knowledgePresets.loadRevisionDiff(presetId, fromRevision, toRevision)}
-                onLoadRevisions={(presetId) => knowledgePresets.loadRevisions(presetId)}
-                onRestoreRevision={(presetId, revision) => knowledgePresets.restoreRevision(presetId, revision)}
-                onUpdatePreset={knowledgePresets.updatePreset}
-                presets={knowledgePresets.presets}
-                revisionDiff={knowledgePresets.revisionDiff}
-                revisions={knowledgePresets.revisions}
-                selectedPreset={knowledgePresets.selectedPreset}
-              />
-            </div>
           </section>
 
           <section
@@ -584,7 +594,49 @@ function WorkbenchApp({ session, isLoggingOut, onLogout }: WorkbenchAppProps) {
             id="panel-references"
             role="region"
           >
-            <ReferenceDataPanel referenceData={referenceData} />
+            {activeTab === "references" ? (
+              <RagProjectSwitcher
+                actionError={ragProjects.actionError}
+                activeProject={activeRagProject}
+                activeProjectKey={resolvedActiveRagProjectKey}
+                error={ragProjects.error}
+                isLoading={ragProjects.isLoading}
+                projects={ragProjects.projects}
+                onCreateProject={async (input) => {
+                  const created = await ragProjects.createProject(input);
+                  setActiveRagProjectKey(created.key);
+                  void referenceData.reload();
+                  return created;
+                }}
+                onReload={() => ragProjects.reload()}
+                onSelectProject={setActiveRagProjectKey}
+              />
+            ) : null}
+
+            <ReferenceDataPanel
+              knowledgePresets={{
+                actionError: knowledgePresets.actionError,
+                error: knowledgePresets.error,
+                isLoading: knowledgePresets.isLoading,
+                message: knowledgePresets.message,
+                onCreatePreset: knowledgePresets.createPreset,
+                onDeletePreset: knowledgePresets.deletePreset,
+                onLoadPreset: (presetId) => knowledgePresets.loadPreset(presetId),
+                onLoadRevisionDiff: (presetId, fromRevision, toRevision) =>
+                  knowledgePresets.loadRevisionDiff(presetId, fromRevision, toRevision),
+                onLoadRevisions: (presetId) => knowledgePresets.loadRevisions(presetId),
+                onRestoreRevision: (presetId, revision) => knowledgePresets.restoreRevision(presetId, revision),
+                onUpdatePreset: knowledgePresets.updatePreset,
+                presets: knowledgePresets.presets,
+                revisionDiff: knowledgePresets.revisionDiff,
+                revisions: knowledgePresets.revisions,
+                selectedPreset: knowledgePresets.selectedPreset,
+              }}
+              referenceData={referenceData}
+              ragProjects={ragProjects}
+              activeRagProjectKey={resolvedActiveRagProjectKey}
+              onActiveRagProjectChange={setActiveRagProjectKey}
+            />
           </section>
 
           <section
@@ -595,8 +647,10 @@ function WorkbenchApp({ session, isLoggingOut, onLogout }: WorkbenchAppProps) {
           >
             <RagChatPanel
               answerMode={ragChat.answerMode}
-              chatRuns={chatRuns.runs}
-              chatRunsError={chatRuns.error}
+              activeRagProjectKey={resolvedActiveRagProjectKey}
+              activeRagProjectName={resolvedActiveRagProjectName}
+              chatRuns={ragChatRuns.runs}
+              chatRunsError={ragChatRuns.error}
               error={ragChat.error}
               helperText={ragPresentation.chatHelperText}
               metadataFiltersEnabled={ragChat.metadataFiltersEnabled}
@@ -621,10 +675,10 @@ function WorkbenchApp({ session, isLoggingOut, onLogout }: WorkbenchAppProps) {
               onClearRetrievalFilter={ragChat.clearRetrievalFilter}
               onDismissHint={ragChat.dismissHint}
               onResetDismissedHints={ragChat.resetDismissedHints}
-              onLoadChatRun={(runId) => chatRuns.loadRun(runId)}
+              onLoadChatRun={(runId) => ragChatRuns.loadRun(runId)}
               prompt={ragChat.prompt}
               response={ragChat.response}
-              selectedChatRun={chatRuns.selectedRun}
+              selectedChatRun={ragChatRuns.selectedRun}
               selectedModel={ragChat.model}
               selectedInstructionIds={ragInstructionIds}
               temporaryInstruction={ragChat.temporaryInstruction}
@@ -644,8 +698,8 @@ function WorkbenchApp({ session, isLoggingOut, onLogout }: WorkbenchAppProps) {
           >
             <DirectChatPanel
               answerMode={directChat.answerMode}
-              chatRuns={chatRuns.runs}
-              chatRunsError={chatRuns.error}
+              chatRuns={directChatRuns.runs}
+              chatRunsError={directChatRuns.error}
               error={directChat.error}
               helperText={directPresentation.helperText}
               isBlocked={directPresentation.isDirectSubmitBlocked}
@@ -655,7 +709,7 @@ function WorkbenchApp({ session, isLoggingOut, onLogout }: WorkbenchAppProps) {
               models={models}
               modelsError={modelsError}
               onAnswerModeChange={directChat.setAnswerMode}
-              onLoadChatRun={(runId) => chatRuns.loadRun(runId)}
+              onLoadChatRun={(runId) => directChatRuns.loadRun(runId)}
               prompt={directChat.prompt}
               requestPreview={directChat.lastSubmittedRequest && (directChat.isSubmitting || directChat.response)
                 ? directChat.lastSubmittedRequest
@@ -670,7 +724,7 @@ function WorkbenchApp({ session, isLoggingOut, onLogout }: WorkbenchAppProps) {
                       : {}),
                   }}
               response={directChat.response}
-              selectedChatRun={chatRuns.selectedRun}
+              selectedChatRun={directChatRuns.selectedRun}
               selectedModel={directChat.model}
               selectedInstructionIds={directInstructionIds}
               temporaryInstruction={directChat.temporaryInstruction}
@@ -740,17 +794,16 @@ function LoginScreen({
   return (
     <div className="flex min-h-screen items-center justify-center px-4 py-10">
       <main className="w-full max-w-[420px] rounded-[30px] border border-border bg-card p-6 shadow-panel">
-        <div className="mb-6 flex items-center gap-3">
-          <div className="flex h-12 w-12 items-center justify-center rounded-[18px] bg-primary/10 text-primary">
-            <LockKeyhole className="h-5 w-5" />
+        <div className="mb-7 flex flex-col items-center gap-3 text-center sm:flex-row sm:text-left">
+          <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-[22px] border border-sidebar-border bg-sidebar shadow-panel">
+            <img alt="Логотип KEGOC" className="h-12 w-12 object-contain" src={kegocLogo} />
           </div>
-          <div>
+          <div className="min-w-0">
             <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-primary">
-              KEGOC RAG
+              ПАНЕЛЬ УПРАВЛЕНИЯ
             </p>
-            <h1 className="text-2xl font-semibold tracking-[-0.04em] text-foreground">
-              Вход администратора
-            </h1>
+            <h1 className="mt-1 text-2xl font-semibold tracking-[-0.04em] text-foreground">KEGOC RAG</h1>
+            <p className="mt-1 text-sm font-medium text-muted-foreground">Вход администратора</p>
           </div>
         </div>
 

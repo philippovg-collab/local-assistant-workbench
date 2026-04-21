@@ -20,11 +20,8 @@ import com.example.demo.model.PromptPolicySnapshot;
 import com.example.demo.model.RetrievalDebug;
 import com.example.demo.model.RetrievalSummaryTrace;
 import com.example.demo.model.RetrievalTrace;
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.json.JsonMapper;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
@@ -43,7 +40,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Repository
 public class PostgresChatRunTraceRepository {
 
-    private static final ObjectMapper JSON_MAPPER = JsonMapper.builder().findAndAddModules().build();
+    private static final ChatTraceJsonCodec JSON_CODEC = new ChatTraceJsonCodec();
     private static final TypeReference<List<ChatRunMessage>> MESSAGES_TYPE = new TypeReference<>() {
     };
     private static final TypeReference<List<InstructionTraceEntry>> INSTRUCTION_TRACE_TYPE = new TypeReference<>() {
@@ -503,7 +500,7 @@ public class PostgresChatRunTraceRepository {
                 WHERE run_id = ?
                 LIMIT 1
                 """,
-            (resultSet, rowNum) -> readJson(resultSet.getString("response_jsonb"), ChatExecutionResponse.class),
+            (resultSet, rowNum) -> readJson(resultSet.getString("response_jsonb"), ChatExecutionResponse.class, "chat_run_results.response_jsonb"),
             UUID.fromString(runId)
         );
     }
@@ -511,7 +508,8 @@ public class PostgresChatRunTraceRepository {
     public Optional<ChatRunHeaderStatus> findHeaderStatus(String runId) {
         return queryOptional(
             """
-                SELECT id, status, created_at, completed_at, failure_message
+                SELECT id, status, created_at, completed_at, failed_at,
+                       latency_ms_total, failure_stage, failure_code, failure_message
                 FROM chat_run_headers
                 WHERE id = ?
                 LIMIT 1
@@ -521,6 +519,10 @@ public class PostgresChatRunTraceRepository {
                 resultSet.getString("status"),
                 toInstant(resultSet.getTimestamp("created_at")),
                 toInstantOrNull(resultSet.getTimestamp("completed_at")),
+                toInstantOrNull(resultSet.getTimestamp("failed_at")),
+                resultSet.getObject("latency_ms_total", Long.class),
+                resultSet.getString("failure_stage"),
+                resultSet.getString("failure_code"),
                 resultSet.getString("failure_message")
             ),
             UUID.fromString(runId)
@@ -652,6 +654,10 @@ public class PostgresChatRunTraceRepository {
     }
 
     public List<ChatAuditRunSummary> findRunSummaries(int limit) {
+        return findRunSummaries(limit, null);
+    }
+
+    public List<ChatAuditRunSummary> findRunSummaries(int limit, String workspaceKey) {
         return read(() -> jdbcTemplate.query(
             """
                 SELECT
@@ -671,10 +677,13 @@ public class PostgresChatRunTraceRepository {
                     h.failure_code,
                     h.failure_message,
                     r.prompt,
-                    o.final_user_answer
+                    o.final_user_answer,
+                    p.knowledge_scope_resolved_jsonb ->> 'workspaceKey' AS workspace_key
                 FROM chat_run_headers h
                 LEFT JOIN chat_run_request_snapshots r ON r.run_id = h.id
+                LEFT JOIN chat_run_prompt_snapshots p ON p.run_id = h.id
                 LEFT JOIN chat_run_outputs o ON o.run_id = h.id
+                WHERE (CAST(? AS text) IS NULL OR LOWER(COALESCE(p.knowledge_scope_resolved_jsonb ->> 'workspaceKey', '')) = ?)
                 ORDER BY h.created_at DESC
                 LIMIT ?
                 """,
@@ -692,9 +701,12 @@ public class PostgresChatRunTraceRepository {
                     header.failureStage(),
                     header.failureCode(),
                     header.failedAt(),
-                    header.latencyMsTotal()
+                    header.latencyMsTotal(),
+                    resultSet.getString("workspace_key")
                 );
             },
+            normalizeOptionalWorkspaceKey(workspaceKey),
+            normalizeOptionalWorkspaceKey(workspaceKey),
             limit
         ));
     }
@@ -802,11 +814,11 @@ public class PostgresChatRunTraceRepository {
                 LIMIT 1
                 """,
             (resultSet, rowNum) -> new ChatRunRequestSnapshot(
-                readTree(resultSet.getString("request_jsonb")),
-                readTree(resultSet.getString("normalized_request_jsonb")),
+                readTree(resultSet.getString("request_jsonb"), "chat_run_request_snapshots.request_jsonb"),
+                readTree(resultSet.getString("normalized_request_jsonb"), "chat_run_request_snapshots.normalized_request_jsonb"),
                 resultSet.getString("prompt"),
-                readTree(resultSet.getString("knowledge_scope_jsonb")),
-                readTree(resultSet.getString("retrieval_filters_jsonb"))
+                readTree(resultSet.getString("knowledge_scope_jsonb"), "chat_run_request_snapshots.knowledge_scope_jsonb"),
+                readTree(resultSet.getString("retrieval_filters_jsonb"), "chat_run_request_snapshots.retrieval_filters_jsonb")
             ),
             UUID.fromString(runId)
         );
@@ -834,10 +846,10 @@ public class PostgresChatRunTraceRepository {
                 resultSet.getString("answer_mode_block_text"),
                 resultSet.getString("grounding_block_text"),
                 resultSet.getString("resolved_system_prompt"),
-                readJson(resultSet.getString("messages_jsonb"), MESSAGES_TYPE),
+                readJson(resultSet.getString("messages_jsonb"), MESSAGES_TYPE, "chat_run_prompt_snapshots.messages_jsonb"),
                 resultSet.getString("prompt_hash"),
-                readJson(resultSet.getString("instruction_trace_jsonb"), INSTRUCTION_TRACE_TYPE),
-                readJson(resultSet.getString("knowledge_scope_resolved_jsonb"), KnowledgeScopeResolved.class),
+                readJson(resultSet.getString("instruction_trace_jsonb"), INSTRUCTION_TRACE_TYPE, "chat_run_prompt_snapshots.instruction_trace_jsonb"),
+                readJson(resultSet.getString("knowledge_scope_resolved_jsonb"), KnowledgeScopeResolved.class, "chat_run_prompt_snapshots.knowledge_scope_resolved_jsonb"),
                 resultSet.getBoolean("grounding_rules_applied")
             ),
             UUID.fromString(runId)
@@ -853,20 +865,20 @@ public class PostgresChatRunTraceRepository {
                 FROM chat_run_retrieval_summaries
                 WHERE run_id = ?
                 LIMIT 1
-                """,
+            """,
             (resultSet, rowNum) -> new RetrievalSummaryTrace(
                 resultSet.getString("retrieval_status"),
-                readJson(resultSet.getString("trace_jsonb"), RetrievalTrace.class),
-                readJson(resultSet.getString("debug_jsonb"), RetrievalDebug.class),
+                readJson(resultSet.getString("trace_jsonb"), RetrievalTrace.class, "chat_run_retrieval_summaries.trace_jsonb"),
+                readJson(resultSet.getString("debug_jsonb"), RetrievalDebug.class, "chat_run_retrieval_summaries.debug_jsonb"),
                 resultSet.getString("lexical_provider"),
                 resultSet.getString("relevance_profile"),
                 resultSet.getString("embedding_model"),
                 resultSet.getString("chunk_profile"),
-                readTree(resultSet.getString("query_hints_jsonb")),
-                readTree(resultSet.getString("manual_filters_jsonb")),
-                readTree(resultSet.getString("effective_filters_jsonb")),
-                readTree(resultSet.getString("rollout_flags_jsonb")),
-                readTree(resultSet.getString("applied_capabilities_jsonb"))
+                readTree(resultSet.getString("query_hints_jsonb"), "chat_run_retrieval_summaries.query_hints_jsonb"),
+                readTree(resultSet.getString("manual_filters_jsonb"), "chat_run_retrieval_summaries.manual_filters_jsonb"),
+                readTree(resultSet.getString("effective_filters_jsonb"), "chat_run_retrieval_summaries.effective_filters_jsonb"),
+                readTree(resultSet.getString("rollout_flags_jsonb"), "chat_run_retrieval_summaries.rollout_flags_jsonb"),
+                readTree(resultSet.getString("applied_capabilities_jsonb"), "chat_run_retrieval_summaries.applied_capabilities_jsonb")
             ),
             UUID.fromString(runId)
         );
@@ -886,7 +898,7 @@ public class PostgresChatRunTraceRepository {
                 resultSet.getObject("id").toString(),
                 resultSet.getString("provider"),
                 resultSet.getString("model"),
-                readJson(resultSet.getString("request_messages_jsonb"), MESSAGES_TYPE),
+                readJson(resultSet.getString("request_messages_jsonb"), MESSAGES_TYPE, "chat_run_llm_calls.request_messages_jsonb"),
                 resultSet.getString("raw_response_text"),
                 resultSet.getString("parsed_answer_text"),
                 resultSet.getObject("prompt_tokens", Integer.class),
@@ -916,8 +928,8 @@ public class PostgresChatRunTraceRepository {
             (resultSet, rowNum) -> new ChatRunOutputTrace(
                 resultSet.getString("raw_model_answer"),
                 resultSet.getString("final_user_answer"),
-                readJson(resultSet.getString("sources_jsonb"), SOURCES_TYPE),
-                readTree(resultSet.getString("postprocess_jsonb")),
+                readJson(resultSet.getString("sources_jsonb"), SOURCES_TYPE, "chat_run_outputs.sources_jsonb"),
+                readTree(resultSet.getString("postprocess_jsonb"), "chat_run_outputs.postprocess_jsonb"),
                 resultSet.getObject("abstained", Boolean.class),
                 resultSet.getObject("strict_sources_blocked_answer", Boolean.class)
             ),
@@ -936,7 +948,7 @@ public class PostgresChatRunTraceRepository {
             (resultSet, rowNum) -> new ChatRunEventTrace(
                 resultSet.getObject("id").toString(),
                 resultSet.getString("event_type"),
-                readTree(resultSet.getString("event_payload_jsonb")),
+                readTree(resultSet.getString("event_payload_jsonb"), "chat_run_events.event_payload_jsonb"),
                 toInstant(resultSet.getTimestamp("created_at"))
             ),
             UUID.fromString(runId)
@@ -1052,64 +1064,19 @@ public class PostgresChatRunTraceRepository {
     }
 
     private String writeJson(Object value) {
-        try {
-            return JSON_MAPPER.writeValueAsString(value);
-        } catch (JsonProcessingException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
-                "chat_trace.storage_encode_failed",
-                "Unable to encode chat trace JSON",
-                exception
-            );
-        }
+        return JSON_CODEC.write(value);
     }
 
-    private JsonNode readTree(String rawJson) {
-        if (rawJson == null) {
-            return null;
-        }
-        try {
-            return JSON_MAPPER.readTree(rawJson);
-        } catch (JsonProcessingException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
-                "chat_trace.storage_decode_failed",
-                "Unable to decode chat trace JSON",
-                exception
-            );
-        }
+    private JsonNode readTree(String rawJson, String context) {
+        return JSON_CODEC.readTree(rawJson, context);
     }
 
-    private <T> T readJson(String rawJson, Class<T> type) {
-        if (rawJson == null) {
-            return null;
-        }
-        try {
-            return JSON_MAPPER.readValue(rawJson, type);
-        } catch (JsonProcessingException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
-                "chat_trace.storage_decode_failed",
-                "Unable to decode chat trace JSON",
-                exception
-            );
-        }
+    private <T> T readJson(String rawJson, Class<T> type, String context) {
+        return JSON_CODEC.read(rawJson, type, context);
     }
 
-    private <T> T readJson(String rawJson, TypeReference<T> type) {
-        if (rawJson == null) {
-            return null;
-        }
-        try {
-            return JSON_MAPPER.readValue(rawJson, type);
-        } catch (JsonProcessingException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
-                "chat_trace.storage_decode_failed",
-                "Unable to decode chat trace JSON",
-                exception
-            );
-        }
+    private <T> T readJson(String rawJson, TypeReference<T> type, String context) {
+        return JSON_CODEC.read(rawJson, type, context);
     }
 
     private static Instant toInstant(Timestamp timestamp) {
@@ -1151,13 +1118,33 @@ public class PostgresChatRunTraceRepository {
         return value == null ? "" : value;
     }
 
+    private static String normalizeOptionalWorkspaceKey(String workspaceKey) {
+        if (workspaceKey == null || workspaceKey.isBlank()) {
+            return null;
+        }
+        return workspaceKey.trim().toLowerCase(java.util.Locale.ROOT);
+    }
+
     public record ChatRunHeaderStatus(
         String id,
         String status,
         Instant createdAt,
         Instant completedAt,
+        Instant failedAt,
+        Long latencyMsTotal,
+        String failureStage,
+        String failureCode,
         String failureMessage
     ) {
+        public ChatRunHeaderStatus(
+            String id,
+            String status,
+            Instant createdAt,
+            Instant completedAt,
+            String failureMessage
+        ) {
+            this(id, status, createdAt, completedAt, null, null, null, null, failureMessage);
+        }
     }
 
     private record HeaderRow(

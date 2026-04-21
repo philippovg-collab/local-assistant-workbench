@@ -81,4 +81,70 @@ describe("InstructionLibraryPanel", () => {
       );
     });
   });
+
+  it("renders instruction type options in Russian", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <InstructionLibraryPanel
+        actionError={null}
+        deletingInstructionId={null}
+        detailError={null}
+        error={null}
+        instructions={[summary]}
+        isLoading={false}
+        isLoadingDetail={false}
+        message={null}
+        onCreateInstruction={vi.fn()}
+        onDeleteInstruction={vi.fn()}
+        onLoadInstruction={vi.fn(async () => detail)}
+        onLoadInstructionDiff={vi.fn(async () => null)}
+        onLoadInstructionRevisions={vi.fn(async () => [])}
+        onRestoreInstructionRevision={vi.fn()}
+        onUpdateInstruction={vi.fn()}
+        revisionDiff={null}
+        revisions={[]}
+        selectedInstruction={null}
+      />,
+    );
+
+    await user.click(screen.getByLabelText("Тип инструкции"));
+
+    expect(await screen.findByRole("option", { name: "Системная" })).toBeTruthy();
+    expect(screen.getByRole("option", { name: "Пользовательская" })).toBeTruthy();
+    expect(screen.getByRole("option", { name: "Контекстная" })).toBeTruthy();
+    expect(screen.getByRole("option", { name: "Безопасность" })).toBeTruthy();
+  });
+
+  it("renders Russian help tooltips for instruction type and level", () => {
+    render(
+      <InstructionLibraryPanel
+        actionError={null}
+        deletingInstructionId={null}
+        detailError={null}
+        error={null}
+        instructions={[summary]}
+        isLoading={false}
+        isLoadingDetail={false}
+        message={null}
+        onCreateInstruction={vi.fn()}
+        onDeleteInstruction={vi.fn()}
+        onLoadInstruction={vi.fn(async () => detail)}
+        onLoadInstructionDiff={vi.fn(async () => null)}
+        onLoadInstructionRevisions={vi.fn(async () => [])}
+        onRestoreInstructionRevision={vi.fn()}
+        onUpdateInstruction={vi.fn()}
+        revisionDiff={null}
+        revisions={[]}
+        selectedInstruction={null}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Показать подсказку: тип инструкции" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Показать подсказку: уровень инструкции" })).toBeTruthy();
+    expect(screen.getByText("Системная: системные правила, роль и базовое поведение модели.")).toBeTruthy();
+    expect(screen.getByText("Безопасность: ограничения и запреты, которые добавляются в системную часть промпта.")).toBeTruthy();
+    expect(screen.getByText("Рабочая область / проект: применяется автоматически при совпадении Scope target с ключом рабочей области запроса.")).toBeTruthy();
+    expect(screen.getByText("Сценарий / чат: доступна для ручного выбора в RAG/Direct чате.")).toBeTruthy();
+  });
 });

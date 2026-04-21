@@ -6,7 +6,7 @@ import type {
   ChatExecutionRequest,
   ChatExecutionResponse,
   ChatMode,
-  ChatRunTraceDetail,
+  ChatRunStatusResponse,
   KnowledgeScope,
   QualityLayerFlags,
   RetrievalFilters,
@@ -33,6 +33,7 @@ type UseChatExecutionOptions = {
   initialKnowledgeScope?: KnowledgeScope;
   rolloutFlags?: QualityLayerFlags | null;
   selectedInstructionIds: string[];
+  workspaceKey?: string | null;
 };
 
 export const useChatExecution = ({
@@ -44,6 +45,7 @@ export const useChatExecution = ({
   initialKnowledgeScope = DEFAULT_KNOWLEDGE_SCOPE,
   rolloutFlags = null,
   selectedInstructionIds,
+  workspaceKey = null,
 }: UseChatExecutionOptions) => {
   const [model, setModel] = useState(initialModel);
   const [prompt, setPrompt] = useState(initialPrompt);
@@ -71,6 +73,17 @@ export const useChatExecution = ({
 
   const metadataFiltersEnabled = rolloutFlags?.metadataFiltersV1 === true;
   const queryHintsEnabled = metadataFiltersEnabled && rolloutFlags?.queryHintsV1 === true;
+  useEffect(() => {
+    if (mode !== "rag") {
+      return;
+    }
+    const normalizedWorkspaceKey = workspaceKey?.trim() || null;
+    setKnowledgeScope((current) => (
+      current.workspaceKey === normalizedWorkspaceKey
+        ? current
+        : { ...current, workspaceKey: normalizedWorkspaceKey }
+    ));
+  }, [mode, workspaceKey]);
   const queryHints = useMemo(
     () => (queryHintsEnabled ? extractRetrievalQueryHints(prompt) : {}),
     [prompt, queryHintsEnabled],
@@ -149,12 +162,15 @@ export const useChatExecution = ({
     setIsSubmitting(true);
     setError(null);
 
+    const effectiveKnowledgeScope = mode === "rag"
+      ? { ...knowledgeScope, workspaceKey: workspaceKey?.trim() || knowledgeScope.workspaceKey || null }
+      : knowledgeScope;
     const hasKnowledgeScope =
-      knowledgeScope.presetIds.length > 0 ||
-      knowledgeScope.documentClasses.length > 0 ||
-      knowledgeScope.tags.length > 0 ||
-      Boolean(knowledgeScope.workspaceKey?.trim()) ||
-      knowledgeScope.uploadedTodayOnly;
+      effectiveKnowledgeScope.presetIds.length > 0 ||
+      effectiveKnowledgeScope.documentClasses.length > 0 ||
+      effectiveKnowledgeScope.tags.length > 0 ||
+      Boolean(effectiveKnowledgeScope.workspaceKey?.trim()) ||
+      effectiveKnowledgeScope.uploadedTodayOnly;
 
     const request: ChatExecutionRequest = {
       mode,
@@ -162,8 +178,8 @@ export const useChatExecution = ({
       prompt,
       instructionIds: selectedInstructionIds,
       answerMode,
-      ...(mode === "rag" || hasKnowledgeScope ? { knowledgeScope } : {}),
-      ...(knowledgeScope.workspaceKey?.trim() ? { instructionWorkspaceKey: knowledgeScope.workspaceKey.trim() } : {}),
+      ...(mode === "rag" || hasKnowledgeScope ? { knowledgeScope: effectiveKnowledgeScope } : {}),
+      ...(effectiveKnowledgeScope.workspaceKey?.trim() ? { instructionWorkspaceKey: effectiveKnowledgeScope.workspaceKey.trim() } : {}),
       ...(mode === "rag" && metadataFiltersEnabled && (hintOwnedFields.length > 0 || manualOwnedFields.length > 0)
         ? { retrievalFilters: effectiveRetrievalFilters }
         : {}),
@@ -182,8 +198,8 @@ export const useChatExecution = ({
       currentRunIdRef.current = submittedRun.id;
       setCurrentRunId(submittedRun.id);
       setCurrentRunStatus(submittedRun.status);
-      const payload = await waitForRunResult(submittedRun.id, controller.signal, (trace) => {
-        setCurrentRunStatus(trace.status);
+      const payload = await waitForRunResult(submittedRun.id, controller.signal, (status) => {
+        setCurrentRunStatus(status.status);
       });
       if (
         controller.signal.aborted ||
@@ -256,19 +272,19 @@ export const useChatExecution = ({
 const waitForRunResult = async (
   runId: string,
   signal: AbortSignal,
-  onTrace: (trace: ChatRunTraceDetail) => void,
+  onStatus: (status: ChatRunStatusResponse) => void,
 ): Promise<ChatExecutionResponse> => {
   while (!signal.aborted) {
-    const trace = await apiClient.fetchChatRunTrace(runId, signal);
-    onTrace(trace);
-    if (trace.status === "COMPLETED") {
+    const status = await apiClient.fetchChatRunStatus(runId, signal);
+    onStatus(status);
+    if (status.status === "COMPLETED") {
       return apiClient.fetchChatRunResult(runId, signal);
     }
-    if (trace.status === "FAILED") {
-      throw new Error(trace.failureMessage ?? "Chat run failed");
+    if (status.status === "FAILED") {
+      throw new Error(status.failureMessage ?? "Запуск RAG запроса завершился ошибкой.");
     }
-    if (trace.status === "CANCELLED") {
-      throw new Error("Chat run was cancelled");
+    if (status.status === "CANCELLED") {
+      throw new Error(status.failureMessage ?? "Запуск RAG запроса был отменён.");
     }
     await sleep(CHAT_RUN_POLL_INTERVAL_MS, signal);
   }

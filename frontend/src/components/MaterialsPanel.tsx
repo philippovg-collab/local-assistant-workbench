@@ -1,9 +1,12 @@
+import { useState } from "react";
 import { SectionIntro } from "@/components/app/SectionIntro";
 import { MaterialCatalogList } from "@/components/materials/MaterialCatalogList";
+import { MaterialEditDialog } from "@/components/materials/MaterialEditDialog";
 import { MaterialLineagePanel } from "@/components/materials/MaterialLineagePanel";
 import { MaterialUploadForm } from "@/components/materials/MaterialUploadForm";
 import { TextMaterialForm } from "@/components/materials/TextMaterialForm";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import type {
   MaterialLineageResponse,
   MaterialMetadataInput,
@@ -13,6 +16,7 @@ import type {
   MaterialVersionUploadInput,
   ReferenceProject,
   ReferenceWorkspace,
+  UpdateMaterialInput,
 } from "@/types";
 import type { RagReadinessPresentation } from "@/utils/readiness";
 
@@ -29,6 +33,7 @@ type MaterialsPanelProps = {
   message: string | null;
   actionError: string | null;
   deletingMaterialId: string | null;
+  editingMaterialId: string | null;
   reindexingMaterialId: string | null;
   versionUploadingMaterialId: string | null;
   selectedLineage: MaterialLineageResponse | null;
@@ -39,9 +44,12 @@ type MaterialsPanelProps = {
   referenceProjects: ReferenceProject[];
   isReferenceDataLoading: boolean;
   referenceDataError: string | null;
+  activeWorkspaceKey?: string | null;
+  activeWorkspaceName?: string | null;
   onCreateText: (input: { title: string; content: string; metadata?: MaterialMetadataInput }) => Promise<unknown>;
   onUpload: (input: { items: MaterialUploadItemInput[] }) => Promise<unknown>;
   onUploadVersion: (materialId: string, input: MaterialVersionUploadInput) => Promise<unknown>;
+  onEditMaterial: (materialId: string, input: UpdateMaterialInput) => Promise<unknown>;
   onDelete: (materialId: string) => Promise<unknown>;
   onReindex: (materialId: string) => Promise<unknown>;
   onLoadLineage: (materialId: string) => Promise<unknown>;
@@ -65,6 +73,7 @@ export function MaterialsPanel({
   message,
   actionError,
   deletingMaterialId,
+  editingMaterialId,
   reindexingMaterialId,
   versionUploadingMaterialId,
   selectedLineage,
@@ -75,23 +84,31 @@ export function MaterialsPanel({
   referenceProjects,
   isReferenceDataLoading,
   referenceDataError,
+  activeWorkspaceKey,
+  activeWorkspaceName,
   onCreateText,
   onUpload,
   onUploadVersion,
+  onEditMaterial,
   onDelete,
   onReindex,
   onLoadLineage,
   onLoadMore,
   onClearLineage,
 }: MaterialsPanelProps) {
+  const [editingMaterial, setEditingMaterial] = useState<MaterialSummary | null>(null);
+  const isLineageDialogOpen = Boolean(selectedLineage || lineageError);
+  const normalizedActiveWorkspaceKey = activeWorkspaceKey?.trim() || "general";
+  const normalizedActiveWorkspaceName = activeWorkspaceName?.trim() || normalizedActiveWorkspaceKey;
+
   return (
     <div className="space-y-6">
       <SectionIntro
-        badge="GET /api/materials"
+        badge={`workspaceKey=${normalizedActiveWorkspaceKey}`}
         badgeVariant="default"
-        description="Материалы сначала принимаются backend и попадают в каталог, а embeddings/index строятся отдельным lifecycle со статусами `PENDING`, `IN_PROGRESS`, `READY`, `PARTIAL_READY` и `FAILED`."
+        description="Список, загрузка, редактирование и переиндексация ограничены активным RAG-проектом. Legacy business project остаётся только в metadata уже существующих материалов."
         eyebrow="Knowledge Base"
-        title="Материалы для RAG"
+        title={`Материалы проекта: ${normalizedActiveWorkspaceName}`}
       />
 
       <div className="grid gap-6 xl:grid-cols-2">
@@ -99,6 +116,8 @@ export function MaterialsPanel({
           isReferenceDataLoading={isReferenceDataLoading}
           metadataDisabledReason={metadataDisabledReason}
           metadataV1Enabled={metadataV1Enabled}
+          activeWorkspaceKey={normalizedActiveWorkspaceKey}
+          activeWorkspaceName={normalizedActiveWorkspaceName}
           referenceDataError={referenceDataError}
           referenceProjects={referenceProjects}
           referenceWorkspaces={referenceWorkspaces}
@@ -108,6 +127,8 @@ export function MaterialsPanel({
           isReferenceDataLoading={isReferenceDataLoading}
           metadataDisabledReason={metadataDisabledReason}
           metadataV1Enabled={metadataV1Enabled}
+          activeWorkspaceKey={normalizedActiveWorkspaceKey}
+          activeWorkspaceName={normalizedActiveWorkspaceName}
           policyWarning={policyWarning}
           referenceDataError={referenceDataError}
           referenceProjects={referenceProjects}
@@ -152,18 +173,52 @@ export function MaterialsPanel({
         reindexingMaterialId={reindexingMaterialId}
         versionUploadingMaterialId={versionUploadingMaterialId}
         onDelete={onDelete}
+        onEditMaterial={setEditingMaterial}
         onLoadLineage={onLoadLineage}
         onLoadMore={onLoadMore}
         onReindex={onReindex}
         onUploadVersion={onUploadVersion}
       />
 
-      <MaterialLineagePanel
-        lineageError={lineageError}
+      <Dialog
+        open={isLineageDialogOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            onClearLineage();
+          }
+        }}
+      >
+        <DialogContent className="max-h-[88vh] max-w-5xl overflow-y-auto">
+          <DialogTitle className="sr-only">История версий материала</DialogTitle>
+          <DialogDescription className="sr-only">
+            Версии выбранного материала и причины перехода старых редакций в историю.
+          </DialogDescription>
+          <MaterialLineagePanel
+            lineageError={lineageError}
+            referenceProjects={referenceProjects}
+            referenceWorkspaces={referenceWorkspaces}
+            selectedLineage={selectedLineage}
+          />
+        </DialogContent>
+      </Dialog>
+
+      <MaterialEditDialog
+        isReferenceDataLoading={isReferenceDataLoading}
+        isSaving={editingMaterialId === editingMaterial?.id}
+        material={editingMaterial}
+        metadataDisabledReason={metadataDisabledReason}
+        metadataV1Enabled={metadataV1Enabled}
+        activeWorkspaceKey={normalizedActiveWorkspaceKey}
+        activeWorkspaceName={normalizedActiveWorkspaceName}
+        referenceDataError={referenceDataError}
         referenceProjects={referenceProjects}
         referenceWorkspaces={referenceWorkspaces}
-        selectedLineage={selectedLineage}
-        onClearLineage={onClearLineage}
+        onOpenChange={(open) => {
+          if (!open) {
+            setEditingMaterial(null);
+          }
+        }}
+        onUpdateMaterial={onEditMaterial}
       />
     </div>
   );

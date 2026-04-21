@@ -1,10 +1,23 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { apiClient } from "@/api/client";
 import { MaterialsPanel } from "./MaterialsPanel";
 import { buildMaterialSummary } from "../testBuilders";
 import { buildRagReadinessPresentation, deriveRagReadiness } from "../utils/readiness";
 import type { HealthResponse, ReferenceProject, ReferenceWorkspace } from "../types";
+
+vi.mock("@/api/client", async () => {
+  const actual = await vi.importActual<typeof import("@/api/client")>("@/api/client");
+
+  return {
+    ...actual,
+    apiClient: {
+      ...actual.apiClient,
+      fetchMaterial: vi.fn(),
+    },
+  };
+});
 
 const referenceWorkspaces: ReferenceWorkspace[] = [
   {
@@ -72,6 +85,7 @@ const renderPanel = (
     <MaterialsPanel
       actionError={null}
       deletingMaterialId={null}
+      editingMaterialId={null}
       error={null}
 	      isLoading={false}
 	      isLoadingMore={false}
@@ -82,11 +96,12 @@ const renderPanel = (
       materials={materials}
       materialTotal={materials.length}
       metadataV1Enabled={false}
-	      message={null}
-	      onClearLineage={vi.fn()}
-	      onCreateText={vi.fn()}
-	      onDelete={vi.fn()}
-	      onLoadLineage={vi.fn()}
+      message={null}
+      onClearLineage={vi.fn()}
+      onCreateText={vi.fn()}
+      onDelete={vi.fn()}
+      onEditMaterial={vi.fn()}
+      onLoadLineage={vi.fn()}
       onLoadMore={vi.fn()}
       onReindex={vi.fn()}
       onUpload={vi.fn()}
@@ -355,6 +370,53 @@ describe("MaterialsPanel", () => {
       .toBeNull();
   });
 
+  it("renders lineage in a dialog instead of an inline catalog block", () => {
+    renderPanel({
+      selectedLineage: {
+        requestedMaterialId: "lineage-version",
+        activeMaterialId: "lineage-version",
+        versions: [
+          {
+            ...buildMaterialSummary({
+              id: "lineage-version",
+              title: "Lineage grid policy",
+            }),
+            supersededByMaterialId: null,
+            supersedeReason: null,
+          },
+        ],
+      },
+    });
+
+    const dialog = screen.getByRole("dialog", { name: "История версий материала" });
+    expect(within(dialog).getByText("История версий")).toBeTruthy();
+    expect(within(dialog).getByText("Lineage grid policy")).toBeTruthy();
+    expect(within(dialog).queryByRole("button", { name: "Закрыть историю" })).toBeNull();
+    expect(within(dialog).getByRole("button", { name: "Закрыть" })).toBeTruthy();
+  });
+
+  it("calls lineage loading from the History button", async () => {
+    const user = userEvent.setup();
+    const onLoadLineage = vi.fn().mockResolvedValue(undefined);
+    renderPanel({
+      onLoadLineage,
+      materials: [
+        buildMaterialSummary({
+          id: "active-ready",
+          title: "Ready tariff",
+          sourceType: "file",
+          originalFileName: "ready.pdf",
+          status: "READY",
+          versionState: "ACTIVE",
+        }),
+      ],
+    });
+
+    await user.click(screen.getByRole("button", { name: "История" }));
+
+    expect(onLoadLineage).toHaveBeenCalledWith("active-ready");
+  });
+
   it("filters the catalog to problematic materials and exposes reindex actions only there", async () => {
     const user = userEvent.setup();
     renderPanel({
@@ -423,6 +485,136 @@ describe("MaterialsPanel", () => {
     expect(screen.getByText("Ready tariff")).toBeTruthy();
     expect(screen.getByText("Old tariff")).toBeTruthy();
     expect(screen.getAllByRole("button", { name: "Загрузить новую версию" })).toHaveLength(1);
+  });
+
+  it("shows edit actions only for active material versions", async () => {
+    const user = userEvent.setup();
+    renderPanel({
+      materials: [
+        buildMaterialSummary({
+          id: "active-ready",
+          title: "Ready tariff",
+          sourceType: "file",
+          originalFileName: "ready.pdf",
+          status: "READY",
+          versionState: "ACTIVE",
+        }),
+        buildMaterialSummary({
+          id: "historical-1",
+          title: "Old tariff",
+          sourceType: "file",
+          originalFileName: "old.pdf",
+          status: "READY",
+          versionState: "SUPERSEDED",
+        }),
+      ],
+    });
+
+    await user.click(screen.getByRole("button", { name: "Все версии" }));
+
+    expect(screen.getByText("Ready tariff")).toBeTruthy();
+    expect(screen.getByText("Old tariff")).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: "Редактировать" })).toHaveLength(1);
+    const actions = screen.getByTestId("material-actions-active-ready");
+    expect(actions.className).toContain("flex-wrap");
+    expect(actions.className).toContain("min-w-0");
+    expect(actions.className).not.toContain("overflow-x-auto");
+  });
+
+  it("opens material edit dialog, loads detail, and submits a new revision", async () => {
+    const user = userEvent.setup();
+    const onEditMaterial = vi.fn().mockResolvedValue(undefined);
+    vi.mocked(apiClient.fetchMaterial).mockResolvedValue({
+      id: "active-ready",
+      title: "Ready tariff",
+      sourceType: "file",
+      originalFileName: "ready.pdf",
+      mediaType: "application/pdf",
+      content: "Исходный извлечённый текст.",
+      status: "READY",
+      versionState: "ACTIVE",
+      createdAt: "2026-04-16T10:00:00Z",
+      metadata: buildMaterialSummary().metadata,
+      chunks: [],
+    });
+    renderPanel({
+      onEditMaterial,
+      materials: [
+        buildMaterialSummary({
+          id: "active-ready",
+          title: "Ready tariff",
+          sourceType: "file",
+          originalFileName: "ready.pdf",
+          status: "READY",
+          versionState: "ACTIVE",
+        }),
+      ],
+    });
+
+    await user.click(screen.getByRole("button", { name: "Редактировать" }));
+    const dialog = await screen.findByRole("dialog", { name: "Редактировать материал" });
+    await waitFor(() => {
+      expect((within(dialog).getByLabelText("Содержимое") as HTMLTextAreaElement).value)
+        .toBe("Исходный извлечённый текст.");
+    });
+
+    const titleInput = within(dialog).getByLabelText("Название") as HTMLInputElement;
+    const contentInput = within(dialog).getByLabelText("Содержимое") as HTMLTextAreaElement;
+    await user.clear(titleInput);
+    await user.type(titleInput, "Ready tariff edited");
+    await user.clear(contentInput);
+    await user.type(contentInput, "Новая редакция текста.");
+    await user.click(within(dialog).getByRole("button", { name: "Сохранить редакцию" }));
+
+    await waitFor(() => {
+      expect(onEditMaterial).toHaveBeenCalledWith("active-ready", {
+        title: "Ready tariff edited",
+        content: "Новая редакция текста.",
+      });
+    });
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "Редактировать материал" })).toBeNull();
+    });
+  });
+
+  it("keeps the material edit dialog open when saving fails", async () => {
+    const user = userEvent.setup();
+    const onEditMaterial = vi.fn().mockRejectedValue(new Error("boom"));
+    vi.mocked(apiClient.fetchMaterial).mockResolvedValue({
+      id: "active-ready",
+      title: "Ready tariff",
+      sourceType: "text",
+      originalFileName: null,
+      content: "Исходный текст.",
+      status: "READY",
+      versionState: "ACTIVE",
+      createdAt: "2026-04-16T10:00:00Z",
+      metadata: buildMaterialSummary().metadata,
+      chunks: [],
+    });
+    renderPanel({
+      onEditMaterial,
+      materials: [
+        buildMaterialSummary({
+          id: "active-ready",
+          title: "Ready tariff",
+          status: "READY",
+          versionState: "ACTIVE",
+        }),
+      ],
+    });
+
+    await user.click(screen.getByRole("button", { name: "Редактировать" }));
+    const dialog = await screen.findByRole("dialog", { name: "Редактировать материал" });
+    await waitFor(() => {
+      expect((within(dialog).getByLabelText("Содержимое") as HTMLTextAreaElement).value).toBe("Исходный текст.");
+    });
+    await user.click(within(dialog).getByRole("button", { name: "Сохранить редакцию" }));
+
+    await waitFor(() => {
+      expect(within(dialog).getByText("Редакция не сохранена")).toBeTruthy();
+    });
+    expect(screen.getByRole("dialog", { name: "Редактировать материал" })).toBeTruthy();
   });
 
   it("submits controlled version upload from the active material card", async () => {

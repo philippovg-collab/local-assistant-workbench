@@ -471,7 +471,7 @@ start_backend() {
     export APP_SECURITY_ADMIN_USERNAME
     export APP_SECURITY_ADMIN_PASSWORD
     cd "$ROOT_DIR/backend"
-    exec mvn spring-boot:run
+    exec mvn -Dmaven.test.skip=true spring-boot:run
   ) >"$BACKEND_LOG_FILE" 2>&1 &
   BACKEND_PID=$!
   BACKEND_MANAGED=1
@@ -543,6 +543,7 @@ fi
 
 start_backend
 wait_for_service "Backend" "$BACKEND_PID" "$BACKEND_MANAGED" is_backend_ready "$BACKEND_LOG_FILE" "$BACKEND_START_TIMEOUT_SECONDS" || exit $EXIT_CODE
+zsh "$ROOT_DIR/scripts/local-runtime-diagnostics.zsh" || true
 
 start_frontend
 wait_for_service "Frontend" "$FRONTEND_PID" "$FRONTEND_MANAGED" is_frontend_ready "$FRONTEND_LOG_FILE" "$STACK_START_TIMEOUT_SECONDS" || exit $EXIT_CODE

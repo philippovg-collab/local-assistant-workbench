@@ -136,10 +136,19 @@ public class MaterialQueryService {
     }
 
     public MaterialListResponse listSummariesPage(Integer offset, Integer limit) {
+        return listSummariesPage(offset, limit, null);
+    }
+
+    public MaterialListResponse listSummariesPage(Integer offset, Integer limit, String workspaceKey) {
         int normalizedOffset = normalizeMaterialListOffset(offset);
         int normalizedLimit = normalizeMaterialListLimit(limit);
-        List<MaterialSummary> items = repository.findSummaries(normalizedOffset, normalizedLimit);
-        int total = repository.countMaterials();
+        String normalizedWorkspaceKey = normalizeOptionalWorkspaceKey(workspaceKey);
+        List<MaterialSummary> items = normalizedWorkspaceKey == null
+            ? repository.findSummaries(normalizedOffset, normalizedLimit)
+            : repository.findSummariesByWorkspace(normalizedWorkspaceKey, normalizedOffset, normalizedLimit);
+        int total = normalizedWorkspaceKey == null
+            ? repository.countMaterials()
+            : repository.countMaterialsByWorkspace(normalizedWorkspaceKey);
         boolean hasMore = normalizedOffset + items.size() < total;
         return new MaterialListResponse(items, total, normalizedOffset, normalizedLimit, hasMore);
     }
@@ -385,6 +394,26 @@ public class MaterialQueryService {
         lifecycleService.delete(id, Instant.now());
     }
 
+    public void requireMaterialInWorkspace(String id, String workspaceKey) {
+        String normalizedWorkspaceKey = normalizeOptionalWorkspaceKey(workspaceKey);
+        if (normalizedWorkspaceKey == null) {
+            return;
+        }
+        StoredMaterialRecord record = repository.findById(id).orElseThrow(() -> new ApiException(
+            HttpStatus.NOT_FOUND,
+            "material.not_found",
+            "Material '" + id + "' does not exist"
+        ));
+        String recordWorkspaceKey = normalizeOptionalWorkspaceKey(record.metadata().workspaceKey());
+        if (!normalizedWorkspaceKey.equals(recordWorkspaceKey)) {
+            throw new ApiException(
+                HttpStatus.NOT_FOUND,
+                "material.not_found",
+                "Material '" + id + "' does not exist"
+            );
+        }
+    }
+
     public String supersedeReasonForNewActiveVersion() {
         return SUPERSEDE_REASON_NEW_ACTIVE_VERSION;
     }
@@ -496,6 +525,13 @@ public class MaterialQueryService {
             );
         }
         return limit;
+    }
+
+    private String normalizeOptionalWorkspaceKey(String workspaceKey) {
+        if (!StringUtils.hasText(workspaceKey)) {
+            return null;
+        }
+        return workspaceKey.trim().toLowerCase(java.util.Locale.ROOT);
     }
 
     private RechunkPreparation prepareRechunk(StoredMaterialRecord record, ChunkProfile targetProfile) {

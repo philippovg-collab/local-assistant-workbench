@@ -51,6 +51,10 @@ public class MaterialService {
         return queryService.listSummariesPage(offset, limit);
     }
 
+    public MaterialListResponse listSummariesPage(Integer offset, Integer limit, String workspaceKey) {
+        return queryService.listSummariesPage(offset, limit, workspaceKey);
+    }
+
     public MaterialUploadPolicyResponse getUploadPolicy() {
         return queryService.getUploadPolicy();
     }
@@ -80,11 +84,52 @@ public class MaterialService {
         return ingestionService.saveUploadVersion(materialId, title, file, metadata);
     }
 
+    public MaterialSummary saveUploadVersion(
+        String materialId,
+        String title,
+        MultipartFile file,
+        MaterialMetadataInput metadata,
+        String workspaceKey
+    ) {
+        queryService.requireMaterialInWorkspace(materialId, workspaceKey);
+        return ingestionService.saveUploadVersion(materialId, title, file, metadata);
+    }
+
+    public MaterialSummary editMaterial(
+        String materialId,
+        String title,
+        String content,
+        MaterialMetadataInput metadata
+    ) {
+        return ingestionService.editMaterial(materialId, title, content, metadata);
+    }
+
+    public MaterialSummary editMaterial(
+        String materialId,
+        String title,
+        String content,
+        MaterialMetadataInput metadata,
+        String workspaceKey
+    ) {
+        queryService.requireMaterialInWorkspace(materialId, workspaceKey);
+        return ingestionService.editMaterial(materialId, title, content, metadata);
+    }
+
     public void delete(String id) {
         queryService.delete(id);
     }
 
+    public void delete(String id, String workspaceKey) {
+        queryService.requireMaterialInWorkspace(id, workspaceKey);
+        queryService.delete(id);
+    }
+
     public MaterialSummary reindex(String id) {
+        return queryService.reindex(id);
+    }
+
+    public MaterialSummary reindex(String id, String workspaceKey) {
+        queryService.requireMaterialInWorkspace(id, workspaceKey);
         return queryService.reindex(id);
     }
 
@@ -100,7 +145,17 @@ public class MaterialService {
         return queryService.getLineage(id);
     }
 
+    public MaterialLineageResponse getLineage(String id, String workspaceKey) {
+        queryService.requireMaterialInWorkspace(id, workspaceKey);
+        return queryService.getLineage(id);
+    }
+
     public MaterialDetail getDetail(String id) {
+        return queryService.getDetail(id);
+    }
+
+    public MaterialDetail getDetail(String id, String workspaceKey) {
+        queryService.requireMaterialInWorkspace(id, workspaceKey);
         return queryService.getDetail(id);
     }
 

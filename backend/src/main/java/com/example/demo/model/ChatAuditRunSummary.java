@@ -14,7 +14,8 @@ public record ChatAuditRunSummary(
     String failureStage,
     String failureCode,
     Instant failedAt,
-    Long latencyMsTotal
+    Long latencyMsTotal,
+    String workspaceKey
 ) {
     public ChatAuditRunSummary(
         String id,
@@ -37,6 +38,38 @@ public record ChatAuditRunSummary(
             null,
             null,
             null,
+            null,
+            null
+        );
+    }
+
+    public ChatAuditRunSummary(
+        String id,
+        ChatMode mode,
+        String model,
+        AnswerMode answerMode,
+        String promptPreview,
+        String answerPreview,
+        Instant createdAt,
+        String status,
+        String failureStage,
+        String failureCode,
+        Instant failedAt,
+        Long latencyMsTotal
+    ) {
+        this(
+            id,
+            mode,
+            model,
+            answerMode,
+            promptPreview,
+            answerPreview,
+            createdAt,
+            status,
+            failureStage,
+            failureCode,
+            failedAt,
+            latencyMsTotal,
             null
         );
     }

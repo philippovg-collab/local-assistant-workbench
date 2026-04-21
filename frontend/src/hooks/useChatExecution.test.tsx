@@ -25,6 +25,7 @@ vi.mock("../api/client", async () => {
           id,
           status: "COMPLETED",
           createdAt: "2026-04-16T10:00:00Z",
+          statusUrl: `/api/chat-runs/${id}/status`,
           traceUrl: `/api/chat-runs/${id}/trace`,
           resultUrl: `/api/chat-runs/${id}/result`,
         };
@@ -36,6 +37,17 @@ vi.mock("../api/client", async () => {
         createdAt: "2026-04-16T10:00:00Z",
         llmCalls: [],
         events: [],
+      })),
+      fetchChatRunStatus: vi.fn(async (runId) => ({
+        id: runId,
+        status: "COMPLETED",
+        createdAt: "2026-04-16T10:00:00Z",
+        completedAt: "2026-04-16T10:00:00Z",
+        failedAt: null,
+        latencyMsTotal: null,
+        failureStage: null,
+        failureCode: null,
+        failureMessage: null,
       })),
       fetchChatRunResult: vi.fn(async (runId) => runResults.get(runId) ?? {
         mode: "rag",
@@ -101,6 +113,7 @@ function HookHarness({
         >
           <option value="qwen2.5:7b">qwen2.5:7b</option>
           <option value="qwen2.5:3b">qwen2.5:3b</option>
+          <option value="deepseek-r1:8b">deepseek-r1:8b</option>
         </select>
       </label>
 
@@ -183,6 +196,32 @@ describe("useChatExecution", () => {
     expect(screen.getByTestId("rag-prompt-output").textContent).toBe("rag prompt");
     expect(screen.getByTestId("direct-temporary-output").textContent).toBe("updated direct system");
     expect(screen.getByTestId("rag-temporary-output").textContent).toBe("");
+  });
+
+  it("submits the selected DeepSeek Ollama model", async () => {
+    const user = userEvent.setup();
+    vi.mocked(apiClient.executeChat).mockResolvedValue(buildChatExecutionResponse({
+      mode: "direct",
+      model: "deepseek-r1:8b",
+      prompt: "direct prompt",
+      answer: "ok",
+    }));
+
+    render(<HookHarness initialPrompt="direct prompt" mode="direct" />);
+
+    await user.selectOptions(screen.getByLabelText("direct-model"), "deepseek-r1:8b");
+    await user.click(screen.getByRole("button", { name: "submit-direct" }));
+
+    await waitFor(() => {
+      expect(apiClient.executeChat).toHaveBeenCalledWith(
+        expect.objectContaining({
+          mode: "direct",
+          model: "deepseek-r1:8b",
+          prompt: "direct prompt",
+        }),
+        expect.any(AbortSignal),
+      );
+    });
   });
 
   it("keeps the loading state tied to the latest in-flight request", async () => {
@@ -271,6 +310,91 @@ describe("useChatExecution", () => {
         },
         expect.any(AbortSignal),
       );
+    });
+  });
+
+  it("polls header status instead of full trace before fetching the result", async () => {
+    const user = userEvent.setup();
+    vi.mocked(apiClient.executeChat).mockResolvedValue(buildChatExecutionResponse({
+      mode: "rag",
+      model: "qwen2.5:7b",
+      prompt: "Какая цена?",
+      answer: "12000",
+    }));
+    vi.mocked(apiClient.fetchChatRunTrace).mockRejectedValue(new ApiClientError("Unable to decode chat trace JSON", {
+      code: "chat_trace.storage_decode_failed",
+      status: 500,
+    }));
+
+    render(<HookHarness initialPrompt="Какая цена?" mode="rag" />);
+
+    await user.click(screen.getByText("submit-rag"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("rag-response-output").textContent).toBe("12000");
+      expect(apiClient.fetchChatRunStatus).toHaveBeenCalled();
+      expect(apiClient.fetchChatRunResult).toHaveBeenCalled();
+      expect(apiClient.fetchChatRunTrace).not.toHaveBeenCalled();
+    });
+  });
+
+  it("shows a localized fallback when status polling reports a failed run", async () => {
+    const user = userEvent.setup();
+    vi.mocked(apiClient.submitChatRun).mockResolvedValueOnce({
+      id: "failed-run",
+      status: "RECEIVED",
+      createdAt: "2026-04-16T10:00:00Z",
+      statusUrl: "/api/chat-runs/failed-run/status",
+      traceUrl: "/api/chat-runs/failed-run/trace",
+      resultUrl: "/api/chat-runs/failed-run/result",
+    });
+    vi.mocked(apiClient.fetchChatRunStatus).mockResolvedValueOnce({
+      id: "failed-run",
+      status: "FAILED",
+      createdAt: "2026-04-16T10:00:00Z",
+      failedAt: "2026-04-16T10:00:01Z",
+      failureStage: "LLM",
+      failureCode: "chat_trace.execution_failed",
+      failureMessage: null,
+    });
+
+    render(<HookHarness initialPrompt="Какая цена?" mode="rag" />);
+
+    await user.click(screen.getByText("submit-rag"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("rag-error-output").textContent).toContain("завершился ошибкой");
+      expect(apiClient.fetchChatRunResult).not.toHaveBeenCalled();
+    });
+  });
+
+  it("shows a localized fallback when status polling reports cancellation", async () => {
+    const user = userEvent.setup();
+    vi.mocked(apiClient.submitChatRun).mockResolvedValueOnce({
+      id: "cancelled-run",
+      status: "RECEIVED",
+      createdAt: "2026-04-16T10:00:00Z",
+      statusUrl: "/api/chat-runs/cancelled-run/status",
+      traceUrl: "/api/chat-runs/cancelled-run/trace",
+      resultUrl: "/api/chat-runs/cancelled-run/result",
+    });
+    vi.mocked(apiClient.fetchChatRunStatus).mockResolvedValueOnce({
+      id: "cancelled-run",
+      status: "CANCELLED",
+      createdAt: "2026-04-16T10:00:00Z",
+      failedAt: "2026-04-16T10:00:01Z",
+      failureStage: "CANCEL",
+      failureCode: "chat_run.cancelled",
+      failureMessage: null,
+    });
+
+    render(<HookHarness initialPrompt="Какая цена?" mode="rag" />);
+
+    await user.click(screen.getByText("submit-rag"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("rag-error-output").textContent).toContain("был отменён");
+      expect(apiClient.fetchChatRunResult).not.toHaveBeenCalled();
     });
   });
 

@@ -8,11 +8,13 @@ export { useMaterialLineage } from "@/hooks/useMaterialLineage";
 export { useMaterialMutations } from "@/hooks/useMaterialMutations";
 export { useMaterialUploadPolicy } from "@/hooks/useMaterialUploadPolicy";
 
-export const useMaterials = () => {
+export const useMaterials = (options: { workspaceKey?: string | null } = {}) => {
+  const { workspaceKey = null } = options;
   const uploadPolicyState = useMaterialUploadPolicy();
-  const catalog = useMaterialCatalog(uploadPolicyState.uploadPolicy);
-  const lineage = useMaterialLineage(uploadPolicyState.uploadPolicy);
+  const catalog = useMaterialCatalog(uploadPolicyState.uploadPolicy, workspaceKey);
+  const lineage = useMaterialLineage(uploadPolicyState.uploadPolicy, workspaceKey);
   const mutations = useMaterialMutations({
+    workspaceKey,
     uploadPolicy: uploadPolicyState.uploadPolicy,
     ensureUploadPolicy: uploadPolicyState.ensureUploadPolicy,
     loadMaterials: () => catalog.loadMaterials(),
@@ -33,6 +35,7 @@ export const useMaterials = () => {
     message: mutations.message,
     actionError: mutations.actionError,
     deletingMaterialId: mutations.deletingMaterialId,
+    editingMaterialId: mutations.editingMaterialId,
     reindexingMaterialId: mutations.reindexingMaterialId,
     versionUploadingMaterialId: mutations.versionUploadingMaterialId,
     selectedLineage: lineage.selectedLineage,
@@ -41,6 +44,7 @@ export const useMaterials = () => {
     createTextMaterial: mutations.createTextMaterial,
     uploadMaterial: mutations.uploadMaterial,
     uploadMaterialVersion: mutations.uploadMaterialVersion,
+    editMaterial: mutations.editMaterial,
     deleteMaterial: mutations.deleteMaterial,
     reindexMaterial: mutations.reindexMaterial,
     loadLineage: lineage.loadLineage,

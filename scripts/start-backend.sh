@@ -117,6 +117,7 @@ ensure_postgres_ready() {
 
 if is_backend_compatible; then
   echo "Backend is already running at http://127.0.0.1:8080"
+  zsh "$ROOT_DIR/scripts/local-runtime-diagnostics.zsh" || true
   exit 0
 fi
 
@@ -140,7 +141,7 @@ export APP_ROLLOUT_QUERY_HINTS_V1="${APP_ROLLOUT_QUERY_HINTS_V1:-true}"
 ensure_postgres_ready
 
 cd "$ROOT_DIR/backend"
-nohup mvn spring-boot:run >"$LOG_FILE" 2>&1 &
+nohup mvn -Dmaven.test.skip=true spring-boot:run >"$LOG_FILE" 2>&1 &
 PID=$!
 
 for _ in {1..30}; do
@@ -154,6 +155,7 @@ for _ in {1..30}; do
     echo "metadata-filters-v1: $APP_ROLLOUT_METADATA_FILTERS_V1"
     echo "query-hints-v1: $APP_ROLLOUT_QUERY_HINTS_V1"
     echo "Log: $LOG_FILE"
+    zsh "$ROOT_DIR/scripts/local-runtime-diagnostics.zsh" || true
     exit 0
   fi
 done

@@ -11,6 +11,7 @@ import com.example.demo.model.RechunkActiveMaterialsBatchResponse;
 import com.example.demo.model.MaterialUploadPolicyResponse;
 import com.example.demo.model.RechunkActiveMaterialsResponse;
 import com.example.demo.model.MaterialSummary;
+import com.example.demo.model.UpdateMaterialRequest;
 import com.example.demo.service.MaterialService;
 import jakarta.validation.Valid;
 import java.util.UUID;
@@ -20,6 +21,7 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -41,9 +43,10 @@ public class MaterialController {
     @GetMapping
     public MaterialListResponse listMaterials(
         @RequestParam(required = false) Integer offset,
-        @RequestParam(required = false) Integer limit
+        @RequestParam(required = false) Integer limit,
+        @RequestParam(required = false) String workspaceKey
     ) {
-        return materialService.listSummariesPage(offset, limit);
+        return materialService.listSummariesPage(offset, limit, workspaceKey);
     }
 
     @GetMapping("/policy")
@@ -52,13 +55,19 @@ public class MaterialController {
     }
 
     @GetMapping("/{id}/lineage")
-    public MaterialLineageResponse getLineage(@PathVariable String id) {
-        return materialService.getLineage(requireValidMaterialId(id));
+    public MaterialLineageResponse getLineage(
+        @PathVariable String id,
+        @RequestParam(required = false) String workspaceKey
+    ) {
+        return materialService.getLineage(requireValidMaterialId(id), workspaceKey);
     }
 
     @GetMapping("/{id}")
-    public MaterialDetail getMaterial(@PathVariable String id) {
-        return materialService.getDetail(requireValidMaterialId(id));
+    public MaterialDetail getMaterial(
+        @PathVariable String id,
+        @RequestParam(required = false) String workspaceKey
+    ) {
+        return materialService.getDetail(requireValidMaterialId(id), workspaceKey);
     }
 
     @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
@@ -87,19 +96,48 @@ public class MaterialController {
         @PathVariable String id,
         @RequestPart("file") MultipartFile file,
         @RequestParam(required = false) String title,
+        @RequestParam(required = false) String workspaceKey,
         @Valid @RequestPart(value = "metadata", required = false) MaterialMetadataInput metadata
     ) {
-        return materialService.saveUploadVersion(requireValidMaterialId(id), title, file, metadata);
+        return materialService.saveUploadVersion(requireValidMaterialId(id), title, file, metadata, workspaceKey);
+    }
+
+    @PutMapping(path = "/{id}", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public MaterialSummary updateMaterial(
+        @PathVariable String id,
+        @RequestParam(required = false) String workspaceKey,
+        @Valid @RequestBody UpdateMaterialRequest request
+    ) {
+        if (request == null) {
+            throw new ApiException(
+                HttpStatus.BAD_REQUEST,
+                "request.invalid_payload",
+                "Request payload is required"
+            );
+        }
+        return materialService.editMaterial(
+            requireValidMaterialId(id),
+            request.title(),
+            request.content(),
+            request.metadata(),
+            workspaceKey
+        );
     }
 
     @DeleteMapping("/{id}")
-    public void deleteMaterial(@PathVariable String id) {
-        materialService.delete(requireValidMaterialId(id));
+    public void deleteMaterial(
+        @PathVariable String id,
+        @RequestParam(required = false) String workspaceKey
+    ) {
+        materialService.delete(requireValidMaterialId(id), workspaceKey);
     }
 
     @PostMapping("/{id}/reindex")
-    public MaterialSummary reindexMaterial(@PathVariable String id) {
-        return materialService.reindex(requireValidMaterialId(id));
+    public MaterialSummary reindexMaterial(
+        @PathVariable String id,
+        @RequestParam(required = false) String workspaceKey
+    ) {
+        return materialService.reindex(requireValidMaterialId(id), workspaceKey);
     }
 
     @PostMapping("/rechunk-active")

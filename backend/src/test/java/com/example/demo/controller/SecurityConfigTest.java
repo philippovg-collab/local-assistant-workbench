@@ -125,7 +125,7 @@ class SecurityConfigTest {
 
     @Test
     void allowsAuthenticatedAccessToRegularApiEndpoints() throws Exception {
-        when(materialService.listSummariesPage(null, null))
+        when(materialService.listSummariesPage(null, null, null))
             .thenReturn(new MaterialListResponse(List.of(), 0, 0, 100, false));
 
         mockMvc.perform(get("/api/materials").with(user("user").roles("USER")))
@@ -139,7 +139,7 @@ class SecurityConfigTest {
             .andExpect(status().isForbidden())
             .andExpect(jsonPath("$.code").value("auth.forbidden"));
 
-        when(chatRunQueryService.listRuns()).thenReturn(List.of());
+        when(chatRunQueryService.listRuns(null)).thenReturn(List.of());
         mockMvc.perform(get("/api/chat-runs").with(user("admin").roles("ADMIN")))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$").isArray());

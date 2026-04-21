@@ -3,7 +3,7 @@ import { apiClient } from "@/api/client";
 import type { MaterialLineageResponse, MaterialUploadPolicy } from "@/types";
 import { translateMaterialError } from "@/utils/materialPresentation";
 
-export const useMaterialLineage = (uploadPolicy: MaterialUploadPolicy | null) => {
+export const useMaterialLineage = (uploadPolicy: MaterialUploadPolicy | null, workspaceKey?: string | null) => {
   const [selectedLineage, setSelectedLineage] = useState<MaterialLineageResponse | null>(null);
   const [lineageError, setLineageError] = useState<string | null>(null);
   const [loadingLineageMaterialId, setLoadingLineageMaterialId] = useState<string | null>(null);
@@ -13,7 +13,7 @@ export const useMaterialLineage = (uploadPolicy: MaterialUploadPolicy | null) =>
     setLineageError(null);
 
     try {
-      const lineage = await apiClient.fetchMaterialLineage(materialId, signal);
+      const lineage = await apiClient.fetchMaterialLineage(materialId, { workspaceKey }, signal);
       setSelectedLineage(lineage);
       return lineage;
     } catch (loadError) {

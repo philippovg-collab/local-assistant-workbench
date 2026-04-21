@@ -26,6 +26,7 @@ public class MaterialProperties {
     private int indexingRetryBaseSeconds = 5;
     private int indexingRetryMaxSeconds = 60;
     private int indexingDrainMaxJobs = 64;
+    private AutoTagsProperties autoTags = new AutoTagsProperties();
 
     public int getMaxUploadBytes() {
         return maxUploadBytes;
@@ -161,5 +162,62 @@ public class MaterialProperties {
 
     public void setIndexingDrainMaxJobs(int indexingDrainMaxJobs) {
         this.indexingDrainMaxJobs = indexingDrainMaxJobs;
+    }
+
+    public AutoTagsProperties getAutoTags() {
+        return autoTags;
+    }
+
+    public void setAutoTags(AutoTagsProperties autoTags) {
+        this.autoTags = autoTags == null ? new AutoTagsProperties() : autoTags;
+    }
+
+    public static class AutoTagsProperties {
+
+        private boolean llmEnabled = true;
+        private int maxInputChars = 16_000;
+        private int shortTarget = 5;
+        private int mediumTarget = 10;
+        private int largeTarget = 16;
+
+        public boolean isLlmEnabled() {
+            return llmEnabled;
+        }
+
+        public void setLlmEnabled(boolean llmEnabled) {
+            this.llmEnabled = llmEnabled;
+        }
+
+        public int getMaxInputChars() {
+            return maxInputChars;
+        }
+
+        public void setMaxInputChars(int maxInputChars) {
+            this.maxInputChars = maxInputChars;
+        }
+
+        public int getShortTarget() {
+            return shortTarget;
+        }
+
+        public void setShortTarget(int shortTarget) {
+            this.shortTarget = shortTarget;
+        }
+
+        public int getMediumTarget() {
+            return mediumTarget;
+        }
+
+        public void setMediumTarget(int mediumTarget) {
+            this.mediumTarget = mediumTarget;
+        }
+
+        public int getLargeTarget() {
+            return largeTarget;
+        }
+
+        public void setLargeTarget(int largeTarget) {
+            this.largeTarget = largeTarget;
+        }
     }
 }

@@ -1,5 +1,5 @@
-import { useId, useMemo, useState, type Dispatch, type FormEvent, type SetStateAction } from "react";
-import { BookText, Eye, History, Pencil, PlusCircle, RotateCcw, Trash2 } from "lucide-react";
+import { useEffect, useId, useMemo, useState, type Dispatch, type FormEvent, type SetStateAction } from "react";
+import { BookText, CircleHelp, Eye, History, Pencil, PlusCircle, RotateCcw, Trash2 } from "lucide-react";
 import { EmptyState } from "@/components/app/EmptyState";
 import { SectionIntro } from "@/components/app/SectionIntro";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -44,6 +44,8 @@ import {
 
 type InstructionLibraryPanelProps = {
   instructions: InstructionSummary[];
+  activeRagProjectKey?: string | null;
+  activeRagProjectName?: string | null;
   selectedInstruction: InstructionDetail | null;
   revisions: InstructionRevisionDetail[];
   revisionDiff: InstructionRevisionDiff | null;
@@ -85,6 +87,8 @@ const initialInstructionForm: InstructionFormState = {
   active: true,
 };
 
+const instructionCategoryOrder: InstructionCategory[] = ["system", "user", "context", "safety"];
+
 const scopeHelperText: Record<InstructionScopeLevel, string> = {
   assistant_system: "Глобальная роль ассистента. Подставляется автоматически во все запросы.",
   workspace_project: "Правила конкретного workspace или проекта. Подставляются автоматически по target.",
@@ -101,8 +105,58 @@ const instructionDiffFieldLabels: Record<string, string> = {
   active: "Активность",
 };
 
+const categoryTooltipLines = [
+  "Системная: системные правила, роль и базовое поведение модели.",
+  "Безопасность: ограничения и запреты, которые добавляются в системную часть промпта.",
+  "Контекстная: правила работы с контекстом и материалами, попадают перед контекстом или запросом.",
+  "Пользовательская: сценарные пожелания к ответу, попадают перед пользовательским запросом.",
+];
+
+const scopeTooltipLines = [
+  "Системная роль ассистента: применяется автоматически во всех запросах.",
+  "Рабочая область / проект: применяется автоматически при совпадении Scope target с ключом рабочей области запроса.",
+  "Сценарий / чат: доступна для ручного выбора в RAG/Direct чате.",
+  "Временная инструкция: одноразовое правило для текущего запроса.",
+];
+
+function FieldHelpTooltip({
+  label,
+  lines,
+}: {
+  label: string;
+  lines: string[];
+}) {
+  const tooltipId = useId();
+
+  return (
+    <span className="group relative inline-flex">
+      <button
+        aria-describedby={tooltipId}
+        aria-label={label}
+        className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-field-border bg-field text-muted-foreground transition hover:border-primary/40 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+        type="button"
+      >
+        <CircleHelp className="h-3.5 w-3.5" aria-hidden="true" />
+      </button>
+      <span
+        className="pointer-events-none absolute left-0 top-full z-50 mt-2 w-80 max-w-[calc(100vw-3rem)] rounded-[18px] border border-border bg-popover px-4 py-3 text-left text-xs leading-5 text-popover-foreground opacity-0 shadow-soft transition group-hover:opacity-100 group-focus-within:opacity-100"
+        id={tooltipId}
+        role="tooltip"
+      >
+        {lines.map((line) => (
+          <span className="block" key={line}>
+            {line}
+          </span>
+        ))}
+      </span>
+    </span>
+  );
+}
+
 export function InstructionLibraryPanel({
   instructions,
+  activeRagProjectKey,
+  activeRagProjectName,
   selectedInstruction,
   revisions,
   revisionDiff,
@@ -131,21 +185,69 @@ export function InstructionLibraryPanel({
   const scopeLabelId = useId();
   const editCategoryLabelId = useId();
   const editScopeLabelId = useId();
+  const normalizedActiveRagProjectKey = (activeRagProjectKey ?? "").trim();
+  const normalizedActiveRagProjectName = activeRagProjectName ?? "";
   const groupedInstructions = useMemo(
-    () =>
-      instructionScopeOrder.map((scopeLevel) => ({
-        scopeLevel,
-        items: instructions.filter((instruction) => (instruction.scopeLevel ?? "chat_scenario") === scopeLevel),
-      })),
-    [instructions],
+    () => [
+      {
+        id: "project",
+        label: "Инструкции этого RAG-проекта",
+        description: normalizedActiveRagProjectKey
+          ? `Автоматически применяются, когда активен проект ${normalizedActiveRagProjectName || normalizedActiveRagProjectKey}.`
+          : "Автоматически применяются при совпадении workspaceKey запроса.",
+        items: instructions.filter((instruction) =>
+          (instruction.scopeLevel ?? "chat_scenario") === "workspace_project"
+          && instruction.scopeTargetId === normalizedActiveRagProjectKey),
+      },
+      {
+        id: "scenario",
+        label: "Сценарии",
+        description: scopeHelperText.chat_scenario,
+        items: instructions.filter((instruction) => (instruction.scopeLevel ?? "chat_scenario") === "chat_scenario"),
+      },
+      {
+        id: "global",
+        label: "Глобальные",
+        description: "Системные и одноразовые шаблоны, не привязанные к конкретному RAG-проекту.",
+        items: instructions.filter((instruction) =>
+          ["assistant_system", "request_temporary"].includes(instruction.scopeLevel ?? "chat_scenario")),
+      },
+    ],
+    [instructions, normalizedActiveRagProjectKey, normalizedActiveRagProjectName],
   );
+
+  useEffect(() => {
+    if (!normalizedActiveRagProjectKey) {
+      return;
+    }
+    setCreateForm((current) => {
+      if (
+        current.title
+        || current.content
+        || current.scopeLevel !== "chat_scenario"
+        || current.scopeTargetId
+      ) {
+        return current.scopeLevel === "workspace_project"
+          ? { ...current, scopeTargetId: normalizedActiveRagProjectKey }
+          : current;
+      }
+      return {
+        ...current,
+        category: "context",
+        scopeLevel: "workspace_project",
+        scopeTargetId: normalizedActiveRagProjectKey,
+      };
+    });
+  }, [normalizedActiveRagProjectKey]);
 
   const buildPayload = (form: InstructionFormState): CreateInstructionRequest => ({
       title: form.title,
       category: form.category,
       content: form.content,
       scopeLevel: form.scopeLevel,
-      scopeTargetId: form.scopeTargetId.trim() || null,
+      scopeTargetId: form.scopeLevel === "workspace_project" && normalizedActiveRagProjectKey
+        ? normalizedActiveRagProjectKey
+        : form.scopeTargetId.trim() || null,
       active: form.active,
   });
 
@@ -259,7 +361,13 @@ export function InstructionLibraryPanel({
 
       <div className="grid gap-4 md:grid-cols-2">
         <div className="space-y-2">
-          <Label id={categoryId}>Тип инструкции</Label>
+          <div className="flex items-center gap-2">
+            <Label id={categoryId}>Тип инструкции</Label>
+            <FieldHelpTooltip
+              label="Показать подсказку: тип инструкции"
+              lines={categoryTooltipLines}
+            />
+          </div>
           <Select
             value={form.category}
             onValueChange={(value) =>
@@ -270,20 +378,33 @@ export function InstructionLibraryPanel({
               <SelectValue placeholder="Выбери тип" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="system">System</SelectItem>
-              <SelectItem value="user">User</SelectItem>
-              <SelectItem value="context">Context</SelectItem>
-              <SelectItem value="safety">Safety</SelectItem>
+              {instructionCategoryOrder.map((category) => (
+                <SelectItem key={category} value={category}>
+                  {instructionCategoryLabels[category]}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </div>
 
         <div className="space-y-2">
-          <Label id={scopeId}>Уровень инструкции</Label>
+          <div className="flex items-center gap-2">
+            <Label id={scopeId}>Уровень инструкции</Label>
+            <FieldHelpTooltip
+              label="Показать подсказку: уровень инструкции"
+              lines={scopeTooltipLines}
+            />
+          </div>
           <Select
             value={form.scopeLevel}
             onValueChange={(value) =>
-              setForm((current) => ({ ...current, scopeLevel: value as InstructionScopeLevel }))
+              setForm((current) => ({
+                ...current,
+                scopeLevel: value as InstructionScopeLevel,
+                scopeTargetId: value === "workspace_project" && normalizedActiveRagProjectKey
+                  ? normalizedActiveRagProjectKey
+                  : current.scopeTargetId,
+              }))
             }
           >
             <SelectTrigger aria-labelledby={scopeId}>
@@ -302,14 +423,26 @@ export function InstructionLibraryPanel({
 
       <div className="space-y-2">
         <Label htmlFor={`${categoryId}-target`}>Scope target</Label>
-        <Input
-          id={`${categoryId}-target`}
-          placeholder={form.scopeLevel === "workspace_project" ? "Например: sales-workspace" : "Опционально"}
-          value={form.scopeTargetId}
-          onChange={(event) =>
-            setForm((current) => ({ ...current, scopeTargetId: event.target.value }))
-          }
-        />
+        {form.scopeLevel === "workspace_project" && normalizedActiveRagProjectKey ? (
+          <div
+            className="rounded-[20px] border border-field-border bg-field px-4 py-3 text-sm text-foreground"
+            id={`${categoryId}-target`}
+          >
+            <strong className="block font-semibold">
+              {normalizedActiveRagProjectName || normalizedActiveRagProjectKey}
+            </strong>
+            <span className="text-xs text-muted-foreground">key: {normalizedActiveRagProjectKey}</span>
+          </div>
+        ) : (
+          <Input
+            id={`${categoryId}-target`}
+            placeholder={form.scopeLevel === "workspace_project" ? "Например: sales-workspace" : "Опционально"}
+            value={form.scopeTargetId}
+            onChange={(event) =>
+              setForm((current) => ({ ...current, scopeTargetId: event.target.value }))
+            }
+          />
+        )}
         <p className="text-xs leading-5 text-muted-foreground">{scopeHelperText[form.scopeLevel]}</p>
       </div>
 
@@ -359,9 +492,9 @@ export function InstructionLibraryPanel({
           <SectionIntro
             badge={`${instructions.length} saved`}
             badgeVariant="secondary"
-            description="Инструкции теперь разделены по уровням, чтобы было видно, какая роль действует глобально, какая относится к workspace, а какая выбрана только для текущего сценария."
+            description="Проектные инструкции автоматически применяются только к активному RAG-проекту; сценарии остаются ручным выбором в Studio, а глобальные действуют шире."
             eyebrow="Instruction Stack"
-            title="Библиотека инструкций по уровням"
+            title="Инструкции RAG-проекта"
           />
         </CardHeader>
         <CardContent className="mt-0 space-y-5">
@@ -382,15 +515,15 @@ export function InstructionLibraryPanel({
               title="Пока пусто"
             />
           ) : (
-            groupedInstructions.map(({ scopeLevel, items }) => (
-              <section className="space-y-3" key={scopeLevel}>
+            groupedInstructions.map(({ id, label, description, items }) => (
+              <section className="space-y-3" key={id}>
                 <div className="flex flex-wrap items-center gap-2">
                   <h3 className="text-base font-semibold text-foreground">
-                    {instructionScopeLabels[scopeLevel]}
+                    {label}
                   </h3>
                   <Badge variant="secondary">{items.length}</Badge>
                 </div>
-                <p className="text-sm leading-6 text-muted-foreground">{scopeHelperText[scopeLevel]}</p>
+                <p className="text-sm leading-6 text-muted-foreground">{description}</p>
 
                 {items.length === 0 ? (
                   <div className="rounded-[22px] border border-dashed border-border px-4 py-4 text-sm text-muted-foreground">

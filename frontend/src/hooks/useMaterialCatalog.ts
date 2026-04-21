@@ -36,7 +36,7 @@ const mergeMaterialPages = (current: MaterialSummary[], next: MaterialSummary[])
   return Array.from(byId.values());
 };
 
-export const useMaterialCatalog = (uploadPolicy: MaterialUploadPolicy | null) => {
+export const useMaterialCatalog = (uploadPolicy: MaterialUploadPolicy | null, workspaceKey?: string | null) => {
   const [materials, setMaterials] = useState<MaterialSummary[]>([]);
   const [materialTotal, setMaterialTotal] = useState(0);
   const [materialPageLimit, setMaterialPageLimit] = useState(MATERIAL_PAGE_LIMIT);
@@ -57,7 +57,7 @@ export const useMaterialCatalog = (uploadPolicy: MaterialUploadPolicy | null) =>
 
     try {
       const payload = normalizeMaterialListResponse(
-        await apiClient.fetchMaterials({ offset, limit: MATERIAL_PAGE_LIMIT }, signal),
+        await apiClient.fetchMaterials({ offset, limit: MATERIAL_PAGE_LIMIT, workspaceKey }, signal),
       );
       setMaterials((current) => (append ? mergeMaterialPages(current, payload.items) : payload.items));
       setMaterialTotal(payload.total);
@@ -83,7 +83,7 @@ export const useMaterialCatalog = (uploadPolicy: MaterialUploadPolicy | null) =>
     const controller = new AbortController();
     void loadMaterials(controller.signal);
     return () => controller.abort();
-  }, []);
+  }, [workspaceKey]);
 
   useEffect(() => {
     if (!hasActiveIndexing(materials)) {
@@ -114,7 +114,7 @@ export const useMaterialCatalog = (uploadPolicy: MaterialUploadPolicy | null) =>
       window.clearInterval(intervalId);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [materials, uploadPolicy]);
+  }, [materials, uploadPolicy, workspaceKey]);
 
   const loadMoreMaterials = async () => {
     if (isLoadingMore || !hasMoreMaterials) {

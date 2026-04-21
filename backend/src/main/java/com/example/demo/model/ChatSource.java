@@ -23,6 +23,12 @@ public record ChatSource(
     Double lexicalScore,
     ChunkScoreBreakdown scoreBreakdown
 ) {
+    public ChatSource {
+        matchedTerms = matchedTerms == null ? List.of() : List.copyOf(matchedTerms);
+        chunkType = chunkType == null ? DocumentBlockType.NARRATIVE : chunkType;
+        metadata = metadata == null ? MaterialMetadataSnapshot.empty() : metadata;
+    }
+
     public ChatSource(
         String materialId,
         String title,

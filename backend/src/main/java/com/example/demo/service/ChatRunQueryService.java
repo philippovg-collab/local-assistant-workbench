@@ -7,6 +7,7 @@ import com.example.demo.infrastructure.audit.PostgresChatRunTraceRepository.Chat
 import com.example.demo.model.ChatAuditRunDetail;
 import com.example.demo.model.ChatAuditRunSummary;
 import com.example.demo.model.ChatExecutionResponse;
+import com.example.demo.model.ChatRunStatusResponse;
 import com.example.demo.model.ChatRunTraceDetail;
 import com.example.demo.model.AppliedInstruction;
 import com.example.demo.model.ChatRunOutputTrace;
@@ -44,8 +45,13 @@ public class ChatRunQueryService {
     }
 
     public List<ChatAuditRunSummary> listRuns() {
-        List<ChatAuditRunSummary> modernRuns = traceRepository.findRunSummaries(DEFAULT_LIST_LIMIT);
-        List<ChatAuditRunSummary> legacyRuns = legacyRepository.findAll(DEFAULT_LIST_LIMIT).stream()
+        return listRuns(null);
+    }
+
+    public List<ChatAuditRunSummary> listRuns(String workspaceKey) {
+        String normalizedWorkspaceKey = normalizeOptionalWorkspaceKey(workspaceKey);
+        List<ChatAuditRunSummary> modernRuns = traceRepository.findRunSummaries(DEFAULT_LIST_LIMIT, normalizedWorkspaceKey);
+        List<ChatAuditRunSummary> legacyRuns = normalizedWorkspaceKey != null ? List.of() : legacyRepository.findAll(DEFAULT_LIST_LIMIT).stream()
             .map(record -> new ChatAuditRunSummary(
                 record.id(),
                 record.mode(),
@@ -89,6 +95,27 @@ public class ChatRunQueryService {
                 "chat_trace.not_found",
                 "Chat run trace '" + id + "' does not exist"
             ));
+    }
+
+    public ChatRunStatusResponse getStatus(String id) {
+        String runId = requireValidId(id);
+        ChatRunHeaderStatus header = traceRepository.findHeaderStatus(runId)
+            .orElseThrow(() -> new ApiException(
+                HttpStatus.NOT_FOUND,
+                "chat_trace.not_found",
+                "Chat run trace '" + id + "' does not exist"
+            ));
+        return new ChatRunStatusResponse(
+            header.id(),
+            header.status(),
+            header.createdAt(),
+            header.completedAt(),
+            header.failedAt(),
+            header.latencyMsTotal(),
+            header.failureStage(),
+            header.failureCode(),
+            header.failureMessage()
+        );
     }
 
     public ChatExecutionResponse getResult(String id) {
@@ -234,6 +261,13 @@ public class ChatRunQueryService {
             }
         }
         return "";
+    }
+
+    private String normalizeOptionalWorkspaceKey(String workspaceKey) {
+        if (workspaceKey == null || workspaceKey.isBlank()) {
+            return null;
+        }
+        return workspaceKey.trim().toLowerCase(java.util.Locale.ROOT);
     }
 
 }

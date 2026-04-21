@@ -47,6 +47,7 @@ class ChatRunExecutionServiceTest {
 
         assertEquals(runId, response.id());
         assertEquals("RECEIVED", response.status());
+        assertEquals("/api/chat-runs/" + runId + "/status", response.statusUrl());
         assertEquals(1, executor.taskCount());
         verify(queueRepository).enqueue(eq(request), eq(ChatMode.DIRECT), any(Instant.class));
     }

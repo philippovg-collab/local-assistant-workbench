@@ -19,6 +19,7 @@ vi.mock("../api/client", async () => {
       fetchMaterialLineage: vi.fn(),
       fetchMaterialUploadPolicy: vi.fn(),
       fetchMaterials: vi.fn(),
+      updateMaterial: vi.fn(),
       uploadMaterial: vi.fn(),
       uploadMaterialVersion: vi.fn(),
     },
@@ -235,6 +236,21 @@ function MaterialsHookHarness() {
         upload-version
       </button>
 
+      <button
+        type="button"
+        onClick={() =>
+          swallow(materials.editMaterial("material-1", {
+            title: "Edited material",
+            content: "Edited content",
+            metadata: {
+              ...policyMetadata,
+            },
+          }))
+        }
+      >
+        edit-material
+      </button>
+
       <output data-testid="action-error">{materials.actionError ?? ""}</output>
       <output data-testid="message">{materials.message ?? ""}</output>
       <output data-testid="policy-warning">{materials.policyWarning ?? ""}</output>
@@ -442,10 +458,75 @@ describe("useMaterials", () => {
       expect(apiClient.uploadMaterialVersion).toHaveBeenCalledWith(
         "material-1",
         expect.objectContaining({ title: "Version title" }),
+        null,
       );
       expect(apiClient.fetchMaterials).toHaveBeenCalledTimes(2);
     });
     expect(screen.getByTestId("message").textContent).toContain("Файл новой версии");
+  });
+
+  it("edits a material as a new version and reloads the catalog", async () => {
+    const user = userEvent.setup();
+
+    vi.mocked(apiClient.fetchMaterials).mockResolvedValue(buildMaterialListResponse());
+    vi.mocked(apiClient.fetchMaterialUploadPolicy).mockResolvedValue(buildPolicy());
+    vi.mocked(apiClient.updateMaterial).mockResolvedValue(buildMaterialSummary({
+      id: "mat-edited",
+      title: "Edited material",
+      sourceType: "text",
+      originalFileName: null,
+      status: "PENDING",
+      createdAt: "2026-04-21T00:00:00Z",
+      contentLength: 14,
+      preview: "Edited content",
+    }));
+
+    render(<MaterialsHookHarness />);
+
+    await waitFor(() => {
+      expect(apiClient.fetchMaterials).toHaveBeenCalled();
+      expect(apiClient.fetchMaterialUploadPolicy).toHaveBeenCalled();
+    });
+
+    await user.click(screen.getByText("edit-material"));
+
+    await waitFor(() => {
+      expect(apiClient.updateMaterial).toHaveBeenCalledWith("material-1", {
+        title: "Edited material",
+        content: "Edited content",
+        metadata: {
+          ...policyMetadata,
+        },
+      }, null);
+      expect(apiClient.fetchMaterials).toHaveBeenCalledTimes(2);
+    });
+    expect(screen.getByTestId("message").textContent).toContain("Редакция сохранена как новая версия");
+  });
+
+  it("shows a stale backend message when material edit API is missing", async () => {
+    const user = userEvent.setup();
+
+    vi.mocked(apiClient.fetchMaterials).mockResolvedValue(buildMaterialListResponse());
+    vi.mocked(apiClient.fetchMaterialUploadPolicy).mockResolvedValue(buildPolicy());
+    vi.mocked(apiClient.updateMaterial).mockRejectedValue(
+      new ApiClientError("Method not supported", {
+        code: "request.method_not_supported",
+        status: 405,
+      }),
+    );
+
+    render(<MaterialsHookHarness />);
+
+    await waitFor(() => {
+      expect(apiClient.fetchMaterials).toHaveBeenCalled();
+    });
+
+    await user.click(screen.getByText("edit-material"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("action-error").textContent).toContain("Backend не поддерживает этот API");
+      expect(screen.getByTestId("action-error").textContent).toContain("перезапусти сервер");
+    });
   });
 
   it("normalizes legacy upload policy payloads without pdf metadata", async () => {

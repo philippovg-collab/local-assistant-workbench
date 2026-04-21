@@ -117,6 +117,56 @@ describe("apiClient", () => {
     expect(body.get("metadata")).toBeInstanceOf(Blob);
   });
 
+  it("updates material revisions as JSON", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          id: "material-v2",
+          title: "Edited policy",
+          sourceType: "text",
+          originalFileName: null,
+          status: "PENDING",
+          versionState: "ACTIVE",
+          createdAt: "2026-04-21T10:00:00Z",
+          contentLength: 12,
+          preview: "Edited text",
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        },
+      ),
+    );
+
+    await apiClient.updateMaterial("material-1", {
+      title: "Edited policy",
+      content: "Edited text",
+      metadata: {
+        workspaceKey: "general",
+        documentType: "POLICY",
+        documentStatus: "ACTIVE",
+      },
+    });
+
+    const requestInit = fetchSpy.mock.calls[0]?.[1] as RequestInit;
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "http://127.0.0.1:8080/api/materials/material-1",
+      expect.objectContaining({ credentials: "include", method: "PUT" }),
+    );
+    expect((requestInit.headers as Headers).get("Content-Type")).toBe("application/json");
+    expect(JSON.parse(requestInit.body as string)).toEqual({
+      title: "Edited policy",
+      content: "Edited text",
+      metadata: {
+        workspaceKey: "general",
+        documentType: "POLICY",
+        documentStatus: "ACTIVE",
+      },
+    });
+  });
+
   it("requests reference projects with workspace and active filters", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(JSON.stringify([]), {
@@ -207,6 +257,39 @@ describe("apiClient", () => {
     );
   });
 
+  it("fetches lightweight chat run status without requesting full trace", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          id: "run-1",
+          status: "COMPLETED",
+          createdAt: "2026-04-19T00:00:00Z",
+          completedAt: "2026-04-19T00:00:01Z",
+          failedAt: null,
+          latencyMsTotal: 1000,
+          failureStage: null,
+          failureCode: null,
+          failureMessage: null,
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        },
+      ),
+    );
+
+    const response = await apiClient.fetchChatRunStatus("run-1");
+
+    expect(response.status).toBe("COMPLETED");
+    expect(response.completedAt).toBe("2026-04-19T00:00:01Z");
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "http://127.0.0.1:8080/api/chat-runs/run-1/status",
+      expect.objectContaining({ credentials: "include", signal: undefined }),
+    );
+  });
+
   it("remembers CSRF details from the session endpoint and sends them on unsafe JSON requests", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(
@@ -232,6 +315,7 @@ describe("apiClient", () => {
             id: "run-1",
             status: "RECEIVED",
             createdAt: "2026-04-19T00:00:00Z",
+            statusUrl: "/api/chat-runs/run-1/status",
             traceUrl: "/api/chat-runs/run-1/trace",
             resultUrl: "/api/chat-runs/run-1/result",
           }),

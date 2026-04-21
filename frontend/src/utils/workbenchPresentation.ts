@@ -94,10 +94,10 @@ export const instructionScopeLabels: Record<InstructionScopeLevel, string> = {
 };
 
 export const instructionCategoryLabels: Record<InstructionCategory, string> = {
-  system: "System",
-  user: "User",
-  context: "Context",
-  safety: "Safety",
+  system: "Системная",
+  user: "Пользовательская",
+  context: "Контекстная",
+  safety: "Безопасность",
 };
 
 export const knowledgeDocumentClassLabels: Record<KnowledgeDocumentClass, string> = {

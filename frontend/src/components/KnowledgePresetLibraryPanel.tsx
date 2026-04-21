@@ -7,16 +7,16 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
 import type {
   CreateKnowledgePresetRequest,
@@ -31,6 +31,8 @@ import { knowledgeDocumentClassLabels } from "@/utils/workbenchPresentation";
 
 type KnowledgePresetLibraryPanelProps = {
   presets: KnowledgePresetSummary[];
+  activeRagProjectKey?: string | null;
+  activeRagProjectName?: string | null;
   selectedPreset: KnowledgePresetDetail | null;
   revisions: KnowledgePresetRevisionDetail[];
   revisionDiff: KnowledgePresetRevisionDiff | null;
@@ -97,6 +99,8 @@ const presetDiffFieldLabels: Record<string, string> = {
 
 export function KnowledgePresetLibraryPanel({
   presets,
+  activeRagProjectKey = null,
+  activeRagProjectName = null,
   selectedPreset,
   revisions,
   revisionDiff,
@@ -117,7 +121,15 @@ export function KnowledgePresetLibraryPanel({
   const [editingPresetId, setEditingPresetId] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isEditingSubmitting, setIsEditingSubmitting] = useState(false);
-  const [isEditSheetOpen, setIsEditSheetOpen] = useState(false);
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const normalizedActiveRagProjectKey = activeRagProjectKey?.trim() ?? "";
+  const visiblePresets = useMemo(
+    () =>
+      normalizedActiveRagProjectKey
+        ? presets.filter((preset) => !preset.workspaceKey || preset.workspaceKey === normalizedActiveRagProjectKey)
+        : presets,
+    [normalizedActiveRagProjectKey, presets],
+  );
 
   const selectedScopeSummary = useMemo(() => {
     if (!selectedPreset) {
@@ -136,7 +148,7 @@ export function KnowledgePresetLibraryPanel({
       parts.push(`теги: ${selectedPreset.scope.tags.join(", ")}`);
     }
     if (selectedPreset.scope.workspaceKey) {
-      parts.push(`workspace: ${selectedPreset.scope.workspaceKey}`);
+      parts.push(`RAG-проект: ${activeRagProjectName || selectedPreset.scope.workspaceKey}`);
     }
     if (selectedPreset.scope.uploadedTodayOnly) {
       parts.push("только загруженные сегодня");
@@ -165,7 +177,7 @@ export function KnowledgePresetLibraryPanel({
       presetIds: [],
       documentClasses: form.documentClasses,
       tags: normalizeTags(form.tagsText),
-      workspaceKey: form.workspaceKey.trim() || null,
+    workspaceKey: normalizedActiveRagProjectKey || form.workspaceKey.trim() || null,
       uploadedTodayOnly: form.uploadedTodayOnly,
     },
   });
@@ -190,7 +202,7 @@ export function KnowledgePresetLibraryPanel({
       uploadedTodayOnly: detail.scope.uploadedTodayOnly,
       active: detail.active,
     });
-    setIsEditSheetOpen(true);
+    setIsEditDialogOpen(true);
   };
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -221,7 +233,7 @@ export function KnowledgePresetLibraryPanel({
   };
 
   const cancelEditing = () => {
-    setIsEditSheetOpen(false);
+    setIsEditDialogOpen(false);
     setEditingPresetId(null);
     setEditForm(initialPresetForm);
   };
@@ -313,13 +325,25 @@ export function KnowledgePresetLibraryPanel({
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor={`${idPrefix}-preset-workspace`}>Workspace key</Label>
-        <Input
-          id={`${idPrefix}-preset-workspace`}
-          placeholder="Например: legal-assistant"
-          value={form.workspaceKey}
-          onChange={(event) => setForm((current) => ({ ...current, workspaceKey: event.target.value }))}
-        />
+        <Label htmlFor={`${idPrefix}-preset-workspace`}>RAG-проект</Label>
+        {normalizedActiveRagProjectKey ? (
+          <div
+            className="rounded-[20px] border border-field-border bg-field px-4 py-3 text-sm text-foreground"
+            id={`${idPrefix}-preset-workspace`}
+          >
+            <strong className="block font-semibold">
+              {activeRagProjectName || normalizedActiveRagProjectKey}
+            </strong>
+            <span className="text-xs text-muted-foreground">key: {normalizedActiveRagProjectKey}</span>
+          </div>
+        ) : (
+          <Input
+            id={`${idPrefix}-preset-workspace`}
+            placeholder="Например: legal-assistant"
+            value={form.workspaceKey}
+            onChange={(event) => setForm((current) => ({ ...current, workspaceKey: event.target.value }))}
+          />
+        )}
       </div>
 
       <label className="flex items-center gap-3 rounded-[20px] border border-field-border bg-field px-4 py-3">
@@ -363,11 +387,11 @@ export function KnowledgePresetLibraryPanel({
       <Card className="order-2">
         <CardHeader>
           <SectionIntro
-            badge={`${presets.length} corpus preset(s)`}
+            badge={`${visiblePresets.length} project preset(s)`}
             badgeVariant="secondary"
-            description="Knowledge presets ограничивают retrieval релевантным корпусом и помогают не искать сразу по всему knowledge base."
+            description="Пресеты проекта ограничивают retrieval внутри активного RAG-проекта. Shared preset без workspace тоже можно видеть, но итоговый запрос всё равно остаётся в активном проекте."
             eyebrow="Knowledge Scope"
-            title="Сохранённые наборы знаний"
+            title={`Пресеты проекта: ${activeRagProjectName || normalizedActiveRagProjectKey || "general"}`}
           />
         </CardHeader>
         <CardContent className="mt-0 space-y-4">
@@ -375,14 +399,14 @@ export function KnowledgePresetLibraryPanel({
             <EmptyState description="Читаем presets корпуса." title="Загружаем knowledge presets" />
           ) : error ? (
             <EmptyState description={error} tone="danger" title="Не удалось загрузить presets" />
-          ) : presets.length === 0 ? (
+          ) : visiblePresets.length === 0 ? (
             <EmptyState
-              description="Сохрани первый preset, чтобы retrieval можно было ограничивать релевантным корпусом."
-              title="Knowledge presets пока пусты"
+              description="Сохрани первый preset, чтобы retrieval можно было ограничивать релевантными фасетами внутри проекта."
+              title="Пресеты проекта пока пусты"
             />
           ) : (
             <div className="space-y-3">
-              {presets.map((preset) => (
+              {visiblePresets.map((preset) => (
                 <article className="surface-subtle space-y-4 rounded-[24px] p-5" key={preset.id}>
                   <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                     <div className="space-y-2">
@@ -394,6 +418,7 @@ export function KnowledgePresetLibraryPanel({
                           {preset.active ? "active" : "inactive"}
                         </Badge>
                         <Badge variant="outline">rev {preset.revision}</Badge>
+                        {!preset.workspaceKey ? <Badge variant="secondary">shared</Badge> : null}
                       </div>
                       <p className="text-sm leading-6 text-muted-foreground">
                         {preset.description?.trim() || "Описание не задано."}
@@ -430,7 +455,7 @@ export function KnowledgePresetLibraryPanel({
               badgeVariant="secondary"
               description="Preset задаёт, по какому корпусу документов стоит искать ответ. Редактирование существующего preset открывается отдельно по кнопке в списке."
               eyebrow="Preset Editor"
-              title="Создать knowledge preset"
+              title="Создать preset проекта"
             />
           </CardHeader>
           <CardContent className="mt-0 space-y-4">
@@ -594,26 +619,23 @@ export function KnowledgePresetLibraryPanel({
         </Card>
       </div>
 
-      <Sheet
-        open={isEditSheetOpen}
+      <Dialog
+        open={isEditDialogOpen}
         onOpenChange={(open) => {
           if (!open) {
             cancelEditing();
           } else {
-            setIsEditSheetOpen(true);
+            setIsEditDialogOpen(true);
           }
         }}
       >
-        <SheetContent
-          className="w-[92vw] max-w-2xl overflow-y-auto border-border bg-popover text-foreground"
-          side="right"
-        >
-          <SheetHeader className="mb-6">
-            <SheetTitle>Редактировать knowledge preset</SheetTitle>
-            <SheetDescription className="text-muted-foreground">
+        <DialogContent className="max-h-[88vh] max-w-2xl overflow-y-auto">
+          <DialogHeader className="mb-2">
+            <DialogTitle>Редактировать knowledge preset</DialogTitle>
+            <DialogDescription>
               Изменения сохраняются отдельной ревизией. Блок создания preset на странице остаётся независимым.
-            </SheetDescription>
-          </SheetHeader>
+            </DialogDescription>
+          </DialogHeader>
 
           {renderPresetForm({
             form: editForm,
@@ -625,8 +647,8 @@ export function KnowledgePresetLibraryPanel({
             onSubmit: handleEditSubmit,
             showCancel: true,
           })}
-        </SheetContent>
-      </Sheet>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

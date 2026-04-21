@@ -36,13 +36,13 @@ type KnowledgeControls = {
   knowledgeTagsText: string;
   onKnowledgeTagsTextChange: (value: string) => void;
   workspaceKey: string;
-  onWorkspaceKeyChange: (value: string) => void;
+  workspaceName: string;
   uploadedTodayOnly: boolean;
   onUploadedTodayOnlyChange: (value: boolean) => void;
   activeScopeSummary: string;
 };
 
-type ChatFormProps = {
+export type ChatFormProps = {
   models: ModelInfo[];
   modelsError: string | null;
   selectedModel: string;
@@ -116,7 +116,12 @@ export function ChatForm({
   const temporaryInstructionId = useId();
   const promptId = useId();
   const knowledgeTagsId = useId();
-  const workspaceId = useId();
+  const isModelCatalogUnavailable = models.length === 0;
+  const modelCatalogMessage = modelsError
+    ? `Каталог моделей недоступен: ${modelsError}`
+    : isModelCatalogUnavailable
+      ? "Каталог моделей пуст. Установленные chat-модели должны появиться из подключенной Ollama."
+      : null;
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -128,22 +133,27 @@ export function ChatForm({
       <div className="grid gap-5 xl:grid-cols-[220px_220px_minmax(0,1fr)]">
         <div className="space-y-2">
           <Label id={modelLabelId}>Модель</Label>
-          <Select value={selectedModel} onValueChange={onModelChange}>
-            <SelectTrigger aria-labelledby={modelLabelId}>
-              <SelectValue placeholder="Выбери модель" />
+          <Select
+            disabled={isModelCatalogUnavailable}
+            value={isModelCatalogUnavailable ? "" : selectedModel}
+            onValueChange={onModelChange}
+          >
+            <SelectTrigger aria-labelledby={modelLabelId} aria-invalid={modelsError ? true : undefined}>
+              <SelectValue placeholder={isModelCatalogUnavailable ? "Список моделей недоступен" : "Выбери модель"} />
             </SelectTrigger>
             <SelectContent>
-              {models.length > 0 ? (
-                models.map((model) => (
-                  <SelectItem key={model.name} value={model.name}>
-                    {model.name}
-                  </SelectItem>
-                ))
-              ) : (
-                <SelectItem value={selectedModel}>{selectedModel}</SelectItem>
-              )}
+              {models.map((model) => (
+                <SelectItem key={model.name} value={model.name}>
+                  {model.name}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
+          {modelCatalogMessage ? (
+            <p className="text-xs leading-5 text-destructive" role={modelsError ? "alert" : undefined}>
+              {modelCatalogMessage}
+            </p>
+          ) : null}
         </div>
 
         <div className="space-y-2">
@@ -272,14 +282,15 @@ export function ChatForm({
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor={workspaceId}>Workspace / project key</Label>
-                    <Textarea
-                      id={workspaceId}
-                      placeholder="Например: sales-bot"
-                      rows={2}
-                      value={knowledgeControls.workspaceKey}
-                      onChange={(event) => knowledgeControls.onWorkspaceKeyChange(event.target.value)}
-                    />
+                    <Label>RAG-проект</Label>
+                    <div className="rounded-[20px] border border-field-border bg-field px-4 py-3 text-sm text-foreground">
+                      <strong className="block font-semibold">
+                        {knowledgeControls.workspaceName || knowledgeControls.workspaceKey || "general"}
+                      </strong>
+                      <span className="text-xs text-muted-foreground">
+                        key: {knowledgeControls.workspaceKey || "general"}
+                      </span>
+                    </div>
                   </div>
 
                   <label className="flex items-center gap-3 rounded-[20px] border border-field-border bg-field px-4 py-3">
@@ -315,7 +326,7 @@ export function ChatForm({
 
       <div className="surface-subtle flex flex-col gap-4 rounded-[24px] p-4">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <Button disabled={isSubmitDisabled} type="submit">
+          <Button disabled={isSubmitDisabled || isModelCatalogUnavailable} type="submit">
             {isSubmitting ? submitBusyLabel : submitIdleLabel}
           </Button>
 

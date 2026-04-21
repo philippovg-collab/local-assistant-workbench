@@ -30,6 +30,30 @@ public record MaterialMetadataHints(
             : Map.copyOf(new LinkedHashMap<>(fieldConfidence));
     }
 
+    public MaterialMetadataHints withTags(List<String> replacementTags, double confidence) {
+        List<String> resolvedTags = replacementTags == null ? List.of() : List.copyOf(replacementTags);
+        Map<String, Double> resolvedConfidence = new LinkedHashMap<>(fieldConfidence);
+        if (!resolvedTags.isEmpty()) {
+            resolvedConfidence.put("tags", confidence);
+        }
+        return new MaterialMetadataHints(
+            documentType,
+            documentDate,
+            documentNumber,
+            author,
+            department,
+            versionLabel,
+            language,
+            resolvedTags,
+            project,
+            counterparty,
+            businessStatus,
+            periodStart,
+            periodEnd,
+            resolvedConfidence
+        );
+    }
+
     public static MaterialMetadataHints empty() {
         return new MaterialMetadataHints(
             null,

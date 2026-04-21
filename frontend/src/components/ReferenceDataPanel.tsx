@@ -1,7 +1,8 @@
-import { useMemo, useState, type FormEvent } from "react";
+import { useMemo, useState, type ComponentProps, type FormEvent } from "react";
 import { CheckCircle2, Database, Pencil, PlusCircle, RefreshCw, RotateCcw, XCircle } from "lucide-react";
 import { EmptyState } from "@/components/app/EmptyState";
 import { SectionIntro } from "@/components/app/SectionIntro";
+import { KnowledgePresetLibraryPanel } from "@/components/KnowledgePresetLibraryPanel";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -16,6 +17,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type {
+  RagProjectInput,
+  RagProjectSummary,
   ReferenceProject,
   ReferenceProjectInput,
   ReferenceWorkspace,
@@ -37,14 +40,38 @@ type ReferenceDataController = {
 };
 
 type ReferenceDataPanelProps = {
+  knowledgePresets: ComponentProps<typeof KnowledgePresetLibraryPanel>;
   referenceData: ReferenceDataController;
+  ragProjects?: RagProjectController;
+  activeRagProjectKey?: string | null;
+  onActiveRagProjectChange?: (projectKey: string) => void;
 };
 
-type ReferenceTab = "workspaces" | "projects";
+type ReferenceTab = "ragProjects" | "presets" | "workspaces" | "projects";
+
+type RagProjectController = {
+  projects: RagProjectSummary[];
+  isLoading: boolean;
+  error: string | null;
+  actionError: string | null;
+  message: string | null;
+  reload: () => Promise<unknown>;
+  createProject: (input: RagProjectInput) => Promise<RagProjectSummary>;
+  updateProject: (projectKey: string, input: RagProjectInput) => Promise<RagProjectSummary>;
+};
 
 type WorkspaceFormState = {
   key: string;
   nameRu: string;
+  active: boolean;
+  sortOrder: string;
+  isDefault: boolean;
+};
+
+type RagProjectFormState = {
+  key: string;
+  name: string;
+  description: string;
   active: boolean;
   sortOrder: string;
   isDefault: boolean;
@@ -61,6 +88,15 @@ type ProjectFormState = {
 const initialWorkspaceForm: WorkspaceFormState = {
   key: "",
   nameRu: "",
+  active: true,
+  sortOrder: "0",
+  isDefault: false,
+};
+
+const initialRagProjectForm: RagProjectFormState = {
+  key: "",
+  name: "",
+  description: "",
   active: true,
   sortOrder: "0",
   isDefault: false,
@@ -97,6 +133,15 @@ const workspaceToForm = (workspace: ReferenceWorkspace): WorkspaceFormState => (
   isDefault: workspace.isDefault,
 });
 
+const ragProjectToForm = (project: RagProjectSummary): RagProjectFormState => ({
+  key: project.key,
+  name: project.name,
+  description: project.description ?? "",
+  active: project.active,
+  sortOrder: String(project.sortOrder),
+  isDefault: project.isDefault,
+});
+
 const projectToForm = (project: ReferenceProject): ProjectFormState => ({
   key: project.key,
   workspaceKey: project.workspaceKey,
@@ -108,6 +153,23 @@ const projectToForm = (project: ReferenceProject): ProjectFormState => ({
 const buildWorkspaceInput = (form: WorkspaceFormState): ReferenceWorkspaceInput => ({
   key: form.key.trim(),
   nameRu: form.nameRu.trim(),
+  active: form.active,
+  sortOrder: parseSortOrder(form.sortOrder),
+  isDefault: form.isDefault,
+});
+
+const buildRagProjectInput = (form: RagProjectFormState): RagProjectInput => ({
+  key: form.key.trim(),
+  name: form.name.trim(),
+  description: form.description.trim() || null,
+  active: form.active,
+  sortOrder: parseSortOrder(form.sortOrder),
+  isDefault: form.isDefault,
+});
+
+const buildRagProjectUpdateInput = (form: RagProjectFormState): RagProjectInput => ({
+  name: form.name.trim(),
+  description: form.description.trim() || null,
   active: form.active,
   sortOrder: parseSortOrder(form.sortOrder),
   isDefault: form.isDefault,
@@ -135,8 +197,77 @@ const buildProjectUpdateInput = (form: ProjectFormState): ReferenceProjectInput 
   sortOrder: parseSortOrder(form.sortOrder),
 });
 
-export function ReferenceDataPanel({ referenceData }: ReferenceDataPanelProps) {
-  const [activeTab, setActiveTab] = useState<ReferenceTab>("workspaces");
+export function ReferenceDataPanel({
+  knowledgePresets,
+  referenceData,
+  ragProjects: ragProjectsController,
+  activeRagProjectKey = "general",
+  onActiveRagProjectChange = () => undefined,
+}: ReferenceDataPanelProps) {
+  const ragProjects = ragProjectsController ?? {
+    projects: referenceData.workspaces.map((workspace) => ({
+      key: workspace.key,
+      name: workspace.nameRu,
+      description: workspace.description,
+      active: workspace.active,
+      isDefault: workspace.isDefault,
+      sortOrder: workspace.sortOrder,
+      materialCount: 0,
+      readyMaterialCount: 0,
+      updatedAt: workspace.updatedAt,
+    })),
+    isLoading: referenceData.isLoading,
+    error: referenceData.error,
+    actionError: referenceData.actionError,
+    message: referenceData.message,
+    reload: referenceData.reload,
+    createProject: async (input: RagProjectInput) => {
+      const workspace = await referenceData.createWorkspace({
+        key: input.key,
+        nameRu: input.name,
+        description: input.description,
+        active: input.active,
+        sortOrder: input.sortOrder,
+        isDefault: input.isDefault,
+      });
+      return {
+        key: workspace.key,
+        name: workspace.nameRu,
+        description: workspace.description,
+        active: workspace.active,
+        isDefault: workspace.isDefault,
+        sortOrder: workspace.sortOrder,
+        materialCount: 0,
+        readyMaterialCount: 0,
+        updatedAt: workspace.updatedAt,
+      };
+    },
+    updateProject: async (projectKey: string, input: RagProjectInput) => {
+      const workspace = await referenceData.updateWorkspace(projectKey, {
+        nameRu: input.name,
+        description: input.description,
+        active: input.active,
+        sortOrder: input.sortOrder,
+        isDefault: input.isDefault,
+      });
+      return {
+        key: workspace.key,
+        name: workspace.nameRu,
+        description: workspace.description,
+        active: workspace.active,
+        isDefault: workspace.isDefault,
+        sortOrder: workspace.sortOrder,
+        materialCount: 0,
+        readyMaterialCount: 0,
+        updatedAt: workspace.updatedAt,
+      };
+    },
+  } satisfies RagProjectController;
+  const [activeTab, setActiveTab] = useState<ReferenceTab>("ragProjects");
+  const [ragProjectCreateForm, setRagProjectCreateForm] = useState<RagProjectFormState>(initialRagProjectForm);
+  const [editingRagProjectKey, setEditingRagProjectKey] = useState<string | null>(null);
+  const [ragProjectEditForm, setRagProjectEditForm] = useState<RagProjectFormState>(initialRagProjectForm);
+  const [ragProjectFormError, setRagProjectFormError] = useState<string | null>(null);
   const [workspaceCreateForm, setWorkspaceCreateForm] = useState<WorkspaceFormState>(initialWorkspaceForm);
   const [projectCreateForm, setProjectCreateForm] = useState<ProjectFormState>(initialProjectForm);
   const [editingWorkspaceKey, setEditingWorkspaceKey] = useState<string | null>(null);
@@ -165,6 +296,22 @@ export function ReferenceDataPanel({ referenceData }: ReferenceDataPanelProps) {
     () => projects.filter((project) => visibleWorkspaceKeys.includes(project.workspaceKey)).length,
     [projects, visibleWorkspaceKeys],
   );
+  const sortedRagProjects = useMemo(
+    () =>
+      [...ragProjects.projects].sort((left, right) =>
+        left.sortOrder - right.sortOrder || left.name.localeCompare(right.name, "ru")),
+    [ragProjects.projects],
+  );
+
+  const validateRagProjectForm = (form: RagProjectFormState, mode: "create" | "edit") => {
+    if (mode === "create" && !form.key.trim()) {
+      return "Укажите ключ RAG-проекта.";
+    }
+    if (!form.name.trim()) {
+      return "Укажите название RAG-проекта.";
+    }
+    return null;
+  };
 
   const validateWorkspaceForm = (form: WorkspaceFormState, mode: "create" | "edit") => {
     if (mode === "create" && !form.key.trim()) {
@@ -174,6 +321,55 @@ export function ReferenceDataPanel({ referenceData }: ReferenceDataPanelProps) {
       return "Укажите название рабочей области.";
     }
     return null;
+  };
+
+  const handleCreateRagProject = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const validationError = validateRagProjectForm(ragProjectCreateForm, "create");
+    setRagProjectFormError(validationError);
+    if (validationError) {
+      return;
+    }
+
+    setSubmittingAction("create-rag-project");
+    try {
+      const created = await ragProjects.createProject(buildRagProjectInput(ragProjectCreateForm));
+      onActiveRagProjectChange(created.key);
+      setRagProjectCreateForm(initialRagProjectForm);
+      void referenceData.reload();
+    } catch {
+      // useRagProjects exposes actionError.
+    } finally {
+      setSubmittingAction(null);
+    }
+  };
+
+  const handleSaveRagProject = async () => {
+    if (!editingRagProjectKey) {
+      return;
+    }
+    const validationError = validateRagProjectForm(ragProjectEditForm, "edit");
+    setRagProjectFormError(validationError);
+    if (validationError) {
+      return;
+    }
+
+    setSubmittingAction(`update-rag-project-${editingRagProjectKey}`);
+    try {
+      const updated = await ragProjects.updateProject(
+        editingRagProjectKey,
+        buildRagProjectUpdateInput(ragProjectEditForm),
+      );
+      if (updated.active) {
+        onActiveRagProjectChange(updated.key);
+      }
+      setEditingRagProjectKey(null);
+      void referenceData.reload();
+    } catch {
+      // useRagProjects exposes actionError.
+    } finally {
+      setSubmittingAction(null);
+    }
   };
 
   const validateProjectForm = (form: ProjectFormState, mode: "create" | "edit") => {
@@ -275,6 +471,12 @@ export function ReferenceDataPanel({ referenceData }: ReferenceDataPanelProps) {
     setWorkspaceEditForm(workspaceToForm(workspace));
   };
 
+  const startRagProjectEdit = (project: RagProjectSummary) => {
+    setRagProjectFormError(null);
+    setEditingRagProjectKey(project.key);
+    setRagProjectEditForm(ragProjectToForm(project));
+  };
+
   const startProjectEdit = (project: ReferenceProject) => {
     setProjectFormError(null);
     setEditingProjectKey(project.key);
@@ -313,6 +515,46 @@ export function ReferenceDataPanel({ referenceData }: ReferenceDataPanelProps) {
     }
   };
 
+  const toggleRagProjectActive = async (project: RagProjectSummary) => {
+    setSubmittingAction(`toggle-rag-project-${project.key}`);
+    try {
+      const updated = await ragProjects.updateProject(project.key, {
+        name: project.name,
+        description: project.description,
+        active: !project.active,
+        sortOrder: project.sortOrder,
+        isDefault: project.isDefault,
+      });
+      if (updated.active) {
+        onActiveRagProjectChange(updated.key);
+      }
+      void referenceData.reload();
+    } catch {
+      // useRagProjects exposes actionError.
+    } finally {
+      setSubmittingAction(null);
+    }
+  };
+
+  const makeRagProjectDefault = async (project: RagProjectSummary) => {
+    setSubmittingAction(`default-rag-project-${project.key}`);
+    try {
+      const updated = await ragProjects.updateProject(project.key, {
+        name: project.name,
+        description: project.description,
+        active: project.active,
+        sortOrder: project.sortOrder,
+        isDefault: true,
+      });
+      onActiveRagProjectChange(updated.key);
+      void referenceData.reload();
+    } catch {
+      // useRagProjects exposes actionError.
+    } finally {
+      setSubmittingAction(null);
+    }
+  };
+
   const toggleProjectActive = async (project: ReferenceProject) => {
     setSubmittingAction(`toggle-project-${project.key}`);
     try {
@@ -329,63 +571,298 @@ export function ReferenceDataPanel({ referenceData }: ReferenceDataPanelProps) {
     }
   };
 
+  const isReferenceDirectoryTab = activeTab !== "presets";
+
   return (
     <div className="space-y-6">
       <SectionIntro
-        actions={(
-          <Button disabled={referenceData.isLoading} type="button" variant="secondary" onClick={() => void referenceData.reload()}>
+        actions={isReferenceDirectoryTab ? (
+          <Button
+            disabled={activeTab === "ragProjects" ? ragProjects.isLoading : referenceData.isLoading}
+            type="button"
+            variant="secondary"
+            onClick={() => {
+              if (activeTab === "ragProjects") {
+                void ragProjects.reload();
+              } else {
+                void referenceData.reload();
+              }
+            }}
+          >
             <RefreshCw className="h-4 w-4" />
             Обновить
           </Button>
-        )}
-        badge="/api/reference"
+        ) : undefined}
+        badge={activeTab === "presets" ? "/api/knowledge-presets" : activeTab === "ragProjects" ? "/api/rag-projects" : "/api/reference"}
         badgeVariant="default"
-        description="Управляйте рабочими областями и проектами, которые затем используются в Materials и других разделах."
+        description="RAG-проект выбирает отдельный корпус материалов, пресетов, проектных инструкций и историю запусков. Legacy business projects скрыты из основного v1 UI."
         eyebrow="Справочники"
-        title="Рабочие области и проекты"
+        title="Пресеты и справочники"
       />
 
       <div className="flex flex-wrap gap-2">
         <Button
           type="button"
-          variant={activeTab === "workspaces" ? "default" : "secondary"}
-          onClick={() => setActiveTab("workspaces")}
+          variant={activeTab === "ragProjects" ? "default" : "secondary"}
+          onClick={() => setActiveTab("ragProjects")}
         >
           <Database className="h-4 w-4" />
-          Рабочие области
+          RAG-проекты
         </Button>
         <Button
           type="button"
-          variant={activeTab === "projects" ? "default" : "secondary"}
-          onClick={() => setActiveTab("projects")}
+          variant={activeTab === "presets" ? "default" : "secondary"}
+          onClick={() => setActiveTab("presets")}
         >
           <Database className="h-4 w-4" />
-          Проекты
+          Пресеты проекта
         </Button>
       </div>
 
-      {referenceData.message ? (
+      {activeTab === "ragProjects" && ragProjects.message ? (
+        <Alert variant="success">
+          <AlertTitle>RAG-проект обновлён</AlertTitle>
+          <AlertDescription>{ragProjects.message}</AlertDescription>
+        </Alert>
+      ) : null}
+
+      {activeTab === "ragProjects" && ragProjects.actionError ? (
+        <Alert variant="destructive">
+          <AlertTitle>Операция не выполнена</AlertTitle>
+          <AlertDescription>{ragProjects.actionError}</AlertDescription>
+        </Alert>
+      ) : null}
+
+      {activeTab === "ragProjects" && ragProjects.error ? (
+        <Alert variant="destructive">
+          <AlertTitle>Не удалось загрузить RAG-проекты</AlertTitle>
+          <AlertDescription>{ragProjects.error}</AlertDescription>
+        </Alert>
+      ) : null}
+
+      {isReferenceDirectoryTab && activeTab !== "ragProjects" && referenceData.message ? (
         <Alert variant="success">
           <AlertTitle>Справочник обновлён</AlertTitle>
           <AlertDescription>{referenceData.message}</AlertDescription>
         </Alert>
       ) : null}
 
-      {referenceData.actionError ? (
+      {isReferenceDirectoryTab && activeTab !== "ragProjects" && referenceData.actionError ? (
         <Alert variant="destructive">
           <AlertTitle>Операция не выполнена</AlertTitle>
           <AlertDescription>{referenceData.actionError}</AlertDescription>
         </Alert>
       ) : null}
 
-      {referenceData.error ? (
+      {isReferenceDirectoryTab && activeTab !== "ragProjects" && referenceData.error ? (
         <Alert variant="destructive">
           <AlertTitle>Не удалось загрузить справочники</AlertTitle>
           <AlertDescription>{referenceData.error}</AlertDescription>
         </Alert>
       ) : null}
 
-      {activeTab === "workspaces" ? (
+      {activeTab === "ragProjects" ? (
+        <section className="space-y-5" aria-label="RAG-проекты">
+          <form className="surface-panel rounded-[28px] border p-5" onSubmit={handleCreateRagProject}>
+            <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-foreground">
+              <PlusCircle className="h-4 w-4 text-primary" />
+              Создать RAG-проект
+            </div>
+            <div className="grid gap-4 lg:grid-cols-[minmax(180px,0.8fr)_minmax(220px,1fr)_minmax(240px,1.2fr)_120px_auto_auto] lg:items-end">
+              <div className="space-y-2">
+                <Label htmlFor="rag-project-create-key">Ключ</Label>
+                <Input
+                  id="rag-project-create-key"
+                  placeholder="legal-rag"
+                  value={ragProjectCreateForm.key}
+                  onChange={(event) => setRagProjectCreateForm((current) => ({ ...current, key: event.target.value }))}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="rag-project-create-name">Название</Label>
+                <Input
+                  id="rag-project-create-name"
+                  placeholder="Юридический RAG"
+                  value={ragProjectCreateForm.name}
+                  onChange={(event) => setRagProjectCreateForm((current) => ({ ...current, name: event.target.value }))}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="rag-project-create-description">Описание</Label>
+                <Input
+                  id="rag-project-create-description"
+                  placeholder="Корпус, инструкции и пресеты проекта"
+                  value={ragProjectCreateForm.description}
+                  onChange={(event) => setRagProjectCreateForm((current) => ({ ...current, description: event.target.value }))}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="rag-project-create-sort">Порядок</Label>
+                <Input
+                  id="rag-project-create-sort"
+                  inputMode="numeric"
+                  value={ragProjectCreateForm.sortOrder}
+                  onChange={(event) => setRagProjectCreateForm((current) => ({ ...current, sortOrder: event.target.value }))}
+                />
+              </div>
+              <label className="flex items-center gap-2 text-sm font-medium text-foreground">
+                <Checkbox
+                  checked={ragProjectCreateForm.active}
+                  onCheckedChange={(checked) => setRagProjectCreateForm((current) => ({ ...current, active: checked === true }))}
+                />
+                Активен
+              </label>
+              <label className="flex items-center gap-2 text-sm font-medium text-foreground">
+                <Checkbox
+                  checked={ragProjectCreateForm.isDefault}
+                  onCheckedChange={(checked) => setRagProjectCreateForm((current) => ({ ...current, isDefault: checked === true }))}
+                />
+                Основной
+              </label>
+            </div>
+            {ragProjectFormError ? <p className="mt-3 text-sm text-destructive">{ragProjectFormError}</p> : null}
+            <Button className="mt-4" disabled={submittingAction === "create-rag-project"} type="submit">
+              <PlusCircle className="h-4 w-4" />
+              Создать RAG-проект
+            </Button>
+          </form>
+
+          {ragProjects.isLoading && sortedRagProjects.length === 0 ? (
+            <EmptyState title="Загружаем RAG-проекты" description="Список появится после ответа backend." />
+          ) : sortedRagProjects.length === 0 ? (
+            <EmptyState title="RAG-проектов пока нет" description="Дефолтный проект general появится после миграции или первого создания." />
+          ) : (
+            <div className="grid gap-4">
+              {sortedRagProjects.map((project) => {
+                const isEditing = editingRagProjectKey === project.key;
+                const isActiveSelection = activeRagProjectKey === project.key;
+                return (
+                  <article className="rounded-[24px] border bg-card p-5 shadow-soft" key={project.key}>
+                    {isEditing ? (
+                      <div className="space-y-4">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Badge variant="secondary">key: {project.key}</Badge>
+                          <Badge variant={ragProjectEditForm.active ? "success" : "warning"}>
+                            {ragProjectEditForm.active ? "активен" : "неактивен"}
+                          </Badge>
+                        </div>
+                        <div className="grid gap-4 md:grid-cols-[minmax(220px,1fr)_minmax(260px,1.2fr)_120px_auto_auto] md:items-end">
+                          <div className="space-y-2">
+                            <Label htmlFor={`rag-project-name-${project.key}`}>Название</Label>
+                            <Input
+                              id={`rag-project-name-${project.key}`}
+                              value={ragProjectEditForm.name}
+                              onChange={(event) => setRagProjectEditForm((current) => ({ ...current, name: event.target.value }))}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor={`rag-project-description-${project.key}`}>Описание</Label>
+                            <Input
+                              id={`rag-project-description-${project.key}`}
+                              value={ragProjectEditForm.description}
+                              onChange={(event) => setRagProjectEditForm((current) => ({ ...current, description: event.target.value }))}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor={`rag-project-sort-${project.key}`}>Порядок</Label>
+                            <Input
+                              id={`rag-project-sort-${project.key}`}
+                              inputMode="numeric"
+                              value={ragProjectEditForm.sortOrder}
+                              onChange={(event) => setRagProjectEditForm((current) => ({ ...current, sortOrder: event.target.value }))}
+                            />
+                          </div>
+                          <label className="flex items-center gap-2 text-sm font-medium text-foreground">
+                            <Checkbox
+                              checked={ragProjectEditForm.active}
+                              onCheckedChange={(checked) => setRagProjectEditForm((current) => ({ ...current, active: checked === true }))}
+                            />
+                            Активен
+                          </label>
+                          <label className="flex items-center gap-2 text-sm font-medium text-foreground">
+                            <Checkbox
+                              checked={ragProjectEditForm.isDefault}
+                              onCheckedChange={(checked) => setRagProjectEditForm((current) => ({ ...current, isDefault: checked === true }))}
+                            />
+                            Основной
+                          </label>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          <Button disabled={submittingAction === `update-rag-project-${project.key}`} type="button" onClick={() => void handleSaveRagProject()}>
+                            <CheckCircle2 className="h-4 w-4" />
+                            Сохранить
+                          </Button>
+                          <Button type="button" variant="secondary" onClick={() => setEditingRagProjectKey(null)}>
+                            Отмена
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                        <div className="space-y-2">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <h3 className="text-lg font-semibold tracking-[-0.03em] text-foreground">{project.name}</h3>
+                            <Badge variant={project.active ? "success" : "warning"}>
+                              {project.active ? "активен" : "неактивен"}
+                            </Badge>
+                            {project.isDefault ? <Badge variant="default">основной</Badge> : null}
+                            {isActiveSelection ? <Badge variant="secondary">выбран</Badge> : null}
+                          </div>
+                          <p className="text-sm text-muted-foreground">key: {project.key}</p>
+                          <p className="text-sm text-muted-foreground">
+                            Материалы: {project.materialCount}; ready: {project.readyMaterialCount}; порядок: {project.sortOrder}
+                          </p>
+                          {project.description ? (
+                            <p className="max-w-3xl text-sm leading-6 text-muted-foreground">{project.description}</p>
+                          ) : null}
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          <Button disabled={!project.active} type="button" variant="secondary" onClick={() => onActiveRagProjectChange(project.key)}>
+                            <CheckCircle2 className="h-4 w-4" />
+                            Выбрать
+                          </Button>
+                          <Button type="button" variant="secondary" onClick={() => startRagProjectEdit(project)}>
+                            <Pencil className="h-4 w-4" />
+                            Редактировать
+                          </Button>
+                          {!project.isDefault ? (
+                            <Button
+                              disabled={submittingAction === `default-rag-project-${project.key}`}
+                              type="button"
+                              variant="secondary"
+                              onClick={() => void makeRagProjectDefault(project)}
+                            >
+                              <CheckCircle2 className="h-4 w-4" />
+                              Сделать основным
+                            </Button>
+                          ) : null}
+                          <Button
+                            disabled={submittingAction === `toggle-rag-project-${project.key}`}
+                            type="button"
+                            variant="secondary"
+                            onClick={() => void toggleRagProjectActive(project)}
+                          >
+                            {project.active ? <XCircle className="h-4 w-4" /> : <RotateCcw className="h-4 w-4" />}
+                            {project.active ? "Деактивировать" : "Активировать"}
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                  </article>
+                );
+              })}
+            </div>
+          )}
+        </section>
+      ) : activeTab === "presets" ? (
+        <section className="space-y-5" aria-label="Пресеты">
+          <KnowledgePresetLibraryPanel
+            {...knowledgePresets}
+            activeRagProjectKey={activeRagProjectKey}
+            activeRagProjectName={sortedRagProjects.find((project) => project.key === activeRagProjectKey)?.name ?? activeRagProjectKey}
+          />
+        </section>
+      ) : activeTab === "workspaces" ? (
         <section className="space-y-5" aria-label="Рабочие области">
           <form className="surface-panel rounded-[28px] border p-5" onSubmit={handleCreateWorkspace}>
             <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-foreground">

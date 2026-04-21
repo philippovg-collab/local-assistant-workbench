@@ -132,6 +132,10 @@ export const translateMaterialError = (
         return "Этот файл уже есть в истории версий материала. Выбери файл с изменённым содержимым.";
       case "material.version_upload_missing_lineage":
         return "У материала нет lineage-ключа, поэтому новую версию нельзя загрузить автоматически.";
+      case "material.edit_requires_active_version":
+        return "Редактировать можно только активную версию материала.";
+      case "material.edit_missing_lineage":
+        return "У материала нет lineage-ключа, поэтому редакцию нельзя сохранить как новую версию.";
       default:
         if (error.code?.startsWith("material.storage_") || error.code?.startsWith("materials.storage_")) {
           return "Не удалось сохранить материал в локальном хранилище backend. Повтори попытку ещё раз.";

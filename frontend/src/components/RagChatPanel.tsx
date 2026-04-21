@@ -68,6 +68,8 @@ type RagChatPanelProps = {
   selectedInstructionIds: string[];
   onToggleInstruction: (instructionId: string) => void;
   knowledgePresets: KnowledgePresetSummary[];
+  activeRagProjectKey?: string | null;
+  activeRagProjectName?: string | null;
   knowledgeScope: KnowledgeScope;
   onKnowledgeScopeChange: (nextScope: KnowledgeScope) => void;
   retrievalFilters: RetrievalFilters;
@@ -170,6 +172,8 @@ export function RagChatPanel({
   selectedInstructionIds,
   onToggleInstruction,
   knowledgePresets,
+  activeRagProjectKey,
+  activeRagProjectName,
   knowledgeScope,
   onKnowledgeScopeChange,
   retrievalFilters,
@@ -202,10 +206,38 @@ export function RagChatPanel({
   const [openedSourceTarget, setOpenedSourceTarget] = useState<SourceTarget | null>(null);
   const [isFilterDrawerOpen, setIsFilterDrawerOpen] = useState(false);
   const highlightedChunkRef = useRef<HTMLDivElement | null>(null);
+  const normalizedActiveRagProjectKey = (activeRagProjectKey ?? "").trim();
+  const normalizedActiveRagProjectName = activeRagProjectName ?? "";
+  const visibleKnowledgePresets = useMemo(
+    () =>
+      knowledgePresets.filter((preset) =>
+        preset.active
+        && (!preset.workspaceKey || preset.workspaceKey === normalizedActiveRagProjectKey)),
+    [knowledgePresets, normalizedActiveRagProjectKey],
+  );
+
+  useEffect(() => {
+    const visiblePresetIds = new Set(visibleKnowledgePresets.map((preset) => preset.id));
+    const nextPresetIds = knowledgeScope.presetIds.filter((presetId) => visiblePresetIds.has(presetId));
+    const nextWorkspaceKey = normalizedActiveRagProjectKey || null;
+    if (
+      nextPresetIds.length !== knowledgeScope.presetIds.length
+      || knowledgeScope.workspaceKey !== nextWorkspaceKey
+    ) {
+      onKnowledgeScopeChange({
+        ...knowledgeScope,
+        presetIds: nextPresetIds,
+        workspaceKey: nextWorkspaceKey,
+      });
+    }
+  }, [knowledgeScope, normalizedActiveRagProjectKey, onKnowledgeScopeChange, visibleKnowledgePresets]);
 
   const scopeSummary = useMemo(() => {
-    const parts = [];
-    const selectedPresets = knowledgePresets
+    const projectLabel = normalizedActiveRagProjectName
+      ? `${normalizedActiveRagProjectName} (${normalizedActiveRagProjectKey || "general"})`
+      : normalizedActiveRagProjectKey || "general";
+    const parts = [`RAG-проект: ${projectLabel}`];
+    const selectedPresets = visibleKnowledgePresets
       .filter((preset) => knowledgeScope.presetIds.includes(preset.id))
       .map((preset) => preset.name);
 
@@ -220,17 +252,12 @@ export function RagChatPanel({
     if (knowledgeScope.tags.length > 0) {
       parts.push(`теги: ${knowledgeScope.tags.join(", ")}`);
     }
-    if (knowledgeScope.workspaceKey?.trim()) {
-      parts.push(`workspace: ${knowledgeScope.workspaceKey.trim()}`);
-    }
     if (knowledgeScope.uploadedTodayOnly) {
       parts.push("только загруженные сегодня");
     }
 
-    return parts.length > 0
-      ? `Запрос будет искать только по корпусу: ${parts.join(" · ")}.`
-      : "Сейчас поиск идёт по всему доступному активному корпусу. Лучше сузить его пресетами или фасетами.";
-  }, [knowledgePresets, knowledgeScope]);
+    return `Запрос будет искать внутри активного корпуса: ${parts.join(" · ")}.`;
+  }, [knowledgeScope, normalizedActiveRagProjectKey, normalizedActiveRagProjectName, visibleKnowledgePresets]);
 
   const resolvedScope = knowledgeScopeResolvedWithDefaults(response?.knowledgeScopeResolved);
   const retrievalTrace = retrievalTraceWithDefaults(response?.retrievalTrace);
@@ -274,7 +301,9 @@ export function RagChatPanel({
     setOpenedSourceTarget(target);
 
     try {
-      const detail = await apiClient.fetchMaterial(target.materialId);
+      const detail = normalizedActiveRagProjectKey
+        ? await apiClient.fetchMaterial(target.materialId, { workspaceKey: normalizedActiveRagProjectKey })
+        : await apiClient.fetchMaterial(target.materialId);
       setOpenedMaterial(detail);
     } catch {
       setMaterialError("Не удалось загрузить источник. Проверь доступность backend и попробуй ещё раз.");
@@ -284,7 +313,7 @@ export function RagChatPanel({
   };
 
   const knowledgeControls = {
-    presets: knowledgePresets.filter((preset) => preset.active),
+    presets: visibleKnowledgePresets,
     selectedPresetIds: knowledgeScope.presetIds,
     onTogglePreset: (presetId: string) =>
       onKnowledgeScopeChange({
@@ -307,12 +336,8 @@ export function RagChatPanel({
         ...knowledgeScope,
         tags: normalizeTags(value),
       }),
-    workspaceKey: knowledgeScope.workspaceKey ?? "",
-    onWorkspaceKeyChange: (value: string) =>
-      onKnowledgeScopeChange({
-        ...knowledgeScope,
-        workspaceKey: value.trim() || null,
-      }),
+    workspaceKey: normalizedActiveRagProjectKey,
+    workspaceName: normalizedActiveRagProjectName,
     uploadedTodayOnly: knowledgeScope.uploadedTodayOnly,
     onUploadedTodayOnlyChange: (value: boolean) =>
       onKnowledgeScopeChange({
@@ -334,7 +359,8 @@ export function RagChatPanel({
                 <div>
                   <p className="text-sm font-semibold text-foreground">Фильтры и подсказки поиска</p>
                   <p className="text-xs leading-5 text-muted-foreground">
-                    Подсказки из вопроса и ручные фильтры работают по тем же атрибутам, которые заполняются при загрузке материалов.
+                    Активный RAG-проект уже зафиксирован: {normalizedActiveRagProjectName || normalizedActiveRagProjectKey || "general"}.
+                    Подсказки из вопроса и ручные фильтры работают внутри него.
                   </p>
                 </div>
                 <Button type="button" variant="outline" onClick={() => setIsFilterDrawerOpen(true)}>
@@ -564,7 +590,8 @@ export function RagChatPanel({
                         : "без ограничения по классам"}
                     </p>
                     <p>Tags: {resolvedScope.tags.length > 0 ? resolvedScope.tags.join(", ") : "не заданы"}</p>
-                    <p>Workspace: {resolvedScope.workspaceKey ?? "не задан"}</p>
+                    <p>RAG-проект: {normalizedActiveRagProjectName || resolvedScope.workspaceKey || "не задан"}</p>
+                    <p>workspaceKey: {(resolvedScope.workspaceKey ?? normalizedActiveRagProjectKey) || "не задан"}</p>
                     <p>Today uploads: {resolvedScope.uploadedTodayOnly ? "да" : "нет"}</p>
                   </div>
 

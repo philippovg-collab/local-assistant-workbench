@@ -271,6 +271,72 @@ abstract class PostgresMaterialJdbcSupport {
         }
     }
 
+    public List<MaterialSummary> findSummariesByWorkspace(String workspaceKey, int offset, int limit) {
+        if (limit <= 0) {
+            return List.of();
+        }
+        int safeOffset = Math.max(0, offset);
+        String normalizedWorkspaceKey = lowerCase(workspaceKey);
+        try {
+            return enrichSummaryMetadata(jdbcTemplate.query(
+                """
+                    SELECT
+                        id,
+                        title,
+                        source_type,
+                        original_file_name,
+                        document_type,
+                        document_date,
+                        document_number,
+                        author_name,
+                        department,
+                        version_label,
+                        language_code,
+                        source_trust,
+                        project_name,
+                        project_key,
+                        counterparty,
+                        business_status,
+                        document_status,
+                        period_start,
+                        period_end,
+                        knowledge_document_class,
+                        workspace_key,
+                        metadata_jsonb,
+                        indexing_status,
+                        version_state,
+                        status_reason_code,
+                        status_reason_message,
+                        indexing_attempts,
+                        next_retry_at,
+                        created_at,
+                        updated_at,
+                        CHAR_LENGTH(COALESCE(content, '')) AS content_length,
+                        CASE
+                            WHEN CHAR_LENGTH(COALESCE(content, '')) > 180
+                                THEN LEFT(COALESCE(content, ''), 180) || '...'
+                            ELSE COALESCE(content, '')
+                        END AS preview
+                    FROM materials
+                    WHERE LOWER(COALESCE(workspace_key, '')) = ?
+                    ORDER BY created_at DESC, id DESC
+                    LIMIT ? OFFSET ?
+                    """,
+                MATERIAL_SUMMARY_ROW_MAPPER,
+                normalizedWorkspaceKey,
+                limit,
+                safeOffset
+            ));
+        } catch (DataAccessException exception) {
+            throw new ApiException(
+                HttpStatus.INTERNAL_SERVER_ERROR,
+                "material.storage_read_failed",
+                "Unable to load material summaries from PostgreSQL",
+                exception
+            );
+        }
+    }
+
     public List<StoredMaterialRecord> findActivePageAfter(Instant createdAt, String id, int limit) {
         if (limit <= 0) {
             return List.of();
@@ -375,7 +441,20 @@ abstract class PostgresMaterialJdbcSupport {
 
     public Optional<StoredMaterialRecord> findBySourceKeyAndContentHash(String sourceKey, String contentHash) {
         List<StoredMaterialRecord> records = enrichMetadata(jdbcTemplate.query(
-            "SELECT " + MATERIAL_COLUMNS + " FROM materials WHERE source_key = ? AND content_hash = ? LIMIT 1",
+            """
+                SELECT
+                    """
+                + MATERIAL_COLUMNS
+                + """
+                FROM materials
+                WHERE source_key = ? AND content_hash = ?
+                ORDER BY
+                    CASE WHEN version_state = 'ACTIVE' THEN 0 ELSE 1 END,
+                    lineage_version DESC,
+                    created_at DESC,
+                    id DESC
+                LIMIT 1
+                """,
             MATERIAL_ROW_MAPPER,
             sourceKey,
             contentHash
@@ -679,6 +758,15 @@ abstract class PostgresMaterialJdbcSupport {
 
     public int countMaterials() {
         Integer count = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM materials", Integer.class);
+        return count == null ? 0 : count;
+    }
+
+    public int countMaterialsByWorkspace(String workspaceKey) {
+        Integer count = jdbcTemplate.queryForObject(
+            "SELECT COUNT(*) FROM materials WHERE LOWER(COALESCE(workspace_key, '')) = ?",
+            Integer.class,
+            lowerCase(workspaceKey)
+        );
         return count == null ? 0 : count;
     }
 

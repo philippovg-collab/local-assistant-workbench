@@ -98,6 +98,26 @@ public class InMemoryMaterialRepository implements
     }
 
     @Override
+    public synchronized List<MaterialSummary> findSummariesByWorkspace(String workspaceKey, int offset, int limit) {
+        if (limit <= 0) {
+            return List.of();
+        }
+        String normalizedWorkspaceKey = workspaceKey == null ? null : workspaceKey.toLowerCase(Locale.ROOT);
+        return recordsById.values().stream()
+            .filter(record -> {
+                String recordWorkspaceKey = record.metadata().workspaceKey();
+                return normalizedWorkspaceKey != null
+                    && recordWorkspaceKey != null
+                    && normalizedWorkspaceKey.equals(recordWorkspaceKey.toLowerCase(Locale.ROOT));
+            })
+            .sorted(Comparator.comparing(StoredMaterialRecord::createdAt).reversed())
+            .skip(Math.max(0, offset))
+            .limit(limit)
+            .map(this::toSummary)
+            .toList();
+    }
+
+    @Override
     public synchronized List<StoredMaterialRecord> findByIds(Collection<String> ids) {
         if (ids == null || ids.isEmpty()) {
             return List.of();
@@ -136,11 +156,13 @@ public class InMemoryMaterialRepository implements
 
     @Override
     public synchronized Optional<StoredMaterialRecord> findBySourceKeyAndContentHash(String sourceKey, String contentHash) {
-        String id = idsBySourceKeyAndContentHash.get(sourceKeyAndContentHashKey(sourceKey, contentHash));
-        if (id == null) {
-            return Optional.empty();
-        }
-        return Optional.ofNullable(recordsById.get(id));
+        return recordsById.values().stream()
+            .filter(record -> record.sourceKey().equals(sourceKey) && record.contentHash().equals(contentHash))
+            .sorted(Comparator
+                .comparing((StoredMaterialRecord record) -> record.versionState() == MaterialVersionState.ACTIVE ? 0 : 1)
+                .thenComparing(StoredMaterialRecord::lineageVersion, Comparator.reverseOrder())
+                .thenComparing(StoredMaterialRecord::createdAt, Comparator.reverseOrder()))
+            .findFirst();
     }
 
     @Override
@@ -161,11 +183,6 @@ public class InMemoryMaterialRepository implements
         List<StoredMaterialSegment> segments
     ) {
         String contentKey = sourceKeyAndContentHashKey(record.sourceKey(), record.contentHash());
-        String existingId = idsBySourceKeyAndContentHash.get(contentKey);
-        if (existingId != null) {
-            return recordsById.get(existingId);
-        }
-
         int lineageVersion = record.lineageVersion() > 0 ? record.lineageVersion() : nextLineageVersion(record.sourceKey());
         StoredMaterialRecord persistedRecord = record.withLineageVersion(lineageVersion);
         recordsById.put(persistedRecord.id(), persistedRecord);
@@ -256,13 +273,31 @@ public class InMemoryMaterialRepository implements
         nextRetryAtByMaterialId.remove(id);
         claimedAtByMaterialId.remove(id);
         if (removed != null) {
-            idsBySourceKeyAndContentHash.remove(sourceKeyAndContentHashKey(removed.sourceKey(), removed.contentHash()));
+            String contentKey = sourceKeyAndContentHashKey(removed.sourceKey(), removed.contentHash());
+            findBySourceKeyAndContentHash(removed.sourceKey(), removed.contentHash())
+                .ifPresentOrElse(
+                    replacement -> idsBySourceKeyAndContentHash.put(contentKey, replacement.id()),
+                    () -> idsBySourceKeyAndContentHash.remove(contentKey)
+                );
         }
     }
 
     @Override
     public synchronized int countMaterials() {
         return recordsById.size();
+    }
+
+    @Override
+    public synchronized int countMaterialsByWorkspace(String workspaceKey) {
+        String normalizedWorkspaceKey = workspaceKey == null ? null : workspaceKey.toLowerCase(Locale.ROOT);
+        return (int) recordsById.values().stream()
+            .filter(record -> {
+                String recordWorkspaceKey = record.metadata().workspaceKey();
+                return normalizedWorkspaceKey != null
+                    && recordWorkspaceKey != null
+                    && normalizedWorkspaceKey.equals(recordWorkspaceKey.toLowerCase(Locale.ROOT));
+            })
+            .count();
     }
 
     @Override

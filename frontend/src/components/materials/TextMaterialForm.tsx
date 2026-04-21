@@ -23,6 +23,8 @@ type TextMaterialFormProps = {
   referenceProjects: ReferenceProject[];
   isReferenceDataLoading: boolean;
   referenceDataError: string | null;
+  activeWorkspaceKey?: string | null;
+  activeWorkspaceName?: string | null;
   onCreateText: (input: { title: string; content: string; metadata?: MaterialMetadataInput }) => Promise<unknown>;
 };
 
@@ -33,6 +35,8 @@ export function TextMaterialForm({
   referenceProjects,
   isReferenceDataLoading,
   referenceDataError,
+  activeWorkspaceKey,
+  activeWorkspaceName,
   onCreateText,
 }: TextMaterialFormProps) {
   const [textTitle, setTextTitle] = useState("");
@@ -40,8 +44,16 @@ export function TextMaterialForm({
   const [textMetadata, setTextMetadata] = useState(emptyMaterialMetadataFormState);
   const [textMetadataValidation, setTextMetadataValidation] = useState<MaterialMetadataValidation | null>(null);
   const [isSavingText, setIsSavingText] = useState(false);
+  const normalizedActiveWorkspaceKey = (activeWorkspaceKey ?? "").trim();
+  const normalizedActiveWorkspaceName = activeWorkspaceName ?? "";
   const isMetadataUnavailable = metadataV1Enabled
-    && (isReferenceDataLoading || Boolean(referenceDataError) || referenceWorkspaces.length === 0);
+    && (isReferenceDataLoading || Boolean(referenceDataError) || !normalizedActiveWorkspaceKey);
+
+  const withActiveWorkspace = () => ({
+    ...textMetadata,
+    workspaceKey: normalizedActiveWorkspaceKey,
+    projectKey: "",
+  });
 
   const handleTextSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -49,7 +61,7 @@ export function TextMaterialForm({
       return;
     }
     if (metadataV1Enabled) {
-      const validation = validateMaterialMetadata(textMetadata);
+      const validation = validateMaterialMetadata(withActiveWorkspace());
       if (!validation.isValid) {
         setTextMetadataValidation(validation);
         return;
@@ -63,7 +75,7 @@ export function TextMaterialForm({
       await onCreateText({
         title: textTitle,
         content: textContent,
-        ...(metadataV1Enabled ? { metadata: toMaterialMetadataInput(textMetadata) } : {}),
+        ...(metadataV1Enabled ? { metadata: toMaterialMetadataInput(withActiveWorkspace()) } : {}),
       });
       setTextTitle("");
       setTextContent("");
@@ -123,6 +135,9 @@ export function TextMaterialForm({
             errors={textMetadataValidation?.fieldErrors}
             idPrefix="text-material"
             isReferenceDataLoading={isReferenceDataLoading}
+            lockedWorkspaceKey={normalizedActiveWorkspaceKey}
+            lockedWorkspaceName={normalizedActiveWorkspaceName}
+            hideProjectField
             projects={referenceProjects}
             referenceDataError={referenceDataError}
             state={textMetadata}

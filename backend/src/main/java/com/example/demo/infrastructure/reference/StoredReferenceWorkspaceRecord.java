@@ -5,6 +5,7 @@ import java.time.Instant;
 public record StoredReferenceWorkspaceRecord(
     String key,
     String nameRu,
+    String description,
     boolean active,
     int sortOrder,
     boolean isDefault,

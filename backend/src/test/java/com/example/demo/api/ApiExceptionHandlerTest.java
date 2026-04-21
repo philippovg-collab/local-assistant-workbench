@@ -6,13 +6,17 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.example.demo.config.MaterialProperties;
+import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpMethod;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.multipart.MultipartException;
 import org.springframework.web.multipart.support.MissingServletRequestPartException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
@@ -61,6 +65,22 @@ class ApiExceptionHandlerTest {
             .andExpect(jsonPath("$.requestId").value(matchesPattern("^[0-9a-f\\-]{36}$")));
     }
 
+    @Test
+    void mapsMissingResourcesToNotFoundWithoutRequestId() throws Exception {
+        mockMvc.perform(get("/test/errors/not-found"))
+            .andExpect(status().isNotFound())
+            .andExpect(jsonPath("$.code").value("request.not_found"))
+            .andExpect(jsonPath("$.requestId").doesNotExist());
+    }
+
+    @Test
+    void mapsUnsupportedMethodsToMethodNotAllowedWithoutRequestId() throws Exception {
+        mockMvc.perform(get("/test/errors/method-not-supported"))
+            .andExpect(status().isMethodNotAllowed())
+            .andExpect(jsonPath("$.code").value("request.method_not_supported"))
+            .andExpect(jsonPath("$.requestId").doesNotExist());
+    }
+
     @RestController
     static class ExceptionThrowingController {
 
@@ -82,6 +102,16 @@ class ApiExceptionHandlerTest {
         @GetMapping("/test/errors/unexpected")
         void unexpected() {
             throw new IllegalStateException("boom");
+        }
+
+        @GetMapping("/test/errors/not-found")
+        void notFound() throws NoResourceFoundException {
+            throw new NoResourceFoundException(HttpMethod.PUT, "/api/materials/material-1");
+        }
+
+        @GetMapping("/test/errors/method-not-supported")
+        void methodNotSupported() throws HttpRequestMethodNotSupportedException {
+            throw new HttpRequestMethodNotSupportedException("PUT", List.of("GET"));
         }
     }
 }

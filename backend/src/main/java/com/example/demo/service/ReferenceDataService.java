@@ -54,6 +54,7 @@ public class ReferenceDataService {
         return toWorkspace(repository.saveWorkspace(new StoredReferenceWorkspaceRecord(
             key,
             nameRu,
+            sanitizeOptional(request == null ? null : request.description()),
             active,
             request == null || request.sortOrder() == null ? 0 : request.sortOrder(),
             isDefault,
@@ -74,6 +75,9 @@ public class ReferenceDataService {
             ));
 
         String nameRu = requireNameRu(request == null ? null : request.nameRu(), "reference_workspace.invalid_name");
+        String description = request == null || request.description() == null
+            ? current.description()
+            : sanitizeOptional(request.description());
         boolean active = request == null || request.active() == null ? current.active() : request.active();
         boolean isDefault = request == null || request.isDefault() == null ? current.isDefault() : request.isDefault();
         int sortOrder = request == null || request.sortOrder() == null ? current.sortOrder() : request.sortOrder();
@@ -94,6 +98,7 @@ public class ReferenceDataService {
         return toWorkspace(repository.saveWorkspace(new StoredReferenceWorkspaceRecord(
             key,
             nameRu,
+            description,
             active,
             sortOrder,
             isDefault,
@@ -245,10 +250,18 @@ public class ReferenceDataService {
         return rawValue.trim();
     }
 
+    private String sanitizeOptional(String rawValue) {
+        if (!StringUtils.hasText(rawValue)) {
+            return null;
+        }
+        return rawValue.trim();
+    }
+
     private ReferenceWorkspace toWorkspace(StoredReferenceWorkspaceRecord record) {
         return new ReferenceWorkspace(
             record.key(),
             record.nameRu(),
+            record.description(),
             record.active(),
             record.sortOrder(),
             record.isDefault(),

@@ -45,6 +45,12 @@ app:
     indexing-retry-base-seconds: 5
     indexing-retry-max-seconds: 60
     indexing-drain-max-jobs: 64
+    auto-tags:
+      llm-enabled: true
+      max-input-chars: 16000
+      short-target: 5
+      medium-target: 10
+      large-target: 16
   instructions:
     legacy-import-enabled: false
   ocr:

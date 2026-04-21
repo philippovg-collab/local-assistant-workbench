@@ -69,6 +69,7 @@ public class ChatRunExecutionService {
             run.runId(),
             "RECEIVED",
             run.createdAt(),
+            "/api/chat-runs/" + run.runId() + "/status",
             "/api/chat-runs/" + run.runId() + "/trace",
             "/api/chat-runs/" + run.runId() + "/result"
         );

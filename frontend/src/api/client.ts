@@ -3,6 +3,7 @@ import type {
   AuthSession,
   ChatAuditRunDetail,
   ChatAuditRunSummary,
+  ChatRunStatusResponse,
   ChatRunTraceDetail,
   ChatRunSubmissionResponse,
   ChatExecutionRequest,
@@ -25,7 +26,10 @@ import type {
   MaterialUploadPolicy,
   MaterialSummary,
   MaterialVersionUploadInput,
+  UpdateMaterialInput,
   ModelInfo,
+  RagProjectInput,
+  RagProjectSummary,
   ReferenceProject,
   ReferenceProjectInput,
   ReferenceWorkspace,
@@ -198,13 +202,16 @@ export const apiClient = {
   fetchModels(signal?: AbortSignal) {
     return requestJson<ModelInfo[]>("/api/models", { signal });
   },
-  fetchMaterials(input: { offset?: number; limit?: number } = {}, signal?: AbortSignal) {
+  fetchMaterials(input: { offset?: number; limit?: number; workspaceKey?: string | null } = {}, signal?: AbortSignal) {
     const params = new URLSearchParams();
     if (input.offset !== undefined) {
       params.set("offset", String(input.offset));
     }
     if (input.limit !== undefined) {
       params.set("limit", String(input.limit));
+    }
+    if (input.workspaceKey?.trim()) {
+      params.set("workspaceKey", input.workspaceKey.trim());
     }
     const query = params.toString();
     return requestJson<MaterialListResponse>(`/api/materials${query ? `?${query}` : ""}`, { signal });
@@ -236,7 +243,7 @@ export const apiClient = {
       body: formData,
     });
   },
-  uploadMaterialVersion(materialId: string, input: MaterialVersionUploadInput) {
+  uploadMaterialVersion(materialId: string, input: MaterialVersionUploadInput, workspaceKey?: string | null) {
     const formData = new FormData();
     formData.append("file", input.file);
     if (input.title?.trim()) {
@@ -246,24 +253,63 @@ export const apiClient = {
       formData.append("metadata", new Blob([JSON.stringify(input.metadata)], { type: "application/json" }));
     }
 
-    return requestJson<MaterialSummary>(`/api/materials/${materialId}/versions`, {
+    const params = new URLSearchParams();
+    if (workspaceKey?.trim()) {
+      params.set("workspaceKey", workspaceKey.trim());
+    }
+    const query = params.toString();
+    return requestJson<MaterialSummary>(`/api/materials/${materialId}/versions${query ? `?${query}` : ""}`, {
       method: "POST",
       body: formData,
     });
   },
-  fetchMaterial(materialId: string, signal?: AbortSignal) {
-    return requestJson<MaterialDetail>(`/api/materials/${materialId}`, { signal });
+  fetchMaterial(materialId: string, input: { workspaceKey?: string | null } = {}, signal?: AbortSignal) {
+    const params = new URLSearchParams();
+    if (input.workspaceKey?.trim()) {
+      params.set("workspaceKey", input.workspaceKey.trim());
+    }
+    const query = params.toString();
+    return requestJson<MaterialDetail>(`/api/materials/${materialId}${query ? `?${query}` : ""}`, { signal });
   },
-  deleteMaterial(materialId: string) {
-    return requestVoid(`/api/materials/${materialId}`, {
+  updateMaterial(materialId: string, input: UpdateMaterialInput, workspaceKey?: string | null) {
+    const params = new URLSearchParams();
+    if (workspaceKey?.trim()) {
+      params.set("workspaceKey", workspaceKey.trim());
+    }
+    const query = params.toString();
+    return requestJson<MaterialSummary>(`/api/materials/${materialId}${query ? `?${query}` : ""}`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(input),
+    });
+  },
+  deleteMaterial(materialId: string, workspaceKey?: string | null) {
+    const params = new URLSearchParams();
+    if (workspaceKey?.trim()) {
+      params.set("workspaceKey", workspaceKey.trim());
+    }
+    const query = params.toString();
+    return requestVoid(`/api/materials/${materialId}${query ? `?${query}` : ""}`, {
       method: "DELETE",
     });
   },
-  fetchMaterialLineage(materialId: string, signal?: AbortSignal) {
-    return requestJson<MaterialLineageResponse>(`/api/materials/${materialId}/lineage`, { signal });
+  fetchMaterialLineage(materialId: string, input: { workspaceKey?: string | null } = {}, signal?: AbortSignal) {
+    const params = new URLSearchParams();
+    if (input.workspaceKey?.trim()) {
+      params.set("workspaceKey", input.workspaceKey.trim());
+    }
+    const query = params.toString();
+    return requestJson<MaterialLineageResponse>(`/api/materials/${materialId}/lineage${query ? `?${query}` : ""}`, { signal });
   },
-  reindexMaterial(materialId: string) {
-    return requestJson<MaterialSummary>(`/api/materials/${materialId}/reindex`, {
+  reindexMaterial(materialId: string, workspaceKey?: string | null) {
+    const params = new URLSearchParams();
+    if (workspaceKey?.trim()) {
+      params.set("workspaceKey", workspaceKey.trim());
+    }
+    const query = params.toString();
+    return requestJson<MaterialSummary>(`/api/materials/${materialId}/reindex${query ? `?${query}` : ""}`, {
       method: "POST",
     });
   },
@@ -323,6 +369,32 @@ export const apiClient = {
     }
     const query = params.toString();
     return requestJson<ReferenceWorkspace[]>(`/api/reference/workspaces${query ? `?${query}` : ""}`, { signal });
+  },
+  fetchRagProjects(input: { activeOnly?: boolean } = {}, signal?: AbortSignal) {
+    const params = new URLSearchParams();
+    if (input.activeOnly !== undefined) {
+      params.set("activeOnly", String(input.activeOnly));
+    }
+    const query = params.toString();
+    return requestJson<RagProjectSummary[]>(`/api/rag-projects${query ? `?${query}` : ""}`, { signal });
+  },
+  createRagProject(input: RagProjectInput) {
+    return requestJson<RagProjectSummary>("/api/rag-projects", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(input),
+    });
+  },
+  updateRagProject(projectKey: string, input: RagProjectInput) {
+    return requestJson<RagProjectSummary>(`/api/rag-projects/${encodeURIComponent(projectKey)}`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(input),
+    });
   },
   createReferenceWorkspace(input: ReferenceWorkspaceInput) {
     return requestJson<ReferenceWorkspace>("/api/reference/workspaces", {
@@ -411,14 +483,22 @@ export const apiClient = {
       method: "DELETE",
     });
   },
-  fetchChatRuns(signal?: AbortSignal) {
-    return requestJson<ChatAuditRunSummary[]>("/api/chat-runs", { signal });
+  fetchChatRuns(input: { workspaceKey?: string | null } = {}, signal?: AbortSignal) {
+    const params = new URLSearchParams();
+    if (input.workspaceKey?.trim()) {
+      params.set("workspaceKey", input.workspaceKey.trim());
+    }
+    const query = params.toString();
+    return requestJson<ChatAuditRunSummary[]>(`/api/chat-runs${query ? `?${query}` : ""}`, { signal });
   },
   fetchChatRun(runId: string, signal?: AbortSignal) {
     return requestJson<ChatAuditRunDetail>(`/api/chat-runs/${runId}`, { signal });
   },
   fetchChatRunTrace(runId: string, signal?: AbortSignal) {
     return requestJson<ChatRunTraceDetail>(`/api/chat-runs/${runId}/trace`, { signal });
+  },
+  fetchChatRunStatus(runId: string, signal?: AbortSignal) {
+    return requestJson<ChatRunStatusResponse>(`/api/chat-runs/${runId}/status`, { signal });
   },
   submitChatRun(input: ChatExecutionRequest, signal?: AbortSignal) {
     return requestJson<ChatRunSubmissionResponse>("/api/chat-runs", {

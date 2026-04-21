@@ -30,7 +30,7 @@ describe("KnowledgePresetLibraryPanel", () => {
     vi.clearAllMocks();
   });
 
-  it("keeps create preset visible and opens edit in a sheet", async () => {
+  it("keeps create preset visible and opens edit in a dialog", async () => {
     const user = userEvent.setup();
     const onUpdatePreset = vi.fn().mockResolvedValue(undefined);
 
@@ -54,13 +54,13 @@ describe("KnowledgePresetLibraryPanel", () => {
       />,
     );
 
-    expect(screen.getByText("Создать knowledge preset")).toBeTruthy();
+    expect(screen.getByText("Создать preset проекта")).toBeTruthy();
     expect(screen.queryByRole("dialog", { name: "Редактировать knowledge preset" })).toBeNull();
 
     await user.click(screen.getByRole("button", { name: "Редактировать" }));
 
     expect(await screen.findByRole("dialog", { name: "Редактировать knowledge preset" })).toBeTruthy();
-    expect(screen.getByText("Создать knowledge preset")).toBeTruthy();
+    expect(screen.getByText("Создать preset проекта")).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: "Сохранить изменения" }));
 

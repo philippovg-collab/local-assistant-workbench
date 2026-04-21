@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.example.demo.api.ApiException;
 import com.example.demo.config.LlmProperties;
+import com.example.demo.model.OllamaModelInfo;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
@@ -104,7 +105,7 @@ class OllamaLlmClientTest {
             {
               "models": [
                 { "name": "qwen2.5:7b" },
-                { "name": "qwen2.5:3b" }
+                { "name": "deepseek-r1:8b" }
               ]
             }
             """;
@@ -112,7 +113,10 @@ class OllamaLlmClientTest {
         OllamaLlmClient client = new OllamaLlmClient(transport, defaultProperties());
 
         assertEquals("/api/tags", transport.captureNextGetPath(() -> client.listModels()));
-        assertEquals(2, client.listModels().size());
+        List<OllamaModelInfo> models = client.listModels();
+        assertEquals(2, models.size());
+        assertEquals("qwen2.5:7b", models.get(0).name());
+        assertEquals("deepseek-r1:8b", models.get(1).name());
     }
 
     private LlmProperties defaultProperties() {

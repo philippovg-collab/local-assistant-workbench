@@ -26,7 +26,7 @@ class ReferenceDataServiceTest {
     @Test
     void rejectsNonMachineWorkspaceKeys() {
         ApiException exception = assertThrows(ApiException.class, () -> service.createWorkspace(
-            new ReferenceWorkspaceRequest("North Upgrade", "Северный проект", true, 0, false)
+            new ReferenceWorkspaceRequest("North Upgrade", "Северный проект", null, true, 0, false)
         ));
 
         assertEquals("reference_workspace.invalid_key", exception.getCode());
@@ -35,7 +35,7 @@ class ReferenceDataServiceTest {
     @Test
     void rejectsBlankWorkspaceNames() {
         ApiException exception = assertThrows(ApiException.class, () -> service.createWorkspace(
-            new ReferenceWorkspaceRequest("north-upgrade", " ", true, 0, false)
+            new ReferenceWorkspaceRequest("north-upgrade", " ", null, true, 0, false)
         ));
 
         assertEquals("reference_workspace.invalid_name", exception.getCode());
@@ -58,6 +58,7 @@ class ReferenceDataServiceTest {
         when(repository.findWorkspaceByKey("general")).thenReturn(Optional.of(new StoredReferenceWorkspaceRecord(
             "general",
             "Общая",
+            null,
             true,
             0,
             true,
@@ -68,7 +69,7 @@ class ReferenceDataServiceTest {
 
         ApiException exception = assertThrows(ApiException.class, () -> service.updateWorkspace(
             "general",
-            new ReferenceWorkspaceRequest(null, "Общая", false, 0, true)
+            new ReferenceWorkspaceRequest(null, "Общая", null, false, 0, true)
         ));
 
         assertEquals("reference_workspace.default_required", exception.getCode());
@@ -82,6 +83,7 @@ class ReferenceDataServiceTest {
         service.createWorkspace(new ReferenceWorkspaceRequest(
             "north-upgrade",
             "Северная модернизация",
+            "Описание северной модернизации",
             true,
             10,
             true

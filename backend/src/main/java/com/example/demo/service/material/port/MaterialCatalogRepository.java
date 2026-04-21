@@ -22,6 +22,8 @@ public interface MaterialCatalogRepository {
 
     List<MaterialSummary> findSummaries(int offset, int limit);
 
+    List<MaterialSummary> findSummariesByWorkspace(String workspaceKey, int offset, int limit);
+
     List<StoredMaterialRecord> findByIds(Collection<String> ids);
 
     List<StoredMaterialRecord> findActivePageAfter(Instant createdAt, String id, int limit);
@@ -59,6 +61,8 @@ public interface MaterialCatalogRepository {
     void delete(String id);
 
     int countMaterials();
+
+    int countMaterialsByWorkspace(String workspaceKey);
 
     int countActiveMaterials();
 

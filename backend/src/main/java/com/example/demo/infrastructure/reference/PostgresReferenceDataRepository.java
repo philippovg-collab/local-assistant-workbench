@@ -18,6 +18,7 @@ public class PostgresReferenceDataRepository {
         new StoredReferenceWorkspaceRecord(
             resultSet.getString("key"),
             resultSet.getString("name_ru"),
+            resultSet.getString("description"),
             resultSet.getBoolean("active"),
             resultSet.getInt("sort_order"),
             resultSet.getBoolean("is_default"),
@@ -46,7 +47,7 @@ public class PostgresReferenceDataRepository {
         try {
             return jdbcTemplate.query(
                 """
-                    SELECT key, name_ru, active, sort_order, is_default, created_at, updated_at
+                    SELECT key, name_ru, description, active, sort_order, is_default, created_at, updated_at
                     FROM reference_workspaces
                     WHERE (? = false OR active = true)
                     ORDER BY sort_order ASC, name_ru ASC
@@ -68,7 +69,7 @@ public class PostgresReferenceDataRepository {
         try {
             List<StoredReferenceWorkspaceRecord> records = jdbcTemplate.query(
                 """
-                    SELECT key, name_ru, active, sort_order, is_default, created_at, updated_at
+                    SELECT key, name_ru, description, active, sort_order, is_default, created_at, updated_at
                     FROM reference_workspaces
                     WHERE key = ?
                     LIMIT 1
@@ -152,14 +153,16 @@ public class PostgresReferenceDataRepository {
                     INSERT INTO reference_workspaces (
                         key,
                         name_ru,
+                        description,
                         active,
                         sort_order,
                         is_default,
                         created_at,
                         updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT (key) DO UPDATE
                     SET name_ru = EXCLUDED.name_ru,
+                        description = EXCLUDED.description,
                         active = EXCLUDED.active,
                         sort_order = EXCLUDED.sort_order,
                         is_default = EXCLUDED.is_default,
@@ -167,6 +170,7 @@ public class PostgresReferenceDataRepository {
                     """,
                 record.key(),
                 record.nameRu(),
+                record.description(),
                 record.active(),
                 record.sortOrder(),
                 record.isDefault(),
@@ -179,6 +183,51 @@ public class PostgresReferenceDataRepository {
                 HttpStatus.INTERNAL_SERVER_ERROR,
                 "reference_workspace.storage_write_failed",
                 "Unable to persist reference workspace in PostgreSQL",
+                exception
+            );
+        }
+    }
+
+    public int countMaterialsByWorkspace(String workspaceKey) {
+        try {
+            Integer count = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM materials WHERE workspace_key = ?",
+                Integer.class,
+                workspaceKey
+            );
+            return count == null ? 0 : count;
+        } catch (DataAccessException exception) {
+            throw new ApiException(
+                HttpStatus.INTERNAL_SERVER_ERROR,
+                "reference_workspace.storage_read_failed",
+                "Unable to count reference workspace materials in PostgreSQL",
+                exception
+            );
+        }
+    }
+
+    public int countReadyMaterialsByWorkspace(String workspaceKey) {
+        try {
+            Integer count = jdbcTemplate.queryForObject(
+                """
+                    SELECT COUNT(*)
+                    FROM materials
+                    WHERE workspace_key = ?
+                      AND version_state = 'ACTIVE'
+                      AND indexing_status IN ('READY', 'PARTIAL_READY')
+                      AND COALESCE(document_status, 'ACTIVE') = 'ACTIVE'
+                      AND (period_start IS NULL OR period_start <= CURRENT_DATE)
+                      AND (period_end IS NULL OR period_end >= CURRENT_DATE)
+                    """,
+                Integer.class,
+                workspaceKey
+            );
+            return count == null ? 0 : count;
+        } catch (DataAccessException exception) {
+            throw new ApiException(
+                HttpStatus.INTERNAL_SERVER_ERROR,
+                "reference_workspace.storage_read_failed",
+                "Unable to count ready reference workspace materials in PostgreSQL",
                 exception
             );
         }

@@ -2,6 +2,7 @@ package com.example.demo.controller;
 
 import static org.hamcrest.Matchers.hasItems;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.eq;
 import static org.mockito.Mockito.verify;
@@ -11,6 +12,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -70,13 +72,24 @@ class MaterialControllerContractTest {
             .andExpect(status().isBadRequest())
             .andExpect(jsonPath("$.code").value("material.invalid_id"));
 
+        mockMvc.perform(put("/api/materials/not-a-uuid")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "title": "Updated",
+                      "content": "Updated content"
+                    }
+                    """))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.code").value("material.invalid_id"));
+
         verifyNoInteractions(materialService);
     }
 
     @Test
     void exposesControlledVersionUploadEndpoint() throws Exception {
         String materialId = "00000000-0000-0000-0000-000000000123";
-        when(materialService.saveUploadVersion(eq(materialId), eq("Updated policy"), any(), any()))
+        when(materialService.saveUploadVersion(eq(materialId), eq("Updated policy"), any(), any(), isNull()))
             .thenReturn(new MaterialSummary(
                 "00000000-0000-0000-0000-000000000456",
                 "Updated policy",
@@ -121,9 +134,59 @@ class MaterialControllerContractTest {
             eq(materialId),
             eq("Updated policy"),
             any(MultipartFile.class),
-            metadataCaptor.capture()
+            metadataCaptor.capture(),
+            isNull()
         );
         org.junit.jupiter.api.Assertions.assertEquals(DocumentType.POLICY, metadataCaptor.getValue().documentType());
+        org.junit.jupiter.api.Assertions.assertEquals(List.of("grid"), metadataCaptor.getValue().manualTags());
+    }
+
+    @Test
+    void exposesMaterialEditEndpoint() throws Exception {
+        String materialId = "00000000-0000-0000-0000-000000000123";
+        when(materialService.editMaterial(eq(materialId), eq("Updated policy"), eq("Updated text"), any(), isNull()))
+            .thenReturn(new MaterialSummary(
+                "00000000-0000-0000-0000-000000000456",
+                "Updated policy",
+                "file",
+                "policy.txt",
+                MaterialIndexingStatus.PENDING,
+                MaterialVersionState.ACTIVE,
+                null,
+                null,
+                Instant.parse("2026-04-21T10:00:00Z"),
+                12,
+                "Updated text"
+            ));
+        ArgumentCaptor<MaterialMetadataInput> metadataCaptor = ArgumentCaptor.forClass(MaterialMetadataInput.class);
+
+        mockMvc.perform(put("/api/materials/{id}", materialId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "title": "Updated policy",
+                      "content": "Updated text",
+                      "metadata": {
+                        "documentType": "POLICY",
+                        "workspaceKey": "general",
+                        "documentStatus": "ACTIVE",
+                        "manualTags": ["grid"]
+                      }
+                    }
+                    """))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.id").value("00000000-0000-0000-0000-000000000456"))
+            .andExpect(jsonPath("$.title").value("Updated policy"));
+
+        verify(materialService).editMaterial(
+            eq(materialId),
+            eq("Updated policy"),
+            eq("Updated text"),
+            metadataCaptor.capture(),
+            isNull()
+        );
+        org.junit.jupiter.api.Assertions.assertEquals(DocumentType.POLICY, metadataCaptor.getValue().documentType());
+        org.junit.jupiter.api.Assertions.assertEquals("general", metadataCaptor.getValue().workspaceKey());
         org.junit.jupiter.api.Assertions.assertEquals(List.of("grid"), metadataCaptor.getValue().manualTags());
     }
 

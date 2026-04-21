@@ -2,8 +2,6 @@ import { SectionIntro } from "@/components/app/SectionIntro";
 import { MaterialMetadataDisplay } from "@/components/MaterialMetadataDisplay";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import type { MaterialLineageResponse, ReferenceProject, ReferenceWorkspace } from "@/types";
 import {
@@ -20,7 +18,6 @@ type MaterialLineagePanelProps = {
   referenceProjects?: ReferenceProject[];
   referenceWorkspaces?: ReferenceWorkspace[];
   selectedLineage: MaterialLineageResponse | null;
-  onClearLineage: () => void;
 };
 
 export function MaterialLineagePanel({
@@ -28,7 +25,6 @@ export function MaterialLineagePanel({
   referenceProjects = [],
   referenceWorkspaces = [],
   selectedLineage,
-  onClearLineage,
 }: MaterialLineagePanelProps) {
   return (
     <>
@@ -40,20 +36,14 @@ export function MaterialLineagePanel({
       ) : null}
 
       {selectedLineage ? (
-        <Card>
-          <CardHeader>
-            <SectionIntro
-              actions={
-                <Button size="sm" type="button" variant="secondary" onClick={onClearLineage}>
-                  Скрыть историю
-                </Button>
-              }
-              description={`Активная версия: ${selectedLineage.activeMaterialId ?? "сейчас отсутствует"}`}
-              eyebrow="Lineage"
-              title="История версий"
-            />
-          </CardHeader>
-          <CardContent className="mt-0 space-y-3">
+        <div className="space-y-4">
+          <SectionIntro
+            description={`Активная версия: ${selectedLineage.activeMaterialId ?? "сейчас отсутствует"}`}
+            eyebrow="Lineage"
+            title="История версий"
+          />
+
+          <div className="space-y-3">
             {lineageVersions(selectedLineage).map((version) => (
               <article className="surface-subtle space-y-4 rounded-[24px] p-5" key={version.id}>
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -98,8 +88,8 @@ export function MaterialLineagePanel({
                 ) : null}
               </article>
             ))}
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       ) : null}
     </>
   );

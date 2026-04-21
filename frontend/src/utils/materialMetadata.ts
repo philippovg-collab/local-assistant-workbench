@@ -158,6 +158,28 @@ export const emptyMaterialMetadataFormState = (): MaterialMetadataFormState => (
   manualTags: "",
 });
 
+export const toMaterialMetadataFormState = (
+  metadata?: Partial<MaterialMetadata> | null,
+): MaterialMetadataFormState => {
+  const resolved = materialMetadataWithDefaults(metadata);
+  const manualTags = resolved.manualTags?.length
+    ? resolved.manualTags
+    : resolved.tags ?? [];
+
+  return {
+    workspaceKey: resolved.workspaceKey ?? "",
+    documentType: resolved.documentType,
+    documentStatus: resolved.documentStatus,
+    projectKey: resolved.projectKey ?? "",
+    documentNumber: resolved.documentNumber ?? "",
+    languageCode: resolved.languageCode ?? "AUTO",
+    periodStart: resolved.periodStart ?? "",
+    periodEnd: resolved.periodEnd ?? "",
+    openEnded: !resolved.periodEnd,
+    manualTags: formatTagsInput(manualTags),
+  };
+};
+
 export const parseTagsInput = (value: string) => {
   const normalized = new Set<string>();
   value

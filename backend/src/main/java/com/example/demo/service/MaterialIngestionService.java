@@ -46,7 +46,8 @@ public class MaterialIngestionService {
 
     private enum DuplicateContentBehavior {
         REUSE_OR_REACTIVATE,
-        REJECT
+        REJECT,
+        ALLOW_NEW_VERSION
     }
 
     private final MaterialCatalogRepository catalogRepository;
@@ -59,6 +60,7 @@ public class MaterialIngestionService {
     private final MaterialIndexingService indexingService;
     private final AfterCommitExecutor afterCommitExecutor;
     private final RolloutProperties rolloutProperties;
+    private final MaterialAutoTaggingService autoTaggingService;
 
     @Autowired
     public MaterialIngestionService(
@@ -71,7 +73,8 @@ public class MaterialIngestionService {
         MaterialSearchSyncLifecycleService lifecycleService,
         MaterialIndexingService indexingService,
         AfterCommitExecutor afterCommitExecutor,
-        RolloutProperties rolloutProperties
+        RolloutProperties rolloutProperties,
+        MaterialAutoTaggingService autoTaggingService
     ) {
         this.catalogRepository = catalogRepository;
         this.lineageRepository = lineageRepository;
@@ -83,6 +86,34 @@ public class MaterialIngestionService {
         this.indexingService = indexingService;
         this.afterCommitExecutor = afterCommitExecutor;
         this.rolloutProperties = rolloutProperties == null ? new RolloutProperties() : rolloutProperties;
+        this.autoTaggingService = autoTaggingService;
+    }
+
+    public MaterialIngestionService(
+        MaterialCatalogRepository catalogRepository,
+        MaterialLineageRepository lineageRepository,
+        DocumentTextExtractor extractor,
+        MaterialProperties properties,
+        MaterialContentSupport contentSupport,
+        MaterialMetadataResolver metadataResolver,
+        MaterialSearchSyncLifecycleService lifecycleService,
+        MaterialIndexingService indexingService,
+        AfterCommitExecutor afterCommitExecutor,
+        RolloutProperties rolloutProperties
+    ) {
+        this(
+            catalogRepository,
+            lineageRepository,
+            extractor,
+            properties,
+            contentSupport,
+            metadataResolver,
+            lifecycleService,
+            indexingService,
+            afterCommitExecutor,
+            rolloutProperties,
+            null
+        );
     }
 
     public MaterialIngestionService(
@@ -106,7 +137,8 @@ public class MaterialIngestionService {
             lifecycleService,
             indexingService,
             afterCommitExecutor,
-            RolloutProperties.enabledForTests()
+            RolloutProperties.enabledForTests(),
+            null
         );
     }
 
@@ -155,6 +187,7 @@ public class MaterialIngestionService {
                     null,
                     "text/plain",
                     contentSupport.headerTextForHints(parseResult),
+                    contentSupport.joinBlocks(parseResult),
                     parseResult.metadataHints()
                 ),
                 parseResult
@@ -222,6 +255,109 @@ public class MaterialIngestionService {
         );
     }
 
+    @Transactional
+    public MaterialSummary editMaterial(
+        String materialId,
+        String title,
+        String content,
+        MaterialMetadataInput metadataInput
+    ) {
+        InputLimits.validateMaterialMetadata(metadataInput);
+        StoredMaterialRecord targetRecord = catalogRepository.findById(materialId).orElseThrow(() -> new ApiException(
+            HttpStatus.NOT_FOUND,
+            "material.not_found",
+            "Material '" + materialId + "' does not exist"
+        ));
+        if (targetRecord.versionState() != MaterialVersionState.ACTIVE) {
+            throw new ApiException(
+                HttpStatus.CONFLICT,
+                "material.edit_requires_active_version",
+                "Only ACTIVE material versions can be edited"
+            );
+        }
+        if (!StringUtils.hasText(targetRecord.sourceKey())) {
+            throw new ApiException(
+                HttpStatus.CONFLICT,
+                "material.edit_missing_lineage",
+                "Material '" + materialId + "' does not have a lineage source key"
+            );
+        }
+        if (!StringUtils.hasText(content)) {
+            throw new ApiException(
+                HttpStatus.BAD_REQUEST,
+                "material.empty_text",
+                "Material text is empty"
+            );
+        }
+
+        String resolvedTitle = StringUtils.hasText(title) ? title.trim() : targetRecord.title();
+        DocumentParseResult parseResult = new DocumentParseResult(
+            List.of(new DocumentBlock(
+                0,
+                DocumentBlockType.NARRATIVE,
+                content,
+                null,
+                "manual-edit",
+                false,
+                DocumentBlockConfidence.HIGH,
+                null
+            )),
+            MaterialMetadataHints.empty(),
+            List.of(),
+            null,
+            "manual-edit",
+            false,
+            DocumentParserProfile.RICH_TEXT
+        );
+        MaterialMetadataSnapshot metadata = rolloutProperties.isMetadataV1()
+            ? resolveMetadata(
+                metadataInput == null ? editableMetadataInputFrom(targetRecord.metadata()) : metadataInput,
+                resolvedTitle,
+                targetRecord.sourceType(),
+                targetRecord.originalFileName(),
+                targetRecord.mediaType(),
+                contentSupport.headerTextForHints(parseResult),
+                contentSupport.joinBlocks(parseResult),
+                parseResult.metadataHints()
+            )
+            : targetRecord.metadata();
+
+        try {
+            return persistMaterial(
+                resolvedTitle,
+                targetRecord.sourceType(),
+                targetRecord.originalFileName(),
+                targetRecord.mediaType(),
+                null,
+                metadata,
+                parseResult,
+                targetRecord.sourceKey(),
+                false,
+                DuplicateContentBehavior.ALLOW_NEW_VERSION
+            );
+        } catch (ApiException exception) {
+            logKnownMaterialFailure(
+                "edit",
+                targetRecord.sourceType(),
+                resolvedTitle,
+                targetRecord.originalFileName(),
+                targetRecord.mediaType(),
+                exception
+            );
+            throw exception;
+        } catch (RuntimeException exception) {
+            logUnexpectedMaterialFailure(
+                "edit",
+                targetRecord.sourceType(),
+                resolvedTitle,
+                targetRecord.originalFileName(),
+                targetRecord.mediaType(),
+                exception
+            );
+            throw exception;
+        }
+    }
+
     private MaterialSummary saveUploadInternal(
         String title,
         MultipartFile file,
@@ -284,6 +420,7 @@ public class MaterialIngestionService {
                         originalFileName,
                         mediaType,
                         contentSupport.headerTextForHints(document),
+                        contentSupport.joinBlocks(document),
                         document.metadataHints()
                     ),
                     document,
@@ -462,6 +599,23 @@ public class MaterialIngestionService {
                     "This content already exists in the selected material lineage"
                 );
             }
+            if (duplicateContentBehavior == DuplicateContentBehavior.ALLOW_NEW_VERSION) {
+                return saveNewMaterial(
+                    title,
+                    sourceType,
+                    originalFileName,
+                    mediaType,
+                    storedContent,
+                    normalizedContent,
+                    contentHash,
+                    sourceKey,
+                    metadata,
+                    document,
+                    chunkProfile,
+                    rawChunks,
+                    normalizedSegments
+                );
+            }
             return handleExistingMaterial(existingRecord.get(), sourceKey);
         }
 
@@ -558,11 +712,21 @@ public class MaterialIngestionService {
         String originalFileName,
         String mediaType,
         String headerText,
+        String contentText,
         MaterialMetadataHints parserHints
     ) {
         if (!rolloutProperties.isMetadataV1()) {
             return MaterialMetadataSnapshot.empty();
         }
+        MaterialMetadataHints resolvedParserHints = enrichAutoTags(
+            metadataInput,
+            title,
+            sourceType,
+            originalFileName,
+            mediaType,
+            contentText,
+            parserHints
+        );
         return metadataResolver.resolve(
             metadataInput,
             title,
@@ -570,8 +734,37 @@ public class MaterialIngestionService {
             originalFileName,
             mediaType,
             headerText,
-            parserHints
+            resolvedParserHints
         );
+    }
+
+    private MaterialMetadataHints enrichAutoTags(
+        MaterialMetadataInput metadataInput,
+        String title,
+        String sourceType,
+        String originalFileName,
+        String mediaType,
+        String contentText,
+        MaterialMetadataHints parserHints
+    ) {
+        MaterialMetadataHints safeParserHints = parserHints == null ? MaterialMetadataHints.empty() : parserHints;
+        if (autoTaggingService == null) {
+            return safeParserHints;
+        }
+
+        List<String> manualTags = metadataInput == null ? List.of() : metadataInput.effectiveManualTags();
+        List<String> llmTags = autoTaggingService.suggestTags(new MaterialAutoTaggingService.TaggingRequest(
+            title,
+            sourceType,
+            originalFileName,
+            mediaType,
+            contentText,
+            manualTags,
+            safeParserHints
+        ));
+        return llmTags.isEmpty()
+            ? safeParserHints
+            : safeParserHints.withTags(llmTags, MaterialAutoTaggingService.LLM_TAG_CONFIDENCE);
     }
 
     private MaterialSummary handleExistingMaterial(StoredMaterialRecord existingRecord, String sourceKey) {

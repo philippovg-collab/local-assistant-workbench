@@ -6,6 +6,7 @@ import java.time.Instant;
 public record ReferenceWorkspace(
     String key,
     String nameRu,
+    String description,
     boolean active,
     int sortOrder,
     @JsonProperty("isDefault")

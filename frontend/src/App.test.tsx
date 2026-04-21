@@ -7,6 +7,7 @@ import type {
   HealthResponse,
   MaterialListResponse,
   MaterialSummary,
+  RagProjectSummary,
   ReferenceProject,
   ReferenceWorkspace,
 } from "./types";
@@ -192,6 +193,18 @@ const referenceWorkspacesResponse: ReferenceWorkspace[] = [
   },
 ];
 
+const ragProjectsResponse: RagProjectSummary[] = referenceWorkspacesResponse.map((workspace) => ({
+  key: workspace.key,
+  name: workspace.nameRu,
+  description: workspace.description,
+  active: workspace.active,
+  isDefault: workspace.isDefault,
+  sortOrder: workspace.sortOrder,
+  materialCount: workspace.key === "general" ? 1 : 0,
+  readyMaterialCount: workspace.key === "general" ? 1 : 0,
+  updatedAt: workspace.updatedAt,
+}));
+
 const referenceProjectsResponse: ReferenceProject[] = [
   {
     key: "north-line",
@@ -346,6 +359,7 @@ describe("App", () => {
     | typeof materialUploadPolicyResponse
     | typeof legacyMaterialUploadPolicyResponse;
   let currentMaterialsResponse: MaterialListResponse;
+  let currentRagProjects: RagProjectSummary[];
   let currentReferenceWorkspaces: ReferenceWorkspace[];
   let currentReferenceProjects: ReferenceProject[];
   let chatRequests: CapturedChatRequest[];
@@ -363,11 +377,13 @@ describe("App", () => {
     currentHealthResponse = buildHealthResponse();
     currentMaterialUploadPolicyResponse = materialUploadPolicyResponse;
     currentMaterialsResponse = buildMaterialListResponse(materialsResponse);
+    currentRagProjects = ragProjectsResponse.map((project) => ({ ...project }));
     currentReferenceWorkspaces = referenceWorkspacesResponse.map((workspace) => ({ ...workspace }));
     currentReferenceProjects = referenceProjectsResponse.map((project) => ({ ...project }));
     chatRequests = [];
     chatRunSequence = 0;
     chatRunResponses = {};
+    window.localStorage.clear();
 
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
       const url = getUrl(input);
@@ -417,6 +433,59 @@ describe("App", () => {
 
       if (url.endsWith("/api/knowledge-presets")) {
         return jsonResponse(knowledgePresetsResponse);
+      }
+
+      if (pathname === "/api/rag-projects" && (!init?.method || init.method === "GET")) {
+        return jsonResponse(currentRagProjects);
+      }
+
+      if (pathname === "/api/rag-projects" && init?.method === "POST") {
+        const request = JSON.parse(String(init.body)) as Partial<RagProjectSummary>;
+        const created: RagProjectSummary = {
+          key: request.key ?? "",
+          name: request.name ?? "",
+          description: request.description ?? null,
+          active: request.active ?? true,
+          sortOrder: request.sortOrder ?? 0,
+          isDefault: request.isDefault ?? false,
+          materialCount: 0,
+          readyMaterialCount: 0,
+          updatedAt: referenceTimestamp,
+        };
+        if (created.isDefault) {
+          currentRagProjects = currentRagProjects.map((project) => ({
+            ...project,
+            isDefault: false,
+          }));
+        }
+        currentRagProjects = [...currentRagProjects, created];
+        return jsonResponse(created);
+      }
+
+      const ragProjectMatch = pathname.match(/^\/api\/rag-projects\/([^/]+)$/);
+      if (ragProjectMatch && init?.method === "PUT") {
+        const projectKey = decodeURIComponent(ragProjectMatch[1] ?? "");
+        const request = JSON.parse(String(init.body)) as Partial<RagProjectSummary>;
+        if (request.isDefault) {
+          currentRagProjects = currentRagProjects.map((project) => ({
+            ...project,
+            isDefault: false,
+          }));
+        }
+        let updated = currentRagProjects.find((project) => project.key === projectKey) ?? null;
+        currentRagProjects = currentRagProjects.map((project) => {
+          if (project.key !== projectKey) {
+            return project;
+          }
+          updated = {
+            ...project,
+            ...request,
+            key: project.key,
+            updatedAt: referenceTimestamp,
+          };
+          return updated;
+        });
+        return jsonResponse(updated);
       }
 
       if (pathname === "/api/reference/workspaces" && (!init?.method || init.method === "GET")) {
@@ -525,6 +594,7 @@ describe("App", () => {
             id: runId,
             status: "COMPLETED",
             createdAt: response.createdAt,
+            statusUrl: `/api/chat-runs/${runId}/status`,
             traceUrl: `/api/chat-runs/${runId}/trace`,
             resultUrl: `/api/chat-runs/${runId}/result`,
           }),
@@ -554,6 +624,27 @@ describe("App", () => {
             latencyMsTotal: null,
           })),
         );
+      }
+
+      const chatRunStatusMatch = pathname.match(/^\/api\/chat-runs\/([^/]+)\/status$/);
+      if (chatRunStatusMatch) {
+        const runId = chatRunStatusMatch[1] ?? "";
+        const storedRun = chatRunResponses[runId];
+        if (!storedRun) {
+          throw new Error(`Unexpected chat run status request: ${url}`);
+        }
+
+        return jsonResponse({
+          id: runId,
+          status: "COMPLETED",
+          createdAt: storedRun.response.createdAt,
+          completedAt: storedRun.response.createdAt,
+          failedAt: null,
+          latencyMsTotal: null,
+          failureStage: null,
+          failureCode: null,
+          failureMessage: null,
+        });
       }
 
       const chatRunTraceMatch = pathname.match(/^\/api\/chat-runs\/([^/]+)\/trace$/);
@@ -703,6 +794,34 @@ describe("App", () => {
     expect(ragSubmitButton.disabled).toBe(isSubmitDisabled);
   };
 
+  it("shows the Kegoc RAG brand on the login screen", async () => {
+    vi.mocked(globalThis.fetch).mockImplementation(async (input) => {
+      const url = getUrl(input);
+
+      if (url.endsWith("/api/auth/session")) {
+        return jsonResponse({
+          authenticated: false,
+          username: null,
+          roles: [],
+          csrfHeaderName: "X-CSRF-TOKEN",
+          csrfToken: "csrf-test-token",
+        });
+      }
+
+      throw new Error(`Unexpected request: ${url}`);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "KEGOC RAG" })).toBeTruthy();
+    expect(screen.getByText("ПАНЕЛЬ УПРАВЛЕНИЯ")).toBeTruthy();
+    expect(screen.getByText("Вход администратора")).toBeTruthy();
+    expect(screen.getByAltText("Логотип KEGOC")).toBeTruthy();
+    expect(screen.getByLabelText("Логин")).toBeTruthy();
+    expect(screen.getByLabelText("Пароль")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Войти" })).toBeTruthy();
+  });
+
   it("opens on dashboard and shows explicit instruction selectors in both studio screens", async () => {
     const user = userEvent.setup();
     const { container } = render(<App />);
@@ -715,6 +834,20 @@ describe("App", () => {
     const referencesButton = screen.getByRole("button", { name: /справочники/i });
     const ragButton = screen.getByRole("button", { name: /rag studio/i });
     const directButton = screen.getByRole("button", { name: /direct studio/i });
+
+    const desktopNavigation = container.querySelector("aside nav") as HTMLElement;
+    expect(within(desktopNavigation).getAllByRole("button").map((button) => button.textContent)).toEqual([
+      expect.stringContaining("Дашборд"),
+      expect.stringContaining("Материалы"),
+      expect.stringContaining("Инструкции"),
+      expect.stringContaining("RAG Studio"),
+      expect.stringContaining("Direct Studio"),
+      expect.stringContaining("Справочники"),
+    ]);
+    const desktopSidebar = container.querySelector("aside") as HTMLElement;
+    expect(within(desktopSidebar).queryByText("Models")).toBeNull();
+    expect(within(desktopSidebar).queryByText("Active KB")).toBeNull();
+    expect(within(desktopSidebar).queryByText("Snippets")).toBeNull();
 
     expect(overviewButton.getAttribute("aria-current")).toBe("page");
     expect(materialsButton.getAttribute("aria-current")).toBeNull();
@@ -737,28 +870,39 @@ describe("App", () => {
     expect(ragPanel.hidden).toBe(true);
     expect(directPanel.hidden).toBe(true);
     expect(within(overviewPanel).getByText("Backend")).toBeTruthy();
+    expect(screen.queryByText("Активный RAG-проект")).toBeNull();
 
     await user.click(materialsButton);
     expect(materialsButton.getAttribute("aria-current")).toBe("page");
     expect(overviewPanel.hidden).toBe(true);
     expect(materialsPanel.hidden).toBe(false);
-    expect(within(materialsPanel).getByRole("heading", { name: "Материалы для RAG" })).toBeTruthy();
+    expect(within(materialsPanel).getByRole("heading", { name: "Материалы проекта: Общая" })).toBeTruthy();
+    expect(screen.queryByText("Активный RAG-проект")).toBeNull();
 
     await user.click(instructionsButton);
     expect(instructionsButton.getAttribute("aria-current")).toBe("page");
     expect(materialsPanel.hidden).toBe(true);
     expect(instructionsPanel.hidden).toBe(false);
-    expect(within(instructionsPanel).getByText("Библиотека инструкций по уровням")).toBeTruthy();
-    expect(within(instructionsPanel).getByText("Сохранённые наборы знаний")).toBeTruthy();
+    expect(within(instructionsPanel).getByText("Инструкции RAG-проекта")).toBeTruthy();
+    expect(within(instructionsPanel).queryByText("Сохранённые наборы знаний")).toBeNull();
 
     await user.click(referencesButton);
     expect(referencesButton.getAttribute("aria-current")).toBe("page");
     expect(instructionsPanel.hidden).toBe(true);
     expect(referencesPanel.hidden).toBe(false);
-    expect(within(referencesPanel).getByRole("heading", { name: "Рабочие области и проекты" })).toBeTruthy();
+    expect(within(referencesPanel).getByText("Активный RAG-проект")).toBeTruthy();
+    expect(within(referencesPanel).getByRole("heading", { name: "Пресеты и справочники" })).toBeTruthy();
+    expect(within(referencesPanel).getByRole("button", { name: "RAG-проекты" })).toBeTruthy();
+    expect(within(referencesPanel).getByRole("button", { name: "Пресеты проекта" })).toBeTruthy();
+    expect(within(referencesPanel).queryByRole("button", { name: "Проекты" })).toBeNull();
+    await user.click(within(referencesPanel).getByRole("button", { name: "Пресеты проекта" }));
+    expect(within(referencesPanel).getByText("Создать preset проекта")).toBeTruthy();
+    expect(within(referencesPanel).getByText("Пресеты проекта: Общая")).toBeTruthy();
+    expect(within(referencesPanel).getByText("Scope и история выбранного набора знаний")).toBeTruthy();
 
     await user.click(ragButton);
     expect(ragPanel.hidden).toBe(false);
+    expect(screen.queryByText("Активный RAG-проект")).toBeNull();
     expect(within(ragPanel).getByRole("heading", { name: "Запрос по материалам" })).toBeTruthy();
     expect(within(ragPanel).getByRole("heading", { name: "Ответ по материалам" })).toBeTruthy();
     expect(
@@ -777,7 +921,7 @@ describe("App", () => {
     ).toBeTruthy();
   });
 
-  it("creates a reference workspace and shares it with the materials metadata form", async () => {
+  it("creates a RAG-project and locks materials metadata to it", async () => {
     const user = userEvent.setup();
     currentHealthResponse = buildHealthResponse({
       qualityLayer: buildQualityLayer({ metadataV1: true }),
@@ -789,22 +933,25 @@ describe("App", () => {
     const referencesPanel = getPanel("references");
 
     await waitFor(() => {
-      expect(within(referencesPanel).getByText("Общая")).toBeTruthy();
+      expect(within(referencesPanel).getAllByText("Общая").length).toBeGreaterThan(0);
     });
 
-    await user.type(within(referencesPanel).getByLabelText("Ключ рабочей области"), "south-grid");
-    await user.type(within(referencesPanel).getByLabelText("Название рабочей области"), "Южная сеть");
-    await user.click(within(referencesPanel).getByRole("button", { name: "Создать рабочую область" }));
+    await user.type(within(referencesPanel).getByLabelText("Ключ"), "south-grid");
+    await user.type(within(referencesPanel).getByLabelText("Название"), "Южная сеть");
+    const createRagProjectButton = within(referencesPanel)
+      .getAllByRole("button", { name: "Создать RAG-проект" })
+      .find((button) => button.getAttribute("type") === "submit");
+    expect(createRagProjectButton).toBeTruthy();
+    await user.click(createRagProjectButton as HTMLButtonElement);
 
     await waitFor(() => {
-      expect(within(referencesPanel).getByText("Южная сеть")).toBeTruthy();
+      expect(within(referencesPanel).getAllByText("Южная сеть").length).toBeGreaterThan(0);
     });
 
     await openSection(user, /материалы/i);
     const materialsPanel = getPanel("materials");
-    await user.click(within(materialsPanel).getAllByLabelText("Рабочая область")[0]);
-
-    expect(await screen.findByRole("option", { name: "Южная сеть" })).toBeTruthy();
+    expect(within(materialsPanel).getByRole("heading", { name: "Материалы проекта: Южная сеть" })).toBeTruthy();
+    expect(within(materialsPanel).getAllByText("key: south-grid").length).toBeGreaterThan(0);
   });
 
   it("keeps rag and direct form state plus selected instructions isolated when switching sections", async () => {
@@ -986,7 +1133,7 @@ describe("App", () => {
     await openSection(user, /материалы/i);
 
     const materialsPanel = getPanel("materials");
-    expect(within(materialsPanel).getByRole("heading", { name: "Материалы для RAG" })).toBeTruthy();
+    expect(within(materialsPanel).getByRole("heading", { name: "Материалы проекта: Общая" })).toBeTruthy();
     expect(within(materialsPanel).getByText(/устаревший upload policy/i)).toBeTruthy();
   });
 

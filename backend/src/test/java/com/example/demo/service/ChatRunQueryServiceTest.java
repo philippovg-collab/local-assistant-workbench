@@ -18,6 +18,7 @@ import com.example.demo.model.ChatExecutionResponse;
 import com.example.demo.model.ChatMode;
 import com.example.demo.model.ChatRunOutputTrace;
 import com.example.demo.model.ChatRunRequestSnapshot;
+import com.example.demo.model.ChatRunStatusResponse;
 import com.example.demo.model.ChatRunTraceDetail;
 import java.time.Instant;
 import java.util.List;
@@ -46,7 +47,7 @@ class ChatRunQueryServiceTest {
         String modernOnlyId = UUID.randomUUID().toString();
         String legacyOnlyId = UUID.randomUUID().toString();
 
-        when(traceRepository.findRunSummaries(20)).thenReturn(List.of(
+        when(traceRepository.findRunSummaries(20, null)).thenReturn(List.of(
             summary(modernOnlyId, "modern older", Instant.parse("2026-04-19T00:00:01Z")),
             summary(sharedId, "modern shared", Instant.parse("2026-04-19T00:00:03Z"))
         ));
@@ -59,7 +60,7 @@ class ChatRunQueryServiceTest {
 
         assertEquals(List.of(legacyOnlyId, sharedId, modernOnlyId), runs.stream().map(ChatAuditRunSummary::id).toList());
         assertEquals(List.of("legacy newest", "modern shared", "modern older"), runs.stream().map(ChatAuditRunSummary::promptPreview).toList());
-        verify(traceRepository).findRunSummaries(20);
+        verify(traceRepository).findRunSummaries(20, null);
         verify(legacyRepository).findAll(20);
     }
 
@@ -135,6 +136,32 @@ class ChatRunQueryServiceTest {
         assertEquals(storedResponse, response);
         verify(traceRepository, never()).findTrace(any());
         verify(traceRepository, never()).insertResultIfAbsent(any(), any(), any(), any());
+    }
+
+    @Test
+    void getStatusReturnsHeaderOnlyStatusWithoutLoadingTraceJson() {
+        String runId = UUID.randomUUID().toString();
+        when(traceRepository.findHeaderStatus(runId)).thenReturn(Optional.of(new PostgresChatRunTraceRepository.ChatRunHeaderStatus(
+            runId,
+            "FAILED",
+            Instant.parse("2026-04-19T00:00:00Z"),
+            null,
+            Instant.parse("2026-04-19T00:00:01Z"),
+            1000L,
+            "LLM",
+            "chat_trace.execution_failed",
+            "model exploded"
+        )));
+
+        ChatRunStatusResponse status = service.getStatus(runId);
+
+        assertEquals(runId, status.id());
+        assertEquals("FAILED", status.status());
+        assertEquals("LLM", status.failureStage());
+        assertEquals("chat_trace.execution_failed", status.failureCode());
+        assertEquals("model exploded", status.failureMessage());
+        verify(traceRepository).findHeaderStatus(runId);
+        verify(traceRepository, never()).findTrace(any());
     }
 
     @Test

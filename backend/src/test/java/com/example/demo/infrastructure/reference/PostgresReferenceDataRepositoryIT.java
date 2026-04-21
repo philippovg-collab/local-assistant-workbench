@@ -29,6 +29,7 @@ class PostgresReferenceDataRepositoryIT extends PostgresIntegrationTestSupport {
         service.createWorkspace(new ReferenceWorkspaceRequest(
             "repo-north",
             "Северная рабочая область",
+            "Описание северной рабочей области",
             true,
             10,
             true
@@ -44,6 +45,11 @@ class PostgresReferenceDataRepositoryIT extends PostgresIntegrationTestSupport {
             .findFirst()
             .orElseThrow()
             .key());
+        assertEquals("Описание северной рабочей области", service.listWorkspaces(false).stream()
+            .filter(workspace -> "repo-north".equals(workspace.key()))
+            .findFirst()
+            .orElseThrow()
+            .description());
 
         service.createProject(new ReferenceProjectRequest(
             "repo-north-grid",

@@ -68,6 +68,7 @@ class ChatRunCommandControllerContractTest {
             .andExpect(status().isAccepted())
             .andExpect(jsonPath("$.id").value(runId))
             .andExpect(jsonPath("$.status").value("RECEIVED"))
+            .andExpect(jsonPath("$.statusUrl").value("/api/chat-runs/" + runId + "/status"))
             .andExpect(jsonPath("$.traceUrl").value("/api/chat-runs/" + runId + "/trace"))
             .andExpect(jsonPath("$.resultUrl").value("/api/chat-runs/" + runId + "/result"));
 

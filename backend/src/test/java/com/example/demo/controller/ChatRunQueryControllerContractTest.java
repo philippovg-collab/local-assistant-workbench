@@ -14,10 +14,13 @@ import com.example.demo.model.ChatAuditRunDetail;
 import com.example.demo.model.ChatAuditRunSummary;
 import com.example.demo.model.ChatExecutionResponse;
 import com.example.demo.model.ChatMode;
+import com.example.demo.model.ChatRunStatusResponse;
 import com.example.demo.model.ChatRunTraceDetail;
 import com.example.demo.model.KnowledgeScopeResolved;
 import com.example.demo.model.RetrievalTrace;
 import com.example.demo.service.ChatRunQueryService;
+import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.databind.json.JsonMapper;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -38,14 +41,17 @@ class ChatRunQueryControllerContractTest {
         mockMvc = MockMvcBuilders
             .standaloneSetup(new ChatRunQueryController(chatRunQueryService))
             .setControllerAdvice(new ApiExceptionHandler(new MaterialProperties()))
-            .setMessageConverters(new MappingJackson2HttpMessageConverter())
+            .setMessageConverters(new MappingJackson2HttpMessageConverter(JsonMapper.builder()
+                .findAndAddModules()
+                .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS)
+                .build()))
             .build();
     }
 
     @Test
     void listsChatRunsThroughQueryService() throws Exception {
         String runId = UUID.randomUUID().toString();
-        when(chatRunQueryService.listRuns()).thenReturn(List.of(new ChatAuditRunSummary(
+        when(chatRunQueryService.listRuns(null)).thenReturn(List.of(new ChatAuditRunSummary(
             runId,
             ChatMode.DIRECT,
             "qwen2.5:7b",
@@ -61,7 +67,7 @@ class ChatRunQueryControllerContractTest {
             .andExpect(jsonPath("$[0].mode").value("direct"))
             .andExpect(jsonPath("$[0].promptPreview").value("Prompt"));
 
-        verify(chatRunQueryService).listRuns();
+        verify(chatRunQueryService).listRuns(null);
     }
 
     @Test
@@ -92,6 +98,31 @@ class ChatRunQueryControllerContractTest {
             .andExpect(jsonPath("$.events").isArray());
 
         verify(chatRunQueryService).getTrace(runId);
+    }
+
+    @Test
+    void returnsHeaderOnlyStatusThroughQueryService() throws Exception {
+        String runId = UUID.randomUUID().toString();
+        when(chatRunQueryService.getStatus(runId)).thenReturn(new ChatRunStatusResponse(
+            runId,
+            "COMPLETED",
+            Instant.parse("2026-04-19T00:00:00Z"),
+            Instant.parse("2026-04-19T00:00:01Z"),
+            null,
+            1000L,
+            null,
+            null,
+            null
+        ));
+
+        mockMvc.perform(get("/api/chat-runs/{id}/status", runId))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.id").value(runId))
+            .andExpect(jsonPath("$.status").value("COMPLETED"))
+            .andExpect(jsonPath("$.completedAt").value("2026-04-19T00:00:01Z"))
+            .andExpect(jsonPath("$.latencyMsTotal").value(1000));
+
+        verify(chatRunQueryService).getStatus(runId);
     }
 
     @Test

@@ -21,6 +21,14 @@ public record ChatExecutionResponse(
     List<ChatSource> sources,
     String auditRunId
 ) {
+    public ChatExecutionResponse {
+        appliedInstructions = appliedInstructions == null ? List.of() : List.copyOf(appliedInstructions);
+        instructionTrace = instructionTrace == null ? List.of() : List.copyOf(instructionTrace);
+        knowledgeScopeResolved = knowledgeScopeResolved == null ? KnowledgeScopeResolved.empty() : knowledgeScopeResolved;
+        retrievalTrace = retrievalTrace == null ? new RetrievalTrace(0, 0, 0, 0, 0, 0, 0, 0, 0) : retrievalTrace;
+        sources = sources == null ? List.of() : List.copyOf(sources);
+    }
+
     public ChatExecutionResponse(
         ChatMode mode,
         String model,

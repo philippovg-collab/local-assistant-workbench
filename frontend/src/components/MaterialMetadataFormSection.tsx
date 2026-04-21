@@ -39,6 +39,9 @@ type MaterialMetadataFormSectionProps = {
   projects: ReferenceProject[];
   isReferenceDataLoading?: boolean;
   referenceDataError?: string | null;
+  lockedWorkspaceKey?: string | null;
+  lockedWorkspaceName?: string | null;
+  hideProjectField?: boolean;
   onChange: (next: MaterialMetadataFormState) => void;
 };
 
@@ -74,8 +77,12 @@ export function MaterialMetadataFormSection({
   projects,
   isReferenceDataLoading = false,
   referenceDataError = null,
+  lockedWorkspaceKey = null,
+  lockedWorkspaceName = null,
+  hideProjectField = false,
   onChange,
 }: MaterialMetadataFormSectionProps) {
+  const normalizedLockedWorkspaceKey = lockedWorkspaceKey?.trim() ?? "";
   const activeWorkspaces = useMemo(
     () => workspaces.filter((workspace) => workspace.active),
     [workspaces],
@@ -88,12 +95,24 @@ export function MaterialMetadataFormSection({
     () => activeWorkspaces.find((workspace) => workspace.isDefault)?.key ?? activeWorkspaces[0]?.key ?? "",
     [activeWorkspaces],
   );
+  const effectiveWorkspaceKey = normalizedLockedWorkspaceKey || state.workspaceKey;
   const availableProjects = useMemo(
-    () => activeProjects.filter((project) => project.workspaceKey === state.workspaceKey),
-    [activeProjects, state.workspaceKey],
+    () => activeProjects.filter((project) => project.workspaceKey === effectiveWorkspaceKey),
+    [activeProjects, effectiveWorkspaceKey],
   );
 
   useEffect(() => {
+    if (normalizedLockedWorkspaceKey) {
+      if (state.workspaceKey !== normalizedLockedWorkspaceKey || (hideProjectField && state.projectKey)) {
+        onChange({
+          ...state,
+          workspaceKey: normalizedLockedWorkspaceKey,
+          projectKey: hideProjectField ? "" : state.projectKey,
+        });
+      }
+      return;
+    }
+
     if (disabled || activeWorkspaces.length === 0) {
       return;
     }
@@ -112,7 +131,16 @@ export function MaterialMetadataFormSection({
         projectKey: nextProjectKey,
       });
     }
-  }, [activeProjects, activeWorkspaces, defaultWorkspaceKey, disabled, onChange, state]);
+  }, [
+    activeProjects,
+    activeWorkspaces,
+    defaultWorkspaceKey,
+    disabled,
+    hideProjectField,
+    normalizedLockedWorkspaceKey,
+    onChange,
+    state,
+  ]);
 
   const setField = <Field extends keyof MaterialMetadataFormState>(
     field: Field,
@@ -123,6 +151,9 @@ export function MaterialMetadataFormSection({
     }
 
     if (field === "workspaceKey") {
+      if (normalizedLockedWorkspaceKey) {
+        return;
+      }
       onChange({
         ...state,
         workspaceKey: value as string,
@@ -169,23 +200,35 @@ export function MaterialMetadataFormSection({
 
       <div className="grid gap-4 md:grid-cols-3">
         <div className="space-y-2">
-          <Label htmlFor={`${idPrefix}-workspace-key`}>Рабочая область</Label>
-          <Select
-            disabled={disabled || isReferenceDataLoading || activeWorkspaces.length === 0}
-            value={state.workspaceKey}
-            onValueChange={(value) => setField("workspaceKey", value)}
-          >
-            <SelectTrigger aria-label="Рабочая область" id={`${idPrefix}-workspace-key`}>
-              <SelectValue placeholder="Выберите область" />
-            </SelectTrigger>
-            <SelectContent>
-              {activeWorkspaces.map((workspace) => (
-                <SelectItem key={workspace.key} value={workspace.key}>
-                  {workspace.nameRu}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <Label htmlFor={`${idPrefix}-workspace-key`}>RAG-проект</Label>
+          {normalizedLockedWorkspaceKey ? (
+            <div
+              className="min-h-10 rounded-md border border-field-border bg-field px-3 py-2 text-sm text-foreground"
+              id={`${idPrefix}-workspace-key`}
+            >
+              <span className="block font-medium">
+                {lockedWorkspaceName?.trim() || normalizedLockedWorkspaceKey}
+              </span>
+              <span className="block text-xs text-muted-foreground">key: {normalizedLockedWorkspaceKey}</span>
+            </div>
+          ) : (
+            <Select
+              disabled={disabled || isReferenceDataLoading || activeWorkspaces.length === 0}
+              value={state.workspaceKey}
+              onValueChange={(value) => setField("workspaceKey", value)}
+            >
+              <SelectTrigger aria-label="RAG-проект" id={`${idPrefix}-workspace-key`}>
+                <SelectValue placeholder="Выберите проект" />
+              </SelectTrigger>
+              <SelectContent>
+                {activeWorkspaces.map((workspace) => (
+                  <SelectItem key={workspace.key} value={workspace.key}>
+                    {workspace.nameRu}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
           {errors?.workspaceKey ? <p className="text-sm text-destructive">{errors.workspaceKey}</p> : null}
         </div>
 
@@ -238,26 +281,28 @@ export function MaterialMetadataFormSection({
         </summary>
 
         <div className="mt-4 grid gap-4 md:grid-cols-2">
-          <div className="space-y-2">
-            <Label htmlFor={`${idPrefix}-project-key`}>Проект</Label>
-            <Select
-              disabled={isProjectDisabled}
-              value={state.projectKey || NO_PROJECT_VALUE}
-              onValueChange={(value) => setField("projectKey", value === NO_PROJECT_VALUE ? "" : value)}
-            >
-              <SelectTrigger aria-label="Проект" id={`${idPrefix}-project-key`}>
-                <SelectValue placeholder="Выберите проект" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={NO_PROJECT_VALUE}>Без проекта</SelectItem>
-                {availableProjects.map((project) => (
-                  <SelectItem key={project.key} value={project.key}>
-                    {project.nameRu}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          {!hideProjectField ? (
+            <div className="space-y-2">
+              <Label htmlFor={`${idPrefix}-project-key`}>Проект</Label>
+              <Select
+                disabled={isProjectDisabled}
+                value={state.projectKey || NO_PROJECT_VALUE}
+                onValueChange={(value) => setField("projectKey", value === NO_PROJECT_VALUE ? "" : value)}
+              >
+                <SelectTrigger aria-label="Проект" id={`${idPrefix}-project-key`}>
+                  <SelectValue placeholder="Выберите проект" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NO_PROJECT_VALUE}>Без проекта</SelectItem>
+                  {availableProjects.map((project) => (
+                    <SelectItem key={project.key} value={project.key}>
+                      {project.nameRu}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          ) : null}
 
           <div className="space-y-2">
             <Label htmlFor={`${idPrefix}-document-number`}>Номер документа</Label>

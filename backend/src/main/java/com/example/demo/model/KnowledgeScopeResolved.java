@@ -9,6 +9,12 @@ public record KnowledgeScopeResolved(
     String workspaceKey,
     boolean uploadedTodayOnly
 ) {
+    public KnowledgeScopeResolved {
+        presets = presets == null ? List.of() : List.copyOf(presets);
+        documentClasses = documentClasses == null ? List.of() : List.copyOf(documentClasses);
+        tags = tags == null ? List.of() : List.copyOf(tags);
+    }
+
     public static KnowledgeScopeResolved empty() {
         return new KnowledgeScopeResolved(List.of(), List.of(), List.of(), null, false);
     }

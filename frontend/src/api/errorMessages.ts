@@ -22,6 +22,16 @@ export const translateCommonApiError = (error: unknown, fallback: string) => {
         return "Запрос к локальной LLM был прерван. Попробуй снова.";
       case "llm.invalid_configuration":
         return "Конфигурация локальной LLM выглядит некорректной. Проверь настройки backend.";
+      case "chat_trace.storage_decode_failed":
+        return "Аудит запуска содержит устаревшие данные. Обнови страницу или открой историю запуска позже.";
+      case "chat_run.queue_decode_failed":
+        return "Очередь RAG запроса содержит устаревший payload. Отправь запрос ещё раз.";
+      case "chat_run.failed":
+        return error.message || "Запуск RAG запроса завершился ошибкой.";
+      case "chat_run.cancelled":
+        return "Запуск RAG запроса был отменён.";
+      case "chat_run.not_completed":
+        return "Запуск RAG запроса ещё выполняется. Подожди немного и повтори действие.";
       case "embedding.provider_unavailable":
         return "Не удалось связаться с локальным embedding runtime. Проверь Ollama и модель embeddings.";
       case "embedding.provider_bad_response":
@@ -35,6 +45,9 @@ export const translateCommonApiError = (error: unknown, fallback: string) => {
       case "chat.invalid_prompt":
       case "request.invalid_payload":
         return "Запрос заполнен некорректно. Обнови форму и попробуй ещё раз.";
+      case "request.not_found":
+      case "request.method_not_supported":
+        return "Backend не поддерживает этот API. Пересобери и перезапусти сервер, затем повтори действие.";
       case "request.field_too_large":
       case "request.too_many_items":
       case "request.payload_too_large":

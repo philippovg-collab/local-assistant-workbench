@@ -8,6 +8,7 @@ import com.example.demo.model.AnswerMode;
 import com.example.demo.model.ChatExecutionResponse;
 import com.example.demo.model.ChatMode;
 import com.example.demo.model.ChatRunOutputTrace;
+import com.example.demo.model.ChatRunTraceDetail;
 import com.example.demo.model.KnowledgeScopeResolved;
 import com.example.demo.model.LlmCallTrace;
 import com.example.demo.model.PromptPolicySnapshot;
@@ -87,6 +88,74 @@ class PostgresChatRunTraceRepositoryIT extends PostgresIntegrationTestSupport {
         assertFalse(repository.insertResultIfAbsent(runId, response(runId, "Second"), createdAt.plusSeconds(2), "TRACE_BACKFILL"));
 
         assertEquals("First", repository.findResult(runId).orElseThrow().answer());
+    }
+
+    @Test
+    void findTraceToleratesLegacyJsonShapesAndReturnsStableDefaults() {
+        String runId = runId();
+        Instant createdAt = Instant.parse("2026-04-19T00:00:00Z");
+        repository.insertHeader(runId, ChatMode.RAG, "qwen2.5:7b", AnswerMode.BRIEF, createdAt);
+        jdbcTemplate.update(
+            """
+                INSERT INTO chat_run_prompt_snapshots (
+                    run_id,
+                    messages_jsonb,
+                    instruction_trace_jsonb,
+                    knowledge_scope_resolved_jsonb,
+                    grounding_rules_applied
+                ) VALUES (?::uuid, '[]'::jsonb, '[]'::jsonb, '{}'::jsonb, true)
+                """,
+            runId
+        );
+        jdbcTemplate.update(
+            """
+                INSERT INTO chat_run_retrieval_summaries (
+                    run_id,
+                    retrieval_status,
+                    trace_jsonb,
+                    debug_jsonb
+                ) VALUES (?::uuid, 'DONE', ?::jsonb, ?::jsonb)
+                """,
+            runId,
+            """
+                {
+                  "totalMaterials": 1,
+                  "totalActiveMaterials": 1,
+                  "totalReadyMaterials": 1,
+                  "scopedMaterials": 1,
+                  "scopedActiveMaterials": 1,
+                  "scopedReadyMaterials": 1,
+                  "semanticCandidates": 1,
+                  "lexicalCandidates": 1,
+                  "finalChunks": 1
+                }
+                """,
+            """
+                {
+                  "queryHints": {},
+                  "manualFilters": {},
+                  "effectiveFilters": {},
+                  "semanticCandidateCount": 1,
+                  "lexicalCandidateCount": 1,
+                  "rerankCandidateCount": 1,
+                  "finalChunkCount": 1,
+                  "supportVerdict": "weak",
+                  "relevanceProfile": "hybrid-rerank-v1",
+                  "activeRolloutFlags": {},
+                  "appliedCapabilities": [],
+                  "suppressedCapabilities": [],
+                  "legacyExtraField": true
+                }
+                """
+        );
+
+        ChatRunTraceDetail trace = repository.findTrace(runId).orElseThrow();
+
+        assertTrue(trace.promptSnapshot().knowledgeScopeResolved().presets().isEmpty());
+        assertTrue(trace.promptSnapshot().knowledgeScopeResolved().documentClasses().isEmpty());
+        assertTrue(trace.promptSnapshot().knowledgeScopeResolved().tags().isEmpty());
+        assertEquals("weak", trace.retrievalSummary().trace().supportVerdict());
+        assertEquals(1, trace.retrievalSummary().debug().finalChunkCount());
     }
 
     @Test

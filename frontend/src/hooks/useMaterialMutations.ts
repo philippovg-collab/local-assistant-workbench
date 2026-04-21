@@ -7,6 +7,7 @@ import type {
   MaterialSummary,
   MaterialUploadPolicy,
   MaterialVersionUploadInput,
+  UpdateMaterialInput,
 } from "@/types";
 import {
   buildIngestionMessage,
@@ -18,6 +19,7 @@ import {
 } from "@/utils/materialPresentation";
 
 type UseMaterialMutationsInput = {
+  workspaceKey?: string | null;
   uploadPolicy: MaterialUploadPolicy | null;
   ensureUploadPolicy: () => Promise<MaterialUploadPolicy>;
   loadMaterials: () => Promise<MaterialListResponse | null>;
@@ -26,6 +28,7 @@ type UseMaterialMutationsInput = {
 };
 
 export const useMaterialMutations = ({
+  workspaceKey,
   uploadPolicy,
   ensureUploadPolicy,
   loadMaterials,
@@ -35,15 +38,30 @@ export const useMaterialMutations = ({
   const [message, setMessage] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [deletingMaterialId, setDeletingMaterialId] = useState<string | null>(null);
+  const [editingMaterialId, setEditingMaterialId] = useState<string | null>(null);
   const [reindexingMaterialId, setReindexingMaterialId] = useState<string | null>(null);
   const [versionUploadingMaterialId, setVersionUploadingMaterialId] = useState<string | null>(null);
+
+  const withWorkspaceMetadata = (metadata?: MaterialMetadataInput) => {
+    const normalizedWorkspaceKey = workspaceKey?.trim();
+    if (!metadata && !normalizedWorkspaceKey) {
+      return undefined;
+    }
+    return {
+      ...(metadata ?? {}),
+      ...(normalizedWorkspaceKey ? { workspaceKey: normalizedWorkspaceKey, projectKey: undefined } : {}),
+    };
+  };
 
   const createTextMaterial = async (input: { title: string; content: string; metadata?: MaterialMetadataInput }) => {
     setActionError(null);
     setMessage(null);
 
     try {
-      const created = await apiClient.createTextMaterial(input);
+      const created = await apiClient.createTextMaterial({
+        ...input,
+        metadata: withWorkspaceMetadata(input.metadata),
+      });
       await loadMaterials();
       setMessage(buildIngestionMessage(created, "Текстовый материал"));
     } catch (submissionError) {
@@ -76,7 +94,7 @@ export const useMaterialMutations = ({
           const created = await apiClient.uploadMaterial({
             title: item.title ?? "",
             file: item.file,
-            ...(item.metadata ? { metadata: item.metadata } : {}),
+            metadata: withWorkspaceMetadata(item.metadata),
           });
           createdMaterials.push(created);
         } catch (fileError) {
@@ -109,7 +127,7 @@ export const useMaterialMutations = ({
     setMessage(null);
 
     try {
-      await apiClient.deleteMaterial(materialId);
+      await apiClient.deleteMaterial(materialId, workspaceKey);
       await loadMaterials();
       clearLineageIfContains(materialId);
       setMessage("Материал удалён.");
@@ -139,7 +157,14 @@ export const useMaterialMutations = ({
         throw new Error(validationError);
       }
 
-      const created = await apiClient.uploadMaterialVersion(materialId, input);
+      const created = await apiClient.uploadMaterialVersion(
+        materialId,
+        {
+          ...input,
+          metadata: withWorkspaceMetadata(input.metadata),
+        },
+        workspaceKey,
+      );
       await loadMaterials();
       await refreshLineageIfContains(materialId);
       setMessage(buildIngestionMessage(created, "Файл новой версии"));
@@ -157,13 +182,39 @@ export const useMaterialMutations = ({
     }
   };
 
+  const editMaterial = async (materialId: string, input: UpdateMaterialInput) => {
+    setEditingMaterialId(materialId);
+    setActionError(null);
+    setMessage(null);
+
+    try {
+      const updated = await apiClient.updateMaterial(
+        materialId,
+        {
+          ...input,
+          metadata: withWorkspaceMetadata(input.metadata),
+        },
+        workspaceKey,
+      );
+      await loadMaterials();
+      await refreshLineageIfContains(materialId);
+      setMessage("Редакция сохранена как новая версия.");
+      return updated;
+    } catch (editError) {
+      setActionError(translateMaterialError(editError, "Не удалось сохранить редакцию материала", uploadPolicy));
+      throw editError;
+    } finally {
+      setEditingMaterialId((current) => (current === materialId ? null : current));
+    }
+  };
+
   const reindexMaterial = async (materialId: string) => {
     setReindexingMaterialId(materialId);
     setActionError(null);
     setMessage(null);
 
     try {
-      const updated = await apiClient.reindexMaterial(materialId);
+      const updated = await apiClient.reindexMaterial(materialId, workspaceKey);
       await loadMaterials();
       await refreshLineageIfContains(materialId);
       setMessage(
@@ -184,11 +235,13 @@ export const useMaterialMutations = ({
     message,
     actionError,
     deletingMaterialId,
+    editingMaterialId,
     reindexingMaterialId,
     versionUploadingMaterialId,
     createTextMaterial,
     uploadMaterial,
     uploadMaterialVersion,
+    editMaterial,
     deleteMaterial,
     reindexMaterial,
   };

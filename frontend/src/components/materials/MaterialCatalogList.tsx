@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { FileClock, FileText, Filter, History, RefreshCcw, Trash2, Upload } from "lucide-react";
+import { FileClock, FileText, Filter, History, Pencil, RefreshCcw, Trash2, Upload } from "lucide-react";
 import { EmptyState } from "@/components/app/EmptyState";
 import { SectionIntro } from "@/components/app/SectionIntro";
 import { MaterialMetadataDisplay } from "@/components/MaterialMetadataDisplay";
@@ -42,6 +42,7 @@ type MaterialCatalogListProps = {
   referenceProjects?: ReferenceProject[];
   referenceWorkspaces?: ReferenceWorkspace[];
   onDelete: (materialId: string) => Promise<unknown>;
+  onEditMaterial: (material: MaterialSummary) => void;
   onReindex: (materialId: string) => Promise<unknown>;
   onUploadVersion: (materialId: string, input: MaterialVersionUploadInput) => Promise<unknown>;
   onLoadLineage: (materialId: string) => Promise<unknown>;
@@ -62,6 +63,7 @@ export function MaterialCatalogList({
   referenceProjects = [],
   referenceWorkspaces = [],
   onDelete,
+  onEditMaterial,
   onReindex,
   onUploadVersion,
   onLoadLineage,
@@ -131,7 +133,7 @@ export function MaterialCatalogList({
           ))}
         </div>
       </CardHeader>
-      <CardContent className="mt-0 space-y-4">
+      <CardContent className="space-y-4">
         {isLoading ? (
           <EmptyState
             description="Читаем локальное хранилище backend."
@@ -160,7 +162,7 @@ export function MaterialCatalogList({
               {visibleMaterials.map((material) => (
                 <article className="surface-subtle space-y-4 rounded-[24px] p-5" key={material.id}>
                   <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-                    <div className="space-y-2">
+                    <div className="min-w-0 space-y-2 xl:flex-1">
                       <div className="flex flex-wrap items-center gap-2">
                         <h3 className="text-lg font-semibold tracking-[-0.03em] text-foreground">
                           {material.title}
@@ -178,7 +180,10 @@ export function MaterialCatalogList({
                       </p>
                     </div>
 
-                    <div className="flex flex-wrap items-center gap-2">
+                    <div
+                      className="flex min-w-0 max-w-full flex-wrap items-center gap-2 xl:ml-auto xl:max-w-5xl xl:justify-end"
+                      data-testid={`material-actions-${material.id}`}
+                    >
                       <Button
                         disabled={loadingLineageMaterialId === material.id}
                         size="sm"
@@ -189,6 +194,17 @@ export function MaterialCatalogList({
                         <History className="h-4 w-4" />
                         {loadingLineageMaterialId === material.id ? "Загружаем историю..." : "История"}
                       </Button>
+                      {isActiveMaterialVersion(material) ? (
+                        <Button
+                          size="sm"
+                          type="button"
+                          variant="outline"
+                          onClick={() => onEditMaterial(material)}
+                        >
+                          <Pencil className="h-4 w-4" />
+                          Редактировать
+                        </Button>
+                      ) : null}
                       {isReindexAllowed(material) ? (
                         <Button
                           disabled={reindexingMaterialId === material.id}

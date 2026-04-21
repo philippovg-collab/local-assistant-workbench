@@ -228,6 +228,7 @@ public class KnowledgePresetService {
             record.id(),
             record.name(),
             record.description(),
+            record.scope().workspaceKey(),
             record.revision(),
             record.active(),
             record.createdAt(),
