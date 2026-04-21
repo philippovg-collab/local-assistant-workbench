@@ -2,6 +2,7 @@
 set -euo pipefail
 
 DEPLOY_DIR="${DEPLOY_DIR:-/opt/ragstudio}"
+DEPLOY_OWNER="${DEPLOY_OWNER:-${SUDO_USER:-${USER:-root}}}"
 DOCKER_APT_KEYRING="/etc/apt/keyrings/docker.asc"
 
 if [[ ! -r /etc/os-release ]]; then
@@ -52,6 +53,10 @@ echo "deb [arch=${ARCH} signed-by=${DOCKER_APT_KEYRING}] https://download.docker
 
 echo "Creating deployment directory: ${DEPLOY_DIR}"
 "${SUDO[@]}" install -d -m 0755 "${DEPLOY_DIR}"
+"${SUDO[@]}" install -d -m 0755 "${DEPLOY_DIR}/releases" "${DEPLOY_DIR}/shared" "${DEPLOY_DIR}/backups"
+if id "${DEPLOY_OWNER}" >/dev/null 2>&1; then
+  "${SUDO[@]}" chown -R "${DEPLOY_OWNER}:${DEPLOY_OWNER}" "${DEPLOY_DIR}"
+fi
 
 if [[ "${EUID}" -ne 0 ]] && getent group docker >/dev/null 2>&1; then
   "${SUDO[@]}" usermod -aG docker "${USER}"
@@ -66,9 +71,10 @@ cat <<EOF
 Bootstrap complete.
 
 Next steps:
-  1. Copy project files to ${DEPLOY_DIR}.
-  2. Copy .env.example to .env and set production secrets.
-  3. Run: docker compose build
-  4. Run: docker compose up -d postgres ollama ollama-init backend frontend
-  5. Run: scripts/linux/preflight-compose.sh
+  1. Copy a ragstudio release archive to ${DEPLOY_DIR}/releases/<version>.
+  2. Copy .env.example to ${DEPLOY_DIR}/shared/.env and set production secrets.
+  3. Point ${DEPLOY_DIR}/current at the selected release and link shared/.env into it.
+  4. Run from ${DEPLOY_DIR}/current: docker compose build
+  5. Run: docker compose up -d postgres ollama ollama-init backend frontend
+  6. Run: scripts/linux/preflight-compose.sh
 EOF

@@ -19,6 +19,13 @@
 - библиотека инструкций с automatic assistant/workspace scopes и выбираемыми chat scenario инструкциями
 - ingestion материалов при записи: нормализация, дедупликация, chunking, embeddings и индексирование
 
+## Production deployment
+
+Production baseline для сервера заказчика описан отдельно: [docs/deploy-linux-compose.md](docs/deploy-linux-compose.md).
+Целевой контур — один Ubuntu 24.04 сервер, Docker Compose, frontend nginx на `127.0.0.1:8080`,
+HTTPS на reverse proxy заказчика, PostgreSQL/pgvector как стабильный retrieval path и обязательный
+preflight после каждого deploy/restore.
+
 ## Продуктовая модель
 
 Приложение остается локальным assistant-workbench с двумя режимами:
@@ -159,6 +166,12 @@ export SPRING_DATASOURCE_PASSWORD=ragstudio
 
 ```bash
 ./scripts/pull-deepseek-local.sh
+```
+
+Для Docker Compose DeepSeek подтягивается отдельно, чтобы обычный startup не скачивал тяжёлую модель без явного выбора:
+
+```bash
+APP_LLM_EXTRA_MODELS=deepseek-r1:8b docker compose up -d ollama ollama-init backend frontend
 ```
 
 Если хочешь сравнить обе модели явно:
@@ -465,13 +478,39 @@ curl http://127.0.0.1:8080/api/chat \
 
 Для `DIRECT` режимa `sources` будет пустым, а выбранные инструкции вернутся в `appliedInstructions`.
 
+### Пример `DIRECT` через DeepSeek
+
+`DeepSeek` выбирается тем же полем `model`, потому что это обычная chat-модель внутри подключенной Ollama:
+
+```bash
+curl http://127.0.0.1:8080/api/chat \
+  -H "Content-Type: application/json" \
+  -d '{
+    "mode": "DIRECT",
+    "model": "deepseek-r1:8b",
+    "prompt": "Коротко объясни, какой контур LLM сейчас используется"
+  }'
+```
+
+Очередной async-контур использует тот же contract:
+
+```bash
+curl http://127.0.0.1:8080/api/chat-runs \
+  -H "Content-Type: application/json" \
+  -d '{
+    "mode": "DIRECT",
+    "model": "deepseek-r1:8b",
+    "prompt": "Ответь одним абзацем"
+  }'
+```
+
 ## API моделей
 
 ```bash
 GET /api/models
 ```
 
-Backend проксирует список локально доступных моделей из `ollama`.
+Backend проксирует список реально установленных chat-моделей из подключенной `ollama`. UI не держит hardcoded список моделей: если `deepseek-r1:8b` не виден в `GET /api/models`, значит backend смотрит не на тот Ollama endpoint или модель не установлена в этой Ollama-инстанции. `nomic-embed-text` остаётся embeddings-моделью для retrieval и не должен выбираться как chat-модель.
 
 ## Как теперь работает RAG
 
@@ -840,3 +879,12 @@ curl http://127.0.0.1:11434/v1/chat/completions \
 ```bash
 ./scripts/pull-model.sh qwen2.5:3b
 ```
+
+## Если DeepSeek скачан, но не виден в UI
+
+| Симптом | Проверка | Что сделать |
+| --- | --- | --- |
+| `deepseek-r1:8b` есть в `~/.ollama`, но `/api/models` возвращает `llm.provider_unavailable` | `curl http://127.0.0.1:11434/api/tags` | Запусти host Ollama через `./scripts/run-local-stack.sh` или проверь `APP_LLM_BASE_URL`. |
+| Docker UI показывает только `qwen2.5:7b` | `docker exec ragstudio-ollama-1 ollama list` | `docker exec ragstudio-ollama-1 ollama pull deepseek-r1:8b` или перезапусти Compose с `APP_LLM_EXTRA_MODELS=deepseek-r1:8b`. |
+| `/api/models` не содержит DeepSeek, хотя Ollama работает | `curl http://127.0.0.1:8080/api/models` после login | Подтяни модель в ту же Ollama-инстанцию, на которую смотрит backend. UI отображает только backend catalog, не локальные manifest-файлы напрямую. |
+| RAG заблокирован даже при видимой модели | `curl http://127.0.0.1:8080/api/health` после login | Проверь `embeddingStatus`: для RAG нужен `nomic-embed-text`, а не только chat-модель DeepSeek. |

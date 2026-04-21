@@ -3,6 +3,9 @@
 .idea
 .vscode
 .DS_Store
+.env
+.env.*
+!.env.example
 
 backend/target
 backend/storage
@@ -19,3 +22,4 @@ tmp
 
 docker-data
 backups
+artifacts

@@ -4,10 +4,10 @@ FROM maven:3.9.9-eclipse-temurin-21 AS build
 
 WORKDIR /workspace/backend
 COPY backend/pom.xml ./
-RUN --mount=type=cache,target=/root/.m2 mvn -B -DskipTests dependency:go-offline
+RUN mvn -B -DskipTests dependency:go-offline
 
 COPY backend/src ./src
-RUN --mount=type=cache,target=/root/.m2 mvn -B -DskipTests package
+RUN mvn -B -DskipTests package
 
 FROM eclipse-temurin:21-jre-noble AS runtime
 

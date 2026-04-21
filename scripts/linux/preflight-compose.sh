@@ -4,17 +4,44 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "${ROOT_DIR}"
 
-if [[ -f .env ]]; then
+detect_deploy_base() {
+  local root_parent
+  root_parent="$(basename "$(dirname "${ROOT_DIR}")")"
+  if [[ "${root_parent}" == "releases" ]]; then
+    cd "${ROOT_DIR}/../.." && pwd
+    return 0
+  fi
+  if [[ "$(basename "${ROOT_DIR}")" == "current" ]]; then
+    cd "${ROOT_DIR}/.." && pwd
+    return 0
+  fi
+  printf '%s\n' "${ROOT_DIR}"
+}
+
+DEPLOY_BASE="${DEPLOY_BASE:-$(detect_deploy_base)}"
+ENV_FILE="${ENV_FILE:-}"
+if [[ -z "${ENV_FILE}" ]]; then
+  if [[ -f "${ROOT_DIR}/.env" ]]; then
+    ENV_FILE="${ROOT_DIR}/.env"
+  elif [[ -f "${DEPLOY_BASE}/shared/.env" ]]; then
+    ENV_FILE="${DEPLOY_BASE}/shared/.env"
+  fi
+fi
+
+if [[ -n "${ENV_FILE}" && -f "${ENV_FILE}" ]]; then
   set -a
   # shellcheck disable=SC1091
-  . ./.env
+  . "${ENV_FILE}"
   set +a
 fi
 
-FRONTEND_HTTP_PORT="${FRONTEND_HTTP_PORT:-80}"
+FRONTEND_HTTP_PORT="${FRONTEND_HTTP_PORT:-8080}"
+FRONTEND_CHECK_HOST="${FRONTEND_CHECK_HOST:-127.0.0.1}"
+FRONTEND_PUBLIC_URL="${FRONTEND_PUBLIC_URL:-http://${FRONTEND_CHECK_HOST}:${FRONTEND_HTTP_PORT}}"
 POSTGRES_DB="${POSTGRES_DB:-ragstudio}"
 POSTGRES_USER="${POSTGRES_USER:-ragstudio}"
 APP_LLM_MODEL="${APP_LLM_MODEL:-qwen2.5:7b}"
+APP_LLM_EXTRA_MODELS="${APP_LLM_EXTRA_MODELS:-}"
 APP_EMBEDDINGS_MODEL="${APP_EMBEDDINGS_MODEL:-nomic-embed-text}"
 APP_OCR_LANGUAGES="${APP_OCR_LANGUAGES:-kaz+rus+eng}"
 APP_SECURITY_ADMIN_USERNAME="${APP_SECURITY_ADMIN_USERNAME:-admin}"
@@ -38,6 +65,10 @@ require_command() {
 }
 
 compose() {
+  if [[ -n "${ENV_FILE}" && -f "${ENV_FILE}" ]]; then
+    docker compose --env-file "${ENV_FILE}" "$@"
+    return
+  fi
   docker compose "$@"
 }
 
@@ -84,6 +115,7 @@ backend_get() {
 }
 
 require_command docker
+require_command curl
 docker info >/dev/null 2>&1 || fail "Docker daemon is not reachable"
 compose version >/dev/null 2>&1 || fail "Docker Compose plugin is not available"
 pass "Docker and Compose are available"
@@ -105,6 +137,11 @@ pass "PostgreSQL vector extension is ready"
 
 OLLAMA_MODELS="$(compose exec -T ollama ollama list)"
 grep -Fq "${APP_LLM_MODEL}" <<<"${OLLAMA_MODELS}" || fail "Ollama model is missing: ${APP_LLM_MODEL}"
+EXTRA_MODELS_NORMALIZED="${APP_LLM_EXTRA_MODELS//,/ }"
+for model in ${EXTRA_MODELS_NORMALIZED}; do
+  [[ -n "${model}" ]] || continue
+  grep -Fq "${model}" <<<"${OLLAMA_MODELS}" || fail "Ollama extra model is missing: ${model}"
+done
 grep -Fq "${APP_EMBEDDINGS_MODEL}" <<<"${OLLAMA_MODELS}" || fail "Ollama embedding model is missing: ${APP_EMBEDDINGS_MODEL}"
 pass "Ollama models are present"
 
@@ -146,8 +183,16 @@ grep -q '"scannedPdfSupport"[[:space:]]*:[[:space:]]*true' <<<"${POLICY_JSON}" |
 grep -q '"mode"[[:space:]]*:[[:space:]]*"embedded_text_and_ocr"' <<<"${POLICY_JSON}" || fail "PDF mode is not embedded_text_and_ocr: ${POLICY_JSON}"
 pass "Material policy enables scanned PDF OCR"
 
-curl -fsS "http://127.0.0.1:${FRONTEND_HTTP_PORT}/healthz" >/dev/null || fail "Frontend health endpoint is not reachable on port ${FRONTEND_HTTP_PORT}"
+curl -fsS "${FRONTEND_PUBLIC_URL}/healthz" >/dev/null || fail "Frontend health endpoint is not reachable at ${FRONTEND_PUBLIC_URL}/healthz"
 pass "Frontend nginx is reachable"
+
+curl -fsS "${FRONTEND_PUBLIC_URL}/api/liveness" >/dev/null || fail "Nginx /api proxy liveness endpoint is not reachable at ${FRONTEND_PUBLIC_URL}/api/liveness"
+pass "Frontend nginx proxies /api/liveness"
+
+if curl -fsS "${FRONTEND_PUBLIC_URL}/api/health" >/dev/null 2>&1; then
+  fail "Proxied backend health endpoint is reachable without authentication"
+fi
+pass "Proxied backend health endpoint requires authentication"
 
 if compose ps --services --status running | grep -qx elasticsearch; then
   compose exec -T elasticsearch curl -fsS http://127.0.0.1:9200/_cluster/health >/dev/null \

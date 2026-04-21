@@ -40,12 +40,18 @@ services:
     environment:
       OLLAMA_HOST: http://ollama:11434
       APP_LLM_MODEL: ${APP_LLM_MODEL:-qwen2.5:7b}
+      APP_LLM_EXTRA_MODELS: ${APP_LLM_EXTRA_MODELS:-}
       APP_EMBEDDINGS_MODEL: ${APP_EMBEDDINGS_MODEL:-nomic-embed-text}
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
         set -eu
-        ollama pull "$${APP_LLM_MODEL}"
+        APP_LLM_EXTRA_MODELS_NORMALIZED=$$(printf '%s' "$${APP_LLM_EXTRA_MODELS}" | tr ',' ' ')
+        for model in "$${APP_LLM_MODEL}" $${APP_LLM_EXTRA_MODELS_NORMALIZED}; do
+          if [ -n "$${model}" ]; then
+            ollama pull "$${model}"
+          fi
+        done
         ollama pull "$${APP_EMBEDDINGS_MODEL}"
         ollama list
 
@@ -108,7 +114,7 @@ services:
       backend:
         condition: service_healthy
     ports:
-      - "${FRONTEND_HTTP_PORT:-80}:80"
+      - "${FRONTEND_BIND_ADDRESS:-127.0.0.1}:${FRONTEND_HTTP_PORT:-8080}:80"
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1/healthz"]
       interval: 30s

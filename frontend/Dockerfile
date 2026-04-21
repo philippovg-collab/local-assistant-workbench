@@ -4,7 +4,7 @@ FROM node:20-bookworm-slim AS build
 
 WORKDIR /workspace/frontend
 COPY frontend/package*.json ./
-RUN --mount=type=cache,target=/root/.npm npm ci
+RUN npm ci
 
 COPY frontend ./
 ENV VITE_API_URL=""
