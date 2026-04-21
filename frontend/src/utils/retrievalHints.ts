@@ -1,4 +1,7 @@
 import type {
+  DocumentStatus,
+  DocumentType,
+  MaterialLanguageCode,
   RetrievalFilters,
   RetrievalQueryHints,
   SourceTrustLevel,
@@ -9,26 +12,25 @@ export type RetrievalHintKey = keyof RetrievalQueryHints;
 
 export const RETRIEVAL_FILTER_KEYS: RetrievalFilterKey[] = [
   "documentNumber",
-  "documentDateFrom",
-  "documentDateTo",
-  "department",
-  "project",
-  "counterparty",
-  "businessStatus",
-  "language",
+  "documentTypes",
+  "documentStatuses",
+  "projectKeys",
+  "languageCodes",
+  "periodStartFrom",
+  "periodStartTo",
+  "periodEndFrom",
+  "periodEndTo",
   "tags",
   "sourceTrustMin",
 ];
 
 export const HINT_OWNED_FILTER_KEYS: RetrievalFilterKey[] = [
   "documentNumber",
-  "documentDateFrom",
-  "documentDateTo",
-  "department",
-  "project",
-  "counterparty",
-  "businessStatus",
-  "language",
+  "documentStatuses",
+  "projectKeys",
+  "languageCodes",
+  "periodStartFrom",
+  "periodStartTo",
 ];
 
 const ISO_DATE_PATTERN = /\b(\d{4}-\d{2}-\d{2})\b/g;
@@ -53,6 +55,14 @@ export const emptyRetrievalFilters = (): RetrievalFilters => ({
   language: null,
   tags: [],
   sourceTrustMin: null,
+  documentTypes: [],
+  documentStatuses: [],
+  projectKeys: [],
+  languageCodes: [],
+  periodStartFrom: null,
+  periodStartTo: null,
+  periodEndFrom: null,
+  periodEndTo: null,
 });
 
 export const extractRetrievalQueryHints = (query: string): RetrievalQueryHints => {
@@ -67,16 +77,21 @@ export const extractRetrievalQueryHints = (query: string): RetrievalQueryHints =
 
   return {
     documentNumber: extractDocumentNumber(normalized),
-    documentDateFrom: dateRange ? normalizeDate(dateRange[1]) : standaloneDates[0] ?? null,
-    documentDateTo: dateRange ? normalizeDate(dateRange[2]) : standaloneDates[0] ?? null,
+    documentDateFrom: null,
+    documentDateTo: null,
     versionLabel: versionMatch
       ? [versionMatch[1], versionMatch[2], versionMatch[3], versionMatch[4]].find(Boolean) ?? null
       : null,
-    language: extractLanguage(normalized),
-    project: extractFacet(normalized, PROJECT_PATTERN),
-    counterparty: extractFacet(normalized, COUNTERPARTY_PATTERN),
-    businessStatus: extractFacet(normalized, STATUS_PATTERN),
-    department: extractFacet(normalized, DEPARTMENT_PATTERN),
+    language: null,
+    project: null,
+    counterparty: null,
+    businessStatus: null,
+    department: null,
+    documentStatuses: extractDocumentStatuses(normalized),
+    projectKeys: normalizeStringList([extractFacet(normalized, PROJECT_PATTERN)]),
+    languageCodes: extractLanguageCode(normalized),
+    periodStartFrom: dateRange ? normalizeDate(dateRange[1]) : standaloneDates[0] ?? null,
+    periodStartTo: dateRange ? normalizeDate(dateRange[2]) : standaloneDates[0] ?? null,
   };
 };
 
@@ -91,6 +106,14 @@ export const normalizeRetrievalFilters = (filters?: Partial<RetrievalFilters> | 
   language: normalizeOptionalText(filters?.language),
   tags: normalizeTags(filters?.tags),
   sourceTrustMin: (filters?.sourceTrustMin ?? null) as SourceTrustLevel | null,
+  documentTypes: normalizeEnumList<DocumentType>(filters?.documentTypes),
+  documentStatuses: normalizeEnumList<DocumentStatus>(filters?.documentStatuses),
+  projectKeys: normalizeStringList(filters?.projectKeys),
+  languageCodes: normalizeEnumList<MaterialLanguageCode>(filters?.languageCodes),
+  periodStartFrom: normalizeOptionalDate(filters?.periodStartFrom),
+  periodStartTo: normalizeOptionalDate(filters?.periodStartTo),
+  periodEndFrom: normalizeOptionalDate(filters?.periodEndFrom),
+  periodEndTo: normalizeOptionalDate(filters?.periodEndTo),
 });
 
 export const mergeHintFilters = (
@@ -162,7 +185,7 @@ const extractDocumentNumber = (query: string) => {
   return codeMatch?.[1] ?? null;
 };
 
-const extractLanguage = (query: string) => {
+const extractLanguageCode = (query: string): MaterialLanguageCode[] => {
   const lower = query.toLowerCase();
   if (
     lower.includes("на русском")
@@ -170,7 +193,7 @@ const extractLanguage = (query: string) => {
     || lower.includes("русском")
     || /\bru\b/i.test(query)
   ) {
-    return "ru";
+    return ["RU"];
   }
   if (
     lower.includes("на английском")
@@ -179,7 +202,7 @@ const extractLanguage = (query: string) => {
     || lower.includes("english")
     || /\ben\b/i.test(query)
   ) {
-    return "en";
+    return ["EN"];
   }
   if (
     lower.includes("на казахском")
@@ -187,9 +210,30 @@ const extractLanguage = (query: string) => {
     || lower.includes("казахском")
     || /\bkk\b/i.test(query)
   ) {
-    return "kk";
+    return ["KK"];
   }
-  return null;
+  return [];
+};
+
+const extractDocumentStatuses = (query: string): DocumentStatus[] => {
+  const statusText = extractFacet(query, STATUS_PATTERN);
+  if (!statusText) {
+    return [];
+  }
+  const normalized = statusText.toLowerCase();
+  if (normalized.includes("active") || normalized.includes("действ") || normalized.includes("актив")) {
+    return ["ACTIVE"];
+  }
+  if (normalized.includes("draft") || normalized.includes("чернов")) {
+    return ["DRAFT"];
+  }
+  if (normalized.includes("archive") || normalized.includes("архив")) {
+    return ["ARCHIVED"];
+  }
+  if (normalized.includes("revoked") || normalized.includes("отозв") || normalized.includes("отмен")) {
+    return ["REVOKED"];
+  }
+  return [];
 };
 
 const extractFacet = (query: string, pattern: RegExp) => {
@@ -219,12 +263,24 @@ const hintValueForFilter = (
       return hints?.department ?? null;
     case "project":
       return hints?.project ?? null;
+    case "projectKeys":
+      return hints?.projectKeys ?? [];
     case "counterparty":
       return hints?.counterparty ?? null;
     case "businessStatus":
       return hints?.businessStatus ?? null;
     case "language":
       return hints?.language ?? null;
+    case "languageCodes":
+      return hints?.languageCodes ?? [];
+    case "periodStartFrom":
+      return hints?.periodStartFrom ?? null;
+    case "periodStartTo":
+      return hints?.periodStartTo ?? null;
+    case "periodEndFrom":
+      return hints?.periodEndFrom ?? null;
+    case "periodEndTo":
+      return hints?.periodEndTo ?? null;
     default:
       return null;
   }
@@ -268,6 +324,21 @@ const normalizeTags = (tags?: string[] | null) => {
     ),
   );
 };
+
+const normalizeStringList = (values?: Array<string | null | undefined> | null) => {
+  if (!values || values.length === 0) {
+    return [];
+  }
+  return Array.from(
+    new Set(
+      values
+        .map((value) => normalizeOptionalText(value))
+        .filter((value): value is string => Boolean(value)),
+    ),
+  );
+};
+
+const normalizeEnumList = <Value extends string>(values?: Value[] | null) => normalizeStringList(values) as Value[];
 
 export const hasRetrievalFilterValue = (value: unknown) => {
   if (value == null) {

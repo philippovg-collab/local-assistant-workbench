@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.json.JsonMapper;
 import com.example.demo.api.ApiException;
 import com.example.demo.model.KnowledgeScope;
+import com.example.demo.model.SavedKnowledgeFilterKind;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
@@ -24,9 +25,10 @@ public class PostgresKnowledgePresetRepository {
     private static final RowMapper<StoredKnowledgePresetRecord> PRESET_ROW_MAPPER = (resultSet, rowNum) ->
         new StoredKnowledgePresetRecord(
             resultSet.getObject("id").toString(),
+            readKind(resultSet.getString("filter_kind")),
             resultSet.getString("name"),
             resultSet.getString("description"),
-            readScope(resultSet.getString("scope_jsonb")),
+            readScope(resultSet.getString("criteria_jsonb")),
             resultSet.getInt("revision"),
             resultSet.getBoolean("is_active"),
             toInstant(resultSet.getTimestamp("created_at")),
@@ -36,10 +38,11 @@ public class PostgresKnowledgePresetRepository {
     private static final RowMapper<StoredKnowledgePresetRevisionRecord> REVISION_ROW_MAPPER = (resultSet, rowNum) ->
         new StoredKnowledgePresetRevisionRecord(
             resultSet.getObject("preset_id").toString(),
+            readKind(resultSet.getString("filter_kind")),
             resultSet.getInt("revision"),
             resultSet.getString("name"),
             resultSet.getString("description"),
-            readScope(resultSet.getString("scope_jsonb")),
+            readScope(resultSet.getString("criteria_jsonb")),
             resultSet.getBoolean("is_active"),
             resultSet.getObject("restored_from_revision", Integer.class),
             toInstant(resultSet.getTimestamp("created_at")),
@@ -56,7 +59,7 @@ public class PostgresKnowledgePresetRepository {
         try {
             return jdbcTemplate.query(
                 """
-                    SELECT id, name, description, scope_jsonb, revision, is_active, created_at, updated_at
+                    SELECT id, filter_kind, name, description, COALESCE(criteria_jsonb, scope_jsonb) AS criteria_jsonb, revision, is_active, created_at, updated_at
                     FROM knowledge_presets
                     ORDER BY updated_at DESC, created_at DESC
                     """,
@@ -72,11 +75,33 @@ public class PostgresKnowledgePresetRepository {
         }
     }
 
+    public List<StoredKnowledgePresetRecord> findAllByKind(SavedKnowledgeFilterKind kind) {
+        try {
+            return jdbcTemplate.query(
+                """
+                    SELECT id, filter_kind, name, description, COALESCE(criteria_jsonb, scope_jsonb) AS criteria_jsonb, revision, is_active, created_at, updated_at
+                    FROM knowledge_presets
+                    WHERE filter_kind = ?
+                    ORDER BY updated_at DESC, created_at DESC
+                    """,
+                PRESET_ROW_MAPPER,
+                safeKind(kind).name()
+            );
+        } catch (DataAccessException exception) {
+            throw new ApiException(
+                HttpStatus.INTERNAL_SERVER_ERROR,
+                "knowledge_preset.storage_read_failed",
+                "Unable to read knowledge filters from PostgreSQL",
+                exception
+            );
+        }
+    }
+
     public Optional<StoredKnowledgePresetRecord> findById(String id) {
         try {
             List<StoredKnowledgePresetRecord> records = jdbcTemplate.query(
                 """
-                    SELECT id, name, description, scope_jsonb, revision, is_active, created_at, updated_at
+                    SELECT id, filter_kind, name, description, COALESCE(criteria_jsonb, scope_jsonb) AS criteria_jsonb, revision, is_active, created_at, updated_at
                     FROM knowledge_presets
                     WHERE id = ?
                     LIMIT 1
@@ -104,15 +129,19 @@ public class PostgresKnowledgePresetRepository {
                         name,
                         description,
                         scope_jsonb,
+                        filter_kind,
+                        criteria_jsonb,
                         revision,
                         is_active,
                         created_at,
                         updated_at
-                    ) VALUES (?, ?, ?, ?::jsonb, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?::jsonb, ?, ?::jsonb, ?, ?, ?, ?)
                     ON CONFLICT (id) DO UPDATE
                     SET name = EXCLUDED.name,
                         description = EXCLUDED.description,
                         scope_jsonb = EXCLUDED.scope_jsonb,
+                        filter_kind = EXCLUDED.filter_kind,
+                        criteria_jsonb = EXCLUDED.criteria_jsonb,
                         revision = EXCLUDED.revision,
                         is_active = EXCLUDED.is_active,
                         updated_at = EXCLUDED.updated_at
@@ -120,6 +149,8 @@ public class PostgresKnowledgePresetRepository {
                 UUID.fromString(record.id()),
                 record.name(),
                 record.description(),
+                writeScope(record.scope()),
+                safeKind(record.kind()).name(),
                 writeScope(record.scope()),
                 record.revision(),
                 record.active(),
@@ -140,7 +171,7 @@ public class PostgresKnowledgePresetRepository {
         try {
             return jdbcTemplate.query(
                 """
-                    SELECT preset_id, revision, name, description, scope_jsonb, is_active, restored_from_revision, created_at, updated_at
+                    SELECT preset_id, filter_kind, revision, name, description, COALESCE(criteria_jsonb, scope_jsonb) AS criteria_jsonb, is_active, restored_from_revision, created_at, updated_at
                     FROM knowledge_preset_revisions
                     WHERE preset_id = ?
                     ORDER BY revision DESC
@@ -162,7 +193,7 @@ public class PostgresKnowledgePresetRepository {
         try {
             List<StoredKnowledgePresetRevisionRecord> records = jdbcTemplate.query(
                 """
-                    SELECT preset_id, revision, name, description, scope_jsonb, is_active, restored_from_revision, created_at, updated_at
+                    SELECT preset_id, filter_kind, revision, name, description, COALESCE(criteria_jsonb, scope_jsonb) AS criteria_jsonb, is_active, restored_from_revision, created_at, updated_at
                     FROM knowledge_preset_revisions
                     WHERE preset_id = ? AND revision = ?
                     LIMIT 1
@@ -192,16 +223,20 @@ public class PostgresKnowledgePresetRepository {
                         name,
                         description,
                         scope_jsonb,
+                        filter_kind,
+                        criteria_jsonb,
                         is_active,
                         restored_from_revision,
                         created_at,
                         updated_at
-                    ) VALUES (?, ?, ?, ?, ?::jsonb, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?::jsonb, ?, ?::jsonb, ?, ?, ?, ?)
                     """,
                 UUID.fromString(record.presetId()),
                 record.revision(),
                 record.name(),
                 record.description(),
+                writeScope(record.scope()),
+                safeKind(record.kind()).name(),
                 writeScope(record.scope()),
                 record.active(),
                 record.restoredFromRevision(),
@@ -246,6 +281,21 @@ public class PostgresKnowledgePresetRepository {
                 exception
             );
         }
+    }
+
+    private static SavedKnowledgeFilterKind readKind(String rawValue) {
+        if (rawValue == null || rawValue.isBlank()) {
+            return SavedKnowledgeFilterKind.PRESET;
+        }
+        try {
+            return SavedKnowledgeFilterKind.valueOf(rawValue.trim().toUpperCase(java.util.Locale.ROOT));
+        } catch (IllegalArgumentException ignored) {
+            return SavedKnowledgeFilterKind.PRESET;
+        }
+    }
+
+    private static SavedKnowledgeFilterKind safeKind(SavedKnowledgeFilterKind kind) {
+        return kind == null ? SavedKnowledgeFilterKind.PRESET : kind;
     }
 
     private static String writeScope(KnowledgeScope scope) {

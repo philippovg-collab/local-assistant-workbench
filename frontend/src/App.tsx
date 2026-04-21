@@ -33,7 +33,6 @@ import { DirectChatPanel } from "@/components/DirectChatPanel";
 import { InstructionLibraryPanel } from "@/components/InstructionLibraryPanel";
 import { MaterialsPanel } from "@/components/MaterialsPanel";
 import { RagChatPanel } from "@/components/RagChatPanel";
-import { RagProjectSwitcher } from "@/components/RagProjectSwitcher";
 import { ReferenceDataPanel } from "@/components/ReferenceDataPanel";
 import { StatusSummary } from "@/components/StatusSummary";
 import { cn } from "@/lib/utils";
@@ -41,6 +40,7 @@ import { useChatExecution } from "@/hooks/useChatExecution";
 import { useChatRuns } from "@/hooks/useChatRuns";
 import { useHealth } from "@/hooks/useHealth";
 import { useInstructions } from "@/hooks/useInstructions";
+import { useKnowledgeFacets } from "@/hooks/useKnowledgeFacets";
 import { useKnowledgePresets } from "@/hooks/useKnowledgePresets";
 import { useMaterials } from "@/hooks/useMaterials";
 import { useModels } from "@/hooks/useModels";
@@ -126,6 +126,7 @@ function WorkbenchApp({ session, isLoggingOut, onLogout }: WorkbenchAppProps) {
   const { models, error: modelsError } = useModels();
   const instructions = useInstructions();
   const knowledgePresets = useKnowledgePresets();
+  const knowledgeFacets = useKnowledgeFacets();
   const ragProjects = useRagProjects({ activeOnly: false });
   const activeRagProjects = useMemo(
     () =>
@@ -433,6 +434,36 @@ function WorkbenchApp({ session, isLoggingOut, onLogout }: WorkbenchAppProps) {
                   <Badge variant="secondary">Runtime Signals</Badge>
                   <Badge variant="secondary">Search Plane</Badge>
                 </div>
+
+                <div className="surface-subtle max-w-3xl rounded-[24px] border border-border/80 p-4 shadow-soft">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="min-w-0 space-y-1">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                        Выбранный RAG-проект
+                      </p>
+                      <strong className="block break-words text-lg font-semibold tracking-[-0.03em] text-foreground">
+                        {resolvedActiveRagProjectName}
+                      </strong>
+                    </div>
+                    <div className="flex flex-wrap gap-2 sm:justify-end">
+                      <Badge variant={activeRagProject?.active ? "success" : "secondary"}>
+                        {activeRagProject?.active ? "активен" : "не выбран"}
+                      </Badge>
+                      {ragProjects.isLoading ? <Badge variant="secondary">обновляем</Badge> : null}
+                    </div>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <Badge className="break-all normal-case tracking-normal" variant="outline">
+                      key: {resolvedActiveRagProjectKey}
+                    </Badge>
+                    <Badge variant="secondary">
+                      {activeRagProject?.readyMaterialCount ?? 0}/{activeRagProject?.materialCount ?? 0} ready
+                    </Badge>
+                  </div>
+                  {!activeRagProject && ragProjects.error ? (
+                    <p className="mt-3 text-sm leading-6 text-destructive">{ragProjects.error}</p>
+                  ) : null}
+                </div>
               </div>
 
               <div className="grid gap-4 sm:grid-cols-3 xl:grid-cols-1">
@@ -594,25 +625,6 @@ function WorkbenchApp({ session, isLoggingOut, onLogout }: WorkbenchAppProps) {
             id="panel-references"
             role="region"
           >
-            {activeTab === "references" ? (
-              <RagProjectSwitcher
-                actionError={ragProjects.actionError}
-                activeProject={activeRagProject}
-                activeProjectKey={resolvedActiveRagProjectKey}
-                error={ragProjects.error}
-                isLoading={ragProjects.isLoading}
-                projects={ragProjects.projects}
-                onCreateProject={async (input) => {
-                  const created = await ragProjects.createProject(input);
-                  setActiveRagProjectKey(created.key);
-                  void referenceData.reload();
-                  return created;
-                }}
-                onReload={() => ragProjects.reload()}
-                onSelectProject={setActiveRagProjectKey}
-              />
-            ) : null}
-
             <ReferenceDataPanel
               knowledgePresets={{
                 actionError: knowledgePresets.actionError,
@@ -632,10 +644,29 @@ function WorkbenchApp({ session, isLoggingOut, onLogout }: WorkbenchAppProps) {
                 revisions: knowledgePresets.revisions,
                 selectedPreset: knowledgePresets.selectedPreset,
               }}
+              knowledgeFacets={{
+                actionError: knowledgeFacets.actionError,
+                error: knowledgeFacets.error,
+                isLoading: knowledgeFacets.isLoading,
+                message: knowledgeFacets.message,
+                onCreatePreset: knowledgeFacets.createPreset,
+                onDeletePreset: knowledgeFacets.deletePreset,
+                onLoadPreset: (facetId) => knowledgeFacets.loadPreset(facetId),
+                onLoadRevisionDiff: (facetId, fromRevision, toRevision) =>
+                  knowledgeFacets.loadRevisionDiff(facetId, fromRevision, toRevision),
+                onLoadRevisions: (facetId) => knowledgeFacets.loadRevisions(facetId),
+                onRestoreRevision: (facetId, revision) => knowledgeFacets.restoreRevision(facetId, revision),
+                onUpdatePreset: knowledgeFacets.updatePreset,
+                presets: knowledgeFacets.presets,
+                revisionDiff: knowledgeFacets.revisionDiff,
+                revisions: knowledgeFacets.revisions,
+                selectedPreset: knowledgeFacets.selectedPreset,
+              }}
               referenceData={referenceData}
               ragProjects={ragProjects}
               activeRagProjectKey={resolvedActiveRagProjectKey}
               onActiveRagProjectChange={setActiveRagProjectKey}
+              showRagProjectSwitcher={activeTab === "references"}
             />
           </section>
 
@@ -660,6 +691,7 @@ function WorkbenchApp({ session, isLoggingOut, onLogout }: WorkbenchAppProps) {
               currentRunStatus={ragChat.currentRunStatus}
               instructions={scenarioInstructions}
               knowledgePresets={knowledgePresets.presets}
+              knowledgeFacets={knowledgeFacets.presets}
               knowledgeScope={ragChat.knowledgeScope}
               retrievalFilters={ragChat.retrievalFilters}
               effectiveRetrievalFilters={ragChat.effectiveRetrievalFilters}

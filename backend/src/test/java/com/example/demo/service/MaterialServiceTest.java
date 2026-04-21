@@ -10,6 +10,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.example.demo.api.ApiException;
+import com.example.demo.config.LlmProperties;
 import com.example.demo.config.MaterialProperties;
 import com.example.demo.config.OcrProperties;
 import com.example.demo.config.RagProperties;
@@ -22,6 +23,8 @@ import com.example.demo.infrastructure.material.PlainTextDocumentExtractionStrat
 import com.example.demo.infrastructure.material.RoutingDocumentTextExtractor;
 import com.example.demo.infrastructure.material.TesseractRuntimeProbe;
 import com.example.demo.infrastructure.material.TikaDocumentTextExtractor;
+import com.example.demo.llm.LlmClient;
+import com.example.demo.llm.LlmTracingClient;
 import com.example.demo.model.DocumentStatus;
 import com.example.demo.model.DocumentType;
 import com.example.demo.model.MaterialLanguageCode;
@@ -32,6 +35,7 @@ import com.example.demo.model.MaterialMetadataInput;
 import com.example.demo.model.MaterialSummary;
 import com.example.demo.model.MaterialVersionState;
 import com.example.demo.model.MetadataValueOrigin;
+import com.example.demo.model.OllamaModelInfo;
 import com.example.demo.model.SourceTrustLevel;
 import com.example.demo.support.DeterministicEmbeddingClient;
 import com.example.demo.support.InMemoryMaterialRepository;
@@ -347,6 +351,40 @@ class MaterialServiceTest {
         assertEquals(1, autoTaggingService.requests.size());
         assertTrue(detail.metadata().autoTags().contains("energy"));
         assertEquals(MetadataValueOrigin.INFERRED, detail.metadata().provenance().fieldOrigins().get("autoTags"));
+    }
+
+    @Test
+    void llmTimeoutFallbackDoesNotBreakUploadSave() {
+        TimeoutLlmClient llmClient = new TimeoutLlmClient();
+        MaterialProperties materialProperties = new MaterialProperties();
+        materialProperties.getAutoTags().setTimeoutSeconds(1);
+        LlmProperties llmProperties = new LlmProperties();
+        llmProperties.setModel("test-model");
+        MaterialAutoTaggingService autoTaggingService = new MaterialAutoTaggingService(
+            new LlmTracingClient(llmClient),
+            llmProperties,
+            materialProperties
+        );
+        MaterialService service = createService(
+            new DeterministicEmbeddingClient(),
+            new InMemoryMaterialRepository(),
+            autoTaggingService
+        );
+
+        MaterialSummary summary = service.saveUpload(
+            "Contract KZ-2026-0415-ENERGY 2026-04-15 v2 ru",
+            new MockMultipartFile(
+                "file",
+                "contract-KZ-2026-0415-ENERGY-2026-04-15-v2-ru.txt",
+                "text/plain",
+                "Основные условия договора и график поставки.".getBytes(StandardCharsets.UTF_8)
+            )
+        );
+        MaterialDetail detail = service.getDetail(summary.id());
+
+        assertEquals(1, llmClient.chatCalls);
+        assertEquals(1, llmClient.lastRequest.timeoutSeconds());
+        assertTrue(detail.metadata().autoTags().contains("energy"));
     }
 
     @Test
@@ -1154,6 +1192,28 @@ class MaterialServiceTest {
         public List<String> suggestTags(TaggingRequest request) {
             requests.add(request);
             return tags;
+        }
+    }
+
+    private static final class TimeoutLlmClient implements LlmClient {
+
+        private int chatCalls;
+        private ChatRequest lastRequest;
+
+        @Override
+        public List<OllamaModelInfo> listModels() {
+            return List.of();
+        }
+
+        @Override
+        public ChatResult chat(ChatRequest request) {
+            chatCalls++;
+            lastRequest = request;
+            throw new ApiException(
+                org.springframework.http.HttpStatus.GATEWAY_TIMEOUT,
+                "llm.provider_interrupted",
+                "LLM request timed out in the test"
+            );
         }
     }
 

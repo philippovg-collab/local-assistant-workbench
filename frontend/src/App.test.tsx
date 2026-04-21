@@ -862,6 +862,7 @@ describe("App", () => {
     const referencesPanel = container.querySelector("#panel-references") as HTMLElement;
     const ragPanel = container.querySelector("#panel-rag") as HTMLElement;
     const directPanel = container.querySelector("#panel-direct") as HTMLElement;
+    const overviewHeader = container.querySelector("header") as HTMLElement;
 
     expect(overviewPanel.hidden).toBe(false);
     expect(materialsPanel.hidden).toBe(true);
@@ -870,6 +871,9 @@ describe("App", () => {
     expect(ragPanel.hidden).toBe(true);
     expect(directPanel.hidden).toBe(true);
     expect(within(overviewPanel).getByText("Backend")).toBeTruthy();
+    expect(within(overviewHeader).getByText("Выбранный RAG-проект")).toBeTruthy();
+    expect(await within(overviewHeader).findByText("Общая")).toBeTruthy();
+    expect(within(overviewHeader).getByText("активен")).toBeTruthy();
     expect(screen.queryByText("Активный RAG-проект")).toBeNull();
 
     await user.click(materialsButton);
@@ -896,6 +900,7 @@ describe("App", () => {
     expect(within(referencesPanel).getByRole("button", { name: "Пресеты проекта" })).toBeTruthy();
     expect(within(referencesPanel).queryByRole("button", { name: "Проекты" })).toBeNull();
     await user.click(within(referencesPanel).getByRole("button", { name: "Пресеты проекта" }));
+    expect(within(referencesPanel).queryByText("Активный RAG-проект")).toBeNull();
     expect(within(referencesPanel).getByText("Создать preset проекта")).toBeTruthy();
     expect(within(referencesPanel).getByText("Пресеты проекта: Общая")).toBeTruthy();
     expect(within(referencesPanel).getByText("Scope и история выбранного набора знаний")).toBeTruthy();

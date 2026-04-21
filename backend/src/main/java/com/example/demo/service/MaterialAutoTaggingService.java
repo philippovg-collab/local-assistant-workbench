@@ -113,7 +113,8 @@ public class MaterialAutoTaggingService {
                         "Отвечай только валидным JSON без markdown."
                 ),
                 new LlmClient.Message("user", userPrompt)
-            )
+            ),
+            autoTagTimeoutSeconds()
         );
 
         try {
@@ -132,6 +133,11 @@ public class MaterialAutoTaggingService {
     private MaterialProperties.AutoTagsProperties autoTagsProperties() {
         MaterialProperties.AutoTagsProperties autoTags = materialProperties.getAutoTags();
         return autoTags == null ? new MaterialProperties.AutoTagsProperties() : autoTags;
+    }
+
+    private Integer autoTagTimeoutSeconds() {
+        int timeoutSeconds = autoTagsProperties().getTimeoutSeconds();
+        return timeoutSeconds > 0 ? timeoutSeconds : null;
     }
 
     private String buildUserPrompt(TaggingRequest request, String contentText, TagBudget tagBudget) {

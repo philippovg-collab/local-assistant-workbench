@@ -36,6 +36,7 @@ class MaterialAutoTaggingServiceTest {
         assertEquals(List.of("transformer protection", "north upgrade"), tags);
         assertNotNull(llmClient.lastRequest);
         assertEquals("test-model", llmClient.lastRequest.model());
+        assertEquals(8, llmClient.lastRequest.timeoutSeconds());
         String prompt = llmClient.lastRequest.messages().getLast().content();
         assertTrue(prompt.contains("Главный источник: текст материала"));
         assertTrue(prompt.contains("Материал описывает релейную защиту трансформатора"));
@@ -88,6 +89,7 @@ class MaterialAutoTaggingServiceTest {
             """;
         MaterialProperties materialProperties = new MaterialProperties();
         materialProperties.getAutoTags().setMaxInputChars(1_200);
+        materialProperties.getAutoTags().setTimeoutSeconds(3);
         MaterialAutoTaggingService service = createService(llmClient, materialProperties);
         String content = "начало защита трансформатора\n"
             + "промежуточный диспетчерский текст ".repeat(1_200)
@@ -104,6 +106,7 @@ class MaterialAutoTaggingServiceTest {
         ));
 
         assertEquals(16, tags.size());
+        assertEquals(3, llmClient.lastRequest.timeoutSeconds());
         String prompt = llmClient.lastRequest.messages().getLast().content();
         assertTrue(prompt.contains("Верни от 10 до 16"));
         assertTrue(prompt.contains("[НАЧАЛО МАТЕРИАЛА]"));

@@ -57,9 +57,25 @@ class OllamaLlmClientTest {
         JsonNode messages = payload.get("messages");
 
         assertEquals("/v1/chat/completions", transport.lastPostPath);
+        assertEquals(Duration.ofSeconds(5), transport.lastPostTimeout);
         assertEquals(2, messages.size());
         assertEquals("system", messages.get(0).get("role").asText());
         assertEquals("user", messages.get(1).get("role").asText());
+    }
+
+    @Test
+    void chatUsesRequestTimeoutWhenProvided() {
+        RecordingTransport transport = new RecordingTransport(objectMapper);
+        transport.chatResponseJson = successfulChatResponse();
+
+        OllamaLlmClient client = new OllamaLlmClient(transport, defaultProperties());
+        client.chat(new LlmClient.ChatRequest(
+            "qwen2.5:7b",
+            List.of(new LlmClient.Message("user", "Автотеги")),
+            2
+        ));
+
+        assertEquals(Duration.ofSeconds(2), transport.lastPostTimeout);
     }
 
     @Test
@@ -126,12 +142,33 @@ class OllamaLlmClientTest {
         return properties;
     }
 
+    private String successfulChatResponse() {
+        return """
+            {
+              "id": "chatcmpl-test",
+              "model": "qwen2.5:7b",
+              "created": 1710000000,
+              "choices": [
+                {
+                  "index": 0,
+                  "message": {
+                    "role": "assistant",
+                    "content": "ok"
+                  },
+                  "finish_reason": "stop"
+                }
+              ]
+            }
+            """;
+    }
+
     private static final class RecordingTransport extends OllamaApiTransport {
 
         private final ObjectMapper objectMapper;
         private Object lastPostPayload;
         private String lastPostPath;
         private String lastGetPath;
+        private Duration lastPostTimeout;
         private String chatResponseJson;
         private String tagsResponseJson;
         private ApiException postFailure;
@@ -190,6 +227,7 @@ class OllamaLlmClientTest {
             String invalidConfigurationMessage
         ) {
             lastPostPath = path;
+            lastPostTimeout = timeout;
             lastPostPayload = payload;
             if (postFailure != null) {
                 throw postFailure;

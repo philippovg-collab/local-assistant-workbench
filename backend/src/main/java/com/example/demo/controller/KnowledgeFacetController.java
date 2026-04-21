@@ -21,62 +21,62 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping("/api/knowledge-presets")
-public class KnowledgePresetController {
+@RequestMapping("/api/knowledge-facets")
+public class KnowledgeFacetController {
 
     private final KnowledgePresetService knowledgePresetService;
 
-    public KnowledgePresetController(KnowledgePresetService knowledgePresetService) {
+    public KnowledgeFacetController(KnowledgePresetService knowledgePresetService) {
         this.knowledgePresetService = knowledgePresetService;
     }
 
     @GetMapping
-    public List<KnowledgePresetSummary> listKnowledgePresets() {
-        return knowledgePresetService.listPresets();
+    public List<KnowledgePresetSummary> listKnowledgeFacets() {
+        return knowledgePresetService.listFacets();
     }
 
     @GetMapping("/{id}")
-    public KnowledgePresetDetail getKnowledgePreset(@PathVariable String id) {
-        return knowledgePresetService.getPreset(id);
+    public KnowledgePresetDetail getKnowledgeFacet(@PathVariable String id) {
+        return knowledgePresetService.getFacet(id);
     }
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    public KnowledgePresetDetail createKnowledgePreset(@Valid @RequestBody CreateKnowledgePresetRequest request) {
-        return knowledgePresetService.createPreset(request);
+    public KnowledgePresetDetail createKnowledgeFacet(@Valid @RequestBody CreateKnowledgePresetRequest request) {
+        return knowledgePresetService.createFacet(request);
     }
 
     @PutMapping("/{id}")
-    public KnowledgePresetDetail updateKnowledgePreset(@PathVariable String id, @Valid @RequestBody CreateKnowledgePresetRequest request) {
-        return knowledgePresetService.updatePreset(id, request);
+    public KnowledgePresetDetail updateKnowledgeFacet(@PathVariable String id, @Valid @RequestBody CreateKnowledgePresetRequest request) {
+        return knowledgePresetService.updateFacet(id, request);
     }
 
     @DeleteMapping("/{id}")
-    public void deleteKnowledgePreset(@PathVariable String id) {
-        knowledgePresetService.deletePreset(id);
+    public void deleteKnowledgeFacet(@PathVariable String id) {
+        knowledgePresetService.deleteFacet(id);
     }
 
     @GetMapping("/{id}/revisions")
-    public List<KnowledgePresetRevisionDetail> listKnowledgePresetRevisions(@PathVariable String id) {
-        return knowledgePresetService.listPresetRevisions(id);
+    public List<KnowledgePresetRevisionDetail> listKnowledgeFacetRevisions(@PathVariable String id) {
+        return knowledgePresetService.listFacetRevisions(id);
     }
 
     @GetMapping("/{id}/revisions/{revision}")
-    public KnowledgePresetRevisionDetail getKnowledgePresetRevision(@PathVariable String id, @PathVariable int revision) {
-        return knowledgePresetService.getPresetRevision(id, revision);
+    public KnowledgePresetRevisionDetail getKnowledgeFacetRevision(@PathVariable String id, @PathVariable int revision) {
+        return knowledgePresetService.getFacetRevision(id, revision);
     }
 
     @GetMapping("/{id}/diff")
-    public KnowledgePresetRevisionDiff diffKnowledgePresetRevisions(
+    public KnowledgePresetRevisionDiff diffKnowledgeFacetRevisions(
         @PathVariable String id,
         @RequestParam int fromRevision,
         @RequestParam int toRevision
     ) {
-        return knowledgePresetService.diffPresetRevisions(id, fromRevision, toRevision);
+        return knowledgePresetService.diffFacetRevisions(id, fromRevision, toRevision);
     }
 
     @PostMapping("/{id}/restore/{revision}")
-    public KnowledgePresetDetail restoreKnowledgePresetRevision(@PathVariable String id, @PathVariable int revision) {
-        return knowledgePresetService.restorePresetRevision(id, revision);
+    public KnowledgePresetDetail restoreKnowledgeFacetRevision(@PathVariable String id, @PathVariable int revision) {
+        return knowledgePresetService.restoreFacetRevision(id, revision);
     }
 }

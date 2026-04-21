@@ -7,6 +7,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -17,13 +24,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
 import type {
   CreateInstructionRequest,
@@ -180,7 +180,7 @@ export function InstructionLibraryPanel({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isEditingSubmitting, setIsEditingSubmitting] = useState(false);
   const [editingInstructionId, setEditingInstructionId] = useState<string | null>(null);
-  const [isEditSheetOpen, setIsEditSheetOpen] = useState(false);
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const categoryLabelId = useId();
   const scopeLabelId = useId();
   const editCategoryLabelId = useId();
@@ -317,11 +317,11 @@ export function InstructionLibraryPanel({
       scopeTargetId: detail.scopeTargetId ?? "",
       active: detail.active ?? true,
     });
-    setIsEditSheetOpen(true);
+    setIsEditDialogOpen(true);
   };
 
   const cancelEditing = () => {
-    setIsEditSheetOpen(false);
+    setIsEditDialogOpen(false);
     setEditingInstructionId(null);
     setEditForm(initialInstructionForm);
   };
@@ -776,26 +776,23 @@ export function InstructionLibraryPanel({
         </Card>
       </div>
 
-      <Sheet
-        open={isEditSheetOpen}
+      <Dialog
+        open={isEditDialogOpen}
         onOpenChange={(open) => {
           if (!open) {
             cancelEditing();
           } else {
-            setIsEditSheetOpen(true);
+            setIsEditDialogOpen(true);
           }
         }}
       >
-        <SheetContent
-          className="w-[92vw] max-w-2xl overflow-y-auto border-border bg-popover text-foreground"
-          side="right"
-        >
-          <SheetHeader className="mb-6">
-            <SheetTitle>Редактировать инструкцию</SheetTitle>
-            <SheetDescription className="text-muted-foreground">
+        <DialogContent className="max-h-[90vh] w-[92vw] max-w-2xl overflow-y-auto bg-popover text-foreground">
+          <DialogHeader className="mb-6">
+            <DialogTitle>Редактировать инструкцию</DialogTitle>
+            <DialogDescription className="text-muted-foreground">
               Изменения сохраняются как новая ревизия, а форма добавления инструкции на странице остаётся независимой.
-            </SheetDescription>
-          </SheetHeader>
+            </DialogDescription>
+          </DialogHeader>
 
           {renderInstructionForm({
             form: editForm,
@@ -808,8 +805,8 @@ export function InstructionLibraryPanel({
             onSubmit: handleEditSubmit,
             showCancel: true,
           })}
-        </SheetContent>
-      </Sheet>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

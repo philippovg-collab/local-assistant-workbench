@@ -48,7 +48,8 @@ const renderPanel = (
     retrievalDebug: {
       queryHints: {
         documentNumber: "KZ-2026-0415-ENERGY",
-        project: "North Upgrade",
+        project: null,
+        projectKeys: ["North Upgrade"],
       },
       manualFilters: {
         documentNumber: null,
@@ -61,18 +62,34 @@ const renderPanel = (
         language: null,
         tags: [],
         sourceTrustMin: null,
+        documentTypes: [],
+        documentStatuses: [],
+        projectKeys: [],
+        languageCodes: [],
+        periodStartFrom: null,
+        periodStartTo: null,
+        periodEndFrom: null,
+        periodEndTo: null,
       },
       effectiveFilters: {
         documentNumber: "KZ-2026-0415-ENERGY",
         documentDateFrom: null,
         documentDateTo: null,
         department: null,
-        project: "North Upgrade",
+        project: null,
         counterparty: null,
         businessStatus: null,
         language: null,
         tags: [],
         sourceTrustMin: null,
+        documentTypes: [],
+        documentStatuses: [],
+        projectKeys: ["North Upgrade"],
+        languageCodes: [],
+        periodStartFrom: null,
+        periodStartTo: null,
+        periodEndFrom: null,
+        periodEndTo: null,
       },
       semanticCandidateCount: 2,
       lexicalCandidateCount: 2,
@@ -162,11 +179,22 @@ const renderPanel = (
       selectedInstructionIds={[]}
       onToggleInstruction={vi.fn()}
       knowledgePresets={[]}
+      knowledgeFacets={[]}
       knowledgeScope={{
         presetIds: [],
+        facetIds: [],
         documentClasses: [],
+        documentTypes: [],
+        documentStatuses: [],
+        projectKeys: [],
+        documentNumber: null,
+        languageCodes: [],
         tags: [],
         workspaceKey: null,
+        periodStartFrom: null,
+        periodStartTo: null,
+        periodEndFrom: null,
+        periodEndTo: null,
         uploadedTodayOnly: false,
       }}
       onKnowledgeScopeChange={vi.fn()}
@@ -181,26 +209,43 @@ const renderPanel = (
         language: null,
         tags: [],
         sourceTrustMin: null,
+        documentTypes: [],
+        documentStatuses: [],
+        projectKeys: [],
+        languageCodes: [],
+        periodStartFrom: null,
+        periodStartTo: null,
+        periodEndFrom: null,
+        periodEndTo: null,
       }}
       effectiveRetrievalFilters={{
         documentNumber: "KZ-2026-0415-ENERGY",
         documentDateFrom: null,
         documentDateTo: null,
         department: null,
-        project: "North Upgrade",
+        project: null,
         counterparty: null,
         businessStatus: null,
         language: null,
         tags: [],
         sourceTrustMin: null,
+        documentTypes: [],
+        documentStatuses: [],
+        projectKeys: ["North Upgrade"],
+        languageCodes: [],
+        periodStartFrom: null,
+        periodStartTo: null,
+        periodEndFrom: null,
+        periodEndTo: null,
       }}
       queryHints={{
         documentNumber: "KZ-2026-0415-ENERGY",
-        project: "North Upgrade",
+        project: null,
+        projectKeys: ["North Upgrade"],
       }}
       metadataFiltersEnabled={true}
       queryHintsEnabled={true}
-      hintOwnedFields={["documentNumber", "project"]}
+      hintOwnedFields={["documentNumber", "projectKeys"]}
       manualOwnedFields={[]}
       dismissedHintKeys={[]}
       onRetrievalFilterChange={vi.fn()}
@@ -267,16 +312,12 @@ describe("RagChatPanel", () => {
     expect(await screen.findByText(/Не удалось загрузить источник/i)).toBeTruthy();
   });
 
-  it("opens filter drawer and renders hint chips plus debug breakdown", async () => {
-    const user = userEvent.setup();
-
+  it("renders hint chips and debug breakdown without the legacy filter drawer", async () => {
     renderPanel();
 
     expect(screen.getAllByText(/Номер документа: KZ-2026-0415-ENERGY/i).length).toBeGreaterThan(0);
-    await user.click(screen.getByRole("button", { name: /фильтры поиска/i }));
-
-    expect((await screen.findAllByText("Фильтры и подсказки поиска")).length).toBeGreaterThanOrEqual(2);
-    expect(screen.getByText(/Ручные фильтры важнее подсказок/i)).toBeTruthy();
+    expect(screen.getAllByText(/Проект: North Upgrade/i).length).toBeGreaterThan(0);
+    expect(screen.queryByRole("button", { name: /фильтры поиска/i })).toBeNull();
     expect(screen.getByText(/Retrieval debug/i)).toBeTruthy();
 
     const scoreSummary = screen.getByText(/Score breakdown/i).closest("summary");

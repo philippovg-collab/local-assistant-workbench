@@ -24,7 +24,19 @@ public record RetrievalFilters(
     String language,
     @Size(max = 32)
     List<String> tags,
-    SourceTrustLevel sourceTrustMin
+    SourceTrustLevel sourceTrustMin,
+    @Size(max = 32)
+    List<DocumentType> documentTypes,
+    @Size(max = 32)
+    List<DocumentStatus> documentStatuses,
+    @Size(max = 32)
+    List<String> projectKeys,
+    @Size(max = 32)
+    List<MaterialLanguageCode> languageCodes,
+    LocalDate periodStartFrom,
+    LocalDate periodStartTo,
+    LocalDate periodEndFrom,
+    LocalDate periodEndTo
 ) {
 
     public RetrievalFilters {
@@ -35,9 +47,53 @@ public record RetrievalFilters(
         businessStatus = normalizeText(businessStatus);
         language = normalizeText(language);
         tags = normalizeTags(tags);
+        documentTypes = documentTypes == null ? List.of() : List.copyOf(new LinkedHashSet<>(documentTypes));
+        documentStatuses = documentStatuses == null ? List.of() : List.copyOf(new LinkedHashSet<>(documentStatuses));
+        projectKeys = normalizeStringList(projectKeys);
+        languageCodes = languageCodes == null ? List.of() : List.copyOf(new LinkedHashSet<>(languageCodes));
         if (documentDateFrom != null && documentDateTo != null && documentDateFrom.isAfter(documentDateTo)) {
             throw new IllegalArgumentException("documentDateFrom must not be after documentDateTo");
         }
+        if (periodStartFrom != null && periodStartTo != null && periodStartFrom.isAfter(periodStartTo)) {
+            throw new IllegalArgumentException("periodStartFrom must not be after periodStartTo");
+        }
+        if (periodEndFrom != null && periodEndTo != null && periodEndFrom.isAfter(periodEndTo)) {
+            throw new IllegalArgumentException("periodEndFrom must not be after periodEndTo");
+        }
+    }
+
+    public RetrievalFilters(
+        String documentNumber,
+        LocalDate documentDateFrom,
+        LocalDate documentDateTo,
+        String department,
+        String project,
+        String counterparty,
+        String businessStatus,
+        String language,
+        List<String> tags,
+        SourceTrustLevel sourceTrustMin
+    ) {
+        this(
+            documentNumber,
+            documentDateFrom,
+            documentDateTo,
+            department,
+            project,
+            counterparty,
+            businessStatus,
+            language,
+            tags,
+            sourceTrustMin,
+            List.of(),
+            parseLegacyDocumentStatuses(businessStatus),
+            normalizeText(project) == null ? List.of() : List.of(normalizeText(project)),
+            parseLegacyLanguageCodes(language),
+            null,
+            null,
+            null,
+            null
+        );
     }
 
     public static RetrievalFilters empty() {
@@ -56,7 +112,15 @@ public record RetrievalFilters(
             businessStatus != null ? businessStatus : safeFallback.businessStatus(),
             language != null ? language : safeFallback.language(),
             !tags.isEmpty() ? tags : safeFallback.tags(),
-            sourceTrustMin != null ? sourceTrustMin : safeFallback.sourceTrustMin()
+            sourceTrustMin != null ? sourceTrustMin : safeFallback.sourceTrustMin(),
+            !documentTypes.isEmpty() ? documentTypes : safeFallback.documentTypes(),
+            !documentStatuses.isEmpty() ? documentStatuses : safeFallback.documentStatuses(),
+            !projectKeys.isEmpty() ? projectKeys : safeFallback.projectKeys(),
+            !languageCodes.isEmpty() ? languageCodes : safeFallback.languageCodes(),
+            periodStartFrom != null ? periodStartFrom : safeFallback.periodStartFrom(),
+            periodStartTo != null ? periodStartTo : safeFallback.periodStartTo(),
+            periodEndFrom != null ? periodEndFrom : safeFallback.periodEndFrom(),
+            periodEndTo != null ? periodEndTo : safeFallback.periodEndTo()
         );
     }
 
@@ -70,7 +134,15 @@ public record RetrievalFilters(
             && businessStatus == null
             && language == null
             && tags.isEmpty()
-            && sourceTrustMin == null;
+            && sourceTrustMin == null
+            && documentTypes.isEmpty()
+            && documentStatuses.isEmpty()
+            && projectKeys.isEmpty()
+            && languageCodes.isEmpty()
+            && periodStartFrom == null
+            && periodStartTo == null
+            && periodEndFrom == null
+            && periodEndTo == null;
     }
 
     public boolean matches(MaterialMetadataSnapshot metadata) {
@@ -99,6 +171,33 @@ public record RetrievalFilters(
         if (language != null && !equalsIgnoreCase(language, safeMetadata.language())) {
             return false;
         }
+        if (!documentTypes.isEmpty() && !documentTypes.contains(safeMetadata.documentType())) {
+            return false;
+        }
+        if (!documentStatuses.isEmpty() && !documentStatuses.contains(safeMetadata.documentStatus())) {
+            return false;
+        }
+        if (!projectKeys.isEmpty()) {
+            String normalizedProjectKey = normalizeText(safeMetadata.projectKey());
+            if (normalizedProjectKey == null || !lowerCaseProjectKeys().contains(normalizedProjectKey.toLowerCase(Locale.ROOT))) {
+                return false;
+            }
+        }
+        if (!languageCodes.isEmpty() && !languageCodes.contains(safeMetadata.languageCode())) {
+            return false;
+        }
+        if (periodStartFrom != null && (safeMetadata.periodStart() == null || safeMetadata.periodStart().isBefore(periodStartFrom))) {
+            return false;
+        }
+        if (periodStartTo != null && (safeMetadata.periodStart() == null || safeMetadata.periodStart().isAfter(periodStartTo))) {
+            return false;
+        }
+        if (periodEndFrom != null && (safeMetadata.periodEnd() == null || safeMetadata.periodEnd().isBefore(periodEndFrom))) {
+            return false;
+        }
+        if (periodEndTo != null && (safeMetadata.periodEnd() == null || safeMetadata.periodEnd().isAfter(periodEndTo))) {
+            return false;
+        }
         if (!tags.isEmpty()) {
             Set<String> recordTags = safeMetadata.tags().stream()
                 .map(RetrievalFilters::normalizeTag)
@@ -120,6 +219,39 @@ public record RetrievalFilters(
             .map(RetrievalFilters::normalizeTag)
             .filter(candidate -> candidate != null)
             .toList();
+    }
+
+    public List<String> documentTypeNames() {
+        return documentTypes.stream().map(Enum::name).toList();
+    }
+
+    public List<String> documentStatusNames() {
+        return documentStatuses.stream().map(Enum::name).toList();
+    }
+
+    public List<String> lowerCaseProjectKeys() {
+        return projectKeys.stream()
+            .map(RetrievalFilters::normalizeText)
+            .filter(candidate -> candidate != null)
+            .map(candidate -> candidate.toLowerCase(Locale.ROOT))
+            .toList();
+    }
+
+    public List<String> languageCodeNames() {
+        return languageCodes.stream().map(Enum::name).toList();
+    }
+
+    public boolean hasExplicitDocumentStatuses() {
+        return !documentStatuses.isEmpty() || businessStatus != null;
+    }
+
+    public boolean hasExplicitPeriods() {
+        return periodStartFrom != null
+            || periodStartTo != null
+            || periodEndFrom != null
+            || periodEndTo != null
+            || documentDateFrom != null
+            || documentDateTo != null;
     }
 
     public static int trustRank(SourceTrustLevel level) {
@@ -158,8 +290,46 @@ public record RetrievalFilters(
         return List.copyOf(normalized);
     }
 
+    private static List<String> normalizeStringList(List<String> rawValues) {
+        if (rawValues == null || rawValues.isEmpty()) {
+            return List.of();
+        }
+        LinkedHashSet<String> normalized = new LinkedHashSet<>();
+        for (String rawValue : rawValues) {
+            String candidate = normalizeText(rawValue);
+            if (candidate != null) {
+                normalized.add(candidate);
+            }
+        }
+        return List.copyOf(normalized);
+    }
+
     private static String normalizeTag(String rawValue) {
         String normalized = normalizeText(rawValue);
         return normalized == null ? null : normalized.toLowerCase(Locale.ROOT);
+    }
+
+    private static List<DocumentStatus> parseLegacyDocumentStatuses(String rawValue) {
+        String normalized = normalizeText(rawValue);
+        if (normalized == null) {
+            return List.of();
+        }
+        try {
+            return List.of(DocumentStatus.valueOf(normalized.toUpperCase(Locale.ROOT)));
+        } catch (IllegalArgumentException ignored) {
+            return List.of();
+        }
+    }
+
+    private static List<MaterialLanguageCode> parseLegacyLanguageCodes(String rawValue) {
+        String normalized = normalizeText(rawValue);
+        if (normalized == null) {
+            return List.of();
+        }
+        try {
+            return List.of(MaterialLanguageCode.fromValue(normalized));
+        } catch (IllegalArgumentException ignored) {
+            return List.of();
+        }
     }
 }

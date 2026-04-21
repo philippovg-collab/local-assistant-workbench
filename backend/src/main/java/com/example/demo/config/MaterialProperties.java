@@ -179,6 +179,7 @@ public class MaterialProperties {
         private int shortTarget = 5;
         private int mediumTarget = 10;
         private int largeTarget = 16;
+        private int timeoutSeconds = 8;
 
         public boolean isLlmEnabled() {
             return llmEnabled;
@@ -218,6 +219,14 @@ public class MaterialProperties {
 
         public void setLargeTarget(int largeTarget) {
             this.largeTarget = largeTarget;
+        }
+
+        public int getTimeoutSeconds() {
+            return timeoutSeconds;
+        }
+
+        public void setTimeoutSeconds(int timeoutSeconds) {
+            this.timeoutSeconds = timeoutSeconds;
         }
     }
 }

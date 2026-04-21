@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { BookOpenText, ExternalLink, Files, SearchCheck, SlidersHorizontal, Sparkles, X } from "lucide-react";
+import { BookOpenText, ExternalLink, Files, SearchCheck, Sparkles, X } from "lucide-react";
 import { apiClient } from "@/api/client";
 import { EmptyState } from "@/components/app/EmptyState";
 import { SectionIntro } from "@/components/app/SectionIntro";
@@ -16,15 +16,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
 import type {
   AnswerMode,
   ChatAuditRunDetail,
@@ -39,7 +31,6 @@ import type {
   RetrievalQueryHints,
 } from "@/types";
 import { formatDate } from "@/utils/format";
-import { parseTagsInput } from "@/utils/materialMetadata";
 import {
   formatRetrievalFilterValue,
   hasRetrievalFilterValue,
@@ -47,11 +38,15 @@ import {
 } from "@/utils/retrievalHints";
 import {
   answerModeLabels,
-  knowledgeDocumentClassLabels,
   knowledgeScopeResolvedWithDefaults,
   retrievalTraceWithDefaults,
   supportVerdictLabels,
 } from "@/utils/workbenchPresentation";
+import {
+  documentStatusLabels,
+  documentTypeLabels,
+  materialLanguageCodeLabels,
+} from "@/utils/materialMetadata";
 
 type RagChatPanelProps = {
   models: ModelInfo[];
@@ -68,6 +63,7 @@ type RagChatPanelProps = {
   selectedInstructionIds: string[];
   onToggleInstruction: (instructionId: string) => void;
   knowledgePresets: KnowledgePresetSummary[];
+  knowledgeFacets: KnowledgePresetSummary[];
   activeRagProjectKey?: string | null;
   activeRagProjectName?: string | null;
   knowledgeScope: KnowledgeScope;
@@ -97,13 +93,6 @@ type RagChatPanelProps = {
   onSubmit: () => Promise<unknown>;
 };
 
-const tagTextOf = (scope: KnowledgeScope) => scope.tags.join(", ");
-const normalizeTags = (value: string) =>
-  value
-    .split(",")
-    .map((tag) => tag.trim())
-    .filter((tag) => tag.length > 0);
-
 const retrievalFilterLabels: Record<RetrievalFilterKey, string> = {
   documentNumber: "Номер документа",
   documentDateFrom: "Дата с",
@@ -115,6 +104,14 @@ const retrievalFilterLabels: Record<RetrievalFilterKey, string> = {
   language: "Язык",
   tags: "Теги / ключевые слова",
   sourceTrustMin: "Минимальное доверие",
+  documentTypes: "Тип документа",
+  documentStatuses: "Статус документа",
+  projectKeys: "Проект",
+  languageCodes: "Язык документа",
+  periodStartFrom: "Действует с: от",
+  periodStartTo: "Действует с: до",
+  periodEndFrom: "Действует по: от",
+  periodEndTo: "Действует по: до",
 };
 
 type SourceTarget = {
@@ -172,6 +169,7 @@ export function RagChatPanel({
   selectedInstructionIds,
   onToggleInstruction,
   knowledgePresets,
+  knowledgeFacets,
   activeRagProjectKey,
   activeRagProjectName,
   knowledgeScope,
@@ -204,7 +202,6 @@ export function RagChatPanel({
   const [isLoadingMaterial, setIsLoadingMaterial] = useState(false);
   const [materialError, setMaterialError] = useState<string | null>(null);
   const [openedSourceTarget, setOpenedSourceTarget] = useState<SourceTarget | null>(null);
-  const [isFilterDrawerOpen, setIsFilterDrawerOpen] = useState(false);
   const highlightedChunkRef = useRef<HTMLDivElement | null>(null);
   const normalizedActiveRagProjectKey = (activeRagProjectKey ?? "").trim();
   const normalizedActiveRagProjectName = activeRagProjectName ?? "";
@@ -215,22 +212,33 @@ export function RagChatPanel({
         && (!preset.workspaceKey || preset.workspaceKey === normalizedActiveRagProjectKey)),
     [knowledgePresets, normalizedActiveRagProjectKey],
   );
+  const visibleKnowledgeFacets = useMemo(
+    () =>
+      knowledgeFacets.filter((facet) =>
+        facet.active
+        && (!facet.workspaceKey || facet.workspaceKey === normalizedActiveRagProjectKey)),
+    [knowledgeFacets, normalizedActiveRagProjectKey],
+  );
 
   useEffect(() => {
     const visiblePresetIds = new Set(visibleKnowledgePresets.map((preset) => preset.id));
+    const visibleFacetIds = new Set(visibleKnowledgeFacets.map((facet) => facet.id));
     const nextPresetIds = knowledgeScope.presetIds.filter((presetId) => visiblePresetIds.has(presetId));
+    const nextFacetIds = (knowledgeScope.facetIds ?? []).filter((facetId) => visibleFacetIds.has(facetId));
     const nextWorkspaceKey = normalizedActiveRagProjectKey || null;
     if (
       nextPresetIds.length !== knowledgeScope.presetIds.length
+      || nextFacetIds.length !== (knowledgeScope.facetIds ?? []).length
       || knowledgeScope.workspaceKey !== nextWorkspaceKey
     ) {
       onKnowledgeScopeChange({
         ...knowledgeScope,
         presetIds: nextPresetIds,
+        facetIds: nextFacetIds,
         workspaceKey: nextWorkspaceKey,
       });
     }
-  }, [knowledgeScope, normalizedActiveRagProjectKey, onKnowledgeScopeChange, visibleKnowledgePresets]);
+  }, [knowledgeScope, normalizedActiveRagProjectKey, onKnowledgeScopeChange, visibleKnowledgeFacets, visibleKnowledgePresets]);
 
   const scopeSummary = useMemo(() => {
     const projectLabel = normalizedActiveRagProjectName
@@ -244,12 +252,13 @@ export function RagChatPanel({
     if (selectedPresets.length > 0) {
       parts.push(`presets: ${selectedPresets.join(", ")}`);
     }
-    if (knowledgeScope.documentClasses.length > 0) {
-      parts.push(
-        `классы: ${knowledgeScope.documentClasses.map((item) => knowledgeDocumentClassLabels[item]).join(", ")}`,
-      );
+    const selectedFacets = visibleKnowledgeFacets
+      .filter((facet) => (knowledgeScope.facetIds ?? []).includes(facet.id))
+      .map((facet) => facet.name);
+    if (selectedFacets.length > 0) {
+      parts.push(`фасеты: ${selectedFacets.join(", ")}`);
     }
-    if (knowledgeScope.tags.length > 0) {
+    if ((knowledgeScope.tags ?? []).length > 0) {
       parts.push(`теги: ${knowledgeScope.tags.join(", ")}`);
     }
     if (knowledgeScope.uploadedTodayOnly) {
@@ -257,7 +266,7 @@ export function RagChatPanel({
     }
 
     return `Запрос будет искать внутри активного корпуса: ${parts.join(" · ")}.`;
-  }, [knowledgeScope, normalizedActiveRagProjectKey, normalizedActiveRagProjectName, visibleKnowledgePresets]);
+  }, [knowledgeScope, normalizedActiveRagProjectKey, normalizedActiveRagProjectName, visibleKnowledgeFacets, visibleKnowledgePresets]);
 
   const resolvedScope = knowledgeScopeResolvedWithDefaults(response?.knowledgeScopeResolved);
   const retrievalTrace = retrievalTraceWithDefaults(response?.retrievalTrace);
@@ -314,6 +323,7 @@ export function RagChatPanel({
 
   const knowledgeControls = {
     presets: visibleKnowledgePresets,
+    facets: visibleKnowledgeFacets,
     selectedPresetIds: knowledgeScope.presetIds,
     onTogglePreset: (presetId: string) =>
       onKnowledgeScopeChange({
@@ -322,28 +332,16 @@ export function RagChatPanel({
           ? knowledgeScope.presetIds.filter((id) => id !== presetId)
           : [...knowledgeScope.presetIds, presetId],
       }),
-    selectedDocumentClasses: knowledgeScope.documentClasses,
-    onToggleDocumentClass: (documentClass: KnowledgeScope["documentClasses"][number]) =>
+    selectedFacetIds: knowledgeScope.facetIds ?? [],
+    onToggleFacet: (facetId: string) =>
       onKnowledgeScopeChange({
         ...knowledgeScope,
-        documentClasses: knowledgeScope.documentClasses.includes(documentClass)
-          ? knowledgeScope.documentClasses.filter((item) => item !== documentClass)
-          : [...knowledgeScope.documentClasses, documentClass],
-      }),
-    knowledgeTagsText: tagTextOf(knowledgeScope),
-    onKnowledgeTagsTextChange: (value: string) =>
-      onKnowledgeScopeChange({
-        ...knowledgeScope,
-        tags: normalizeTags(value),
+        facetIds: (knowledgeScope.facetIds ?? []).includes(facetId)
+          ? (knowledgeScope.facetIds ?? []).filter((id) => id !== facetId)
+          : [...(knowledgeScope.facetIds ?? []), facetId],
       }),
     workspaceKey: normalizedActiveRagProjectKey,
     workspaceName: normalizedActiveRagProjectName,
-    uploadedTodayOnly: knowledgeScope.uploadedTodayOnly,
-    onUploadedTodayOnlyChange: (value: boolean) =>
-      onKnowledgeScopeChange({
-        ...knowledgeScope,
-        uploadedTodayOnly: value,
-      }),
     activeScopeSummary: scopeSummary,
   };
 
@@ -360,13 +358,9 @@ export function RagChatPanel({
                   <p className="text-sm font-semibold text-foreground">Фильтры и подсказки поиска</p>
                   <p className="text-xs leading-5 text-muted-foreground">
                     Активный RAG-проект уже зафиксирован: {normalizedActiveRagProjectName || normalizedActiveRagProjectKey || "general"}.
-                    Подсказки из вопроса и ручные фильтры работают внутри него.
+                    Подсказки из вопроса и выбранные фасеты работают внутри него.
                   </p>
                 </div>
-                <Button type="button" variant="outline" onClick={() => setIsFilterDrawerOpen(true)}>
-                  <SlidersHorizontal className="h-4 w-4" />
-                  Фильтры поиска
-                </Button>
               </div>
 
               {activeHintChips.length > 0 || activeManualChips.length > 0 ? (
@@ -412,7 +406,7 @@ export function RagChatPanel({
                     ? queryHintsEnabled
                       ? "Пока фильтры не заданы. После ввода запроса здесь появятся auto hints и ручные фасеты."
                       : "Пока фильтры не заданы. Auto hints отключены rollout-флагом, но ручные фасеты доступны."
-                    : "Metadata filters отключены rollout-флагом; поля в drawer недоступны и запрос уйдёт без retrievalFilters."}
+                    : "Metadata filters отключены rollout-флагом; запрос уйдёт без retrievalFilters."}
                 </p>
               )}
 
@@ -459,78 +453,6 @@ export function RagChatPanel({
               temporaryInstructionRows={4}
             />
 
-            <Sheet open={isFilterDrawerOpen} onOpenChange={setIsFilterDrawerOpen}>
-              <SheetContent side="right" className="overflow-y-auto">
-                <SheetHeader>
-                  <SheetTitle>Фильтры и подсказки поиска</SheetTitle>
-                  <SheetDescription>
-                    {metadataFiltersEnabled
-                      ? queryHintsEnabled
-                        ? "Ручные фильтры важнее подсказок из вопроса. Поля совпадают с атрибутами материала при загрузке."
-                        : "Ручные фильтры доступны. Автоподсказки из вопроса отключены rollout-флагом."
-                      : "Metadata filters отключены rollout-флагом; поля ниже недоступны и не будут отправлены в /api/chat."}
-                  </SheetDescription>
-                </SheetHeader>
-
-                <div className="mt-6 space-y-5">
-                  {!metadataFiltersEnabled ? (
-                    <div className="rounded-[18px] border border-border bg-field px-4 py-3 text-sm leading-6 text-muted-foreground">
-                      metadata-filters-v1 выключен, поэтому /api/chat получит запрос без retrievalFilters.
-                    </div>
-                  ) : !queryHintsEnabled ? (
-                    <div className="rounded-[18px] border border-border bg-field px-4 py-3 text-sm leading-6 text-muted-foreground">
-                      query-hints-v1 выключен, поэтому подсказки из текста вопроса не применяются.
-                    </div>
-                  ) : null}
-                  <div className="space-y-2">
-                    <label className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Номер документа</label>
-                    <Input
-                      disabled={!metadataFiltersEnabled}
-                      value={retrievalFilters.documentNumber ?? ""}
-                      onChange={(event) => onRetrievalFilterChange("documentNumber", event.target.value || null)}
-                    />
-                  </div>
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <div className="space-y-2">
-                      <label className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Дата с</label>
-                      <Input
-                        disabled={!metadataFiltersEnabled}
-                        type="date"
-                        value={retrievalFilters.documentDateFrom ?? ""}
-                        onChange={(event) => onRetrievalFilterChange("documentDateFrom", event.target.value || null)}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Дата по</label>
-                      <Input
-                        disabled={!metadataFiltersEnabled}
-                        type="date"
-                        value={retrievalFilters.documentDateTo ?? ""}
-                        onChange={(event) => onRetrievalFilterChange("documentDateTo", event.target.value || null)}
-                      />
-                    </div>
-                  </div>
-                  {(["department", "project", "counterparty", "businessStatus", "language"] as RetrievalFilterKey[]).map((key) => (
-                    <div className="space-y-2" key={key}>
-                      <label className="text-xs uppercase tracking-[0.14em] text-muted-foreground">{retrievalFilterLabels[key]}</label>
-                      <Input
-                        disabled={!metadataFiltersEnabled}
-                        value={(retrievalFilters[key] as string | null | undefined) ?? ""}
-                        onChange={(event) => onRetrievalFilterChange(key, event.target.value || null)}
-                      />
-                    </div>
-                  ))}
-                  <div className="space-y-2">
-                    <label className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Теги / ключевые слова</label>
-                    <Input
-                      disabled={!metadataFiltersEnabled}
-                      value={(retrievalFilters.tags ?? []).join(", ")}
-                      onChange={(event) => onRetrievalFilterChange("tags", parseTagsInput(event.target.value))}
-                    />
-                  </div>
-                </div>
-              </SheetContent>
-            </Sheet>
           </>
         }
         description="RAG-режим теперь показывает не только ответ, но и instruction trace, knowledge scope, retrieval trace и конкретные чанки, из которых он был собран."
@@ -583,16 +505,35 @@ export function RagChatPanel({
                   </div>
 
                   <div className="rounded-[22px] border border-field-border bg-field px-4 py-4 text-sm leading-6 text-foreground">
-                    <p>Scope: {resolvedScope.presets.length > 0 ? resolvedScope.presets.map((preset) => preset.name).join(", ") : "без preset'ов"}</p>
+                    <p>Пресеты: {resolvedScope.presets.length > 0 ? resolvedScope.presets.map((preset) => preset.name).join(", ") : "не выбраны"}</p>
                     <p>
-                      Фасеты: {resolvedScope.documentClasses.length > 0
-                        ? resolvedScope.documentClasses.map((item) => knowledgeDocumentClassLabels[item]).join(", ")
-                        : "без ограничения по классам"}
+                      Фасеты: {resolvedScope.facets.length > 0
+                        ? resolvedScope.facets.map((facet) => facet.name).join(", ")
+                        : "не выбраны"}
                     </p>
-                    <p>Tags: {resolvedScope.tags.length > 0 ? resolvedScope.tags.join(", ") : "не заданы"}</p>
+                    <p>
+                      Типы документов: {resolvedScope.documentTypes.length > 0
+                        ? resolvedScope.documentTypes.map((item) => documentTypeLabels[item] ?? item).join(", ")
+                        : "не ограничены"}
+                    </p>
+                    <p>
+                      Статусы документов: {resolvedScope.documentStatuses.length > 0
+                        ? resolvedScope.documentStatuses.map((item) => documentStatusLabels[item] ?? item).join(", ")
+                        : "по умолчанию действующие"}
+                    </p>
+                    <p>Проекты: {resolvedScope.projectKeys.length > 0 ? resolvedScope.projectKeys.join(", ") : "не ограничены"}</p>
+                    <p>
+                      Языки: {resolvedScope.languageCodes.length > 0
+                        ? resolvedScope.languageCodes.map((item) => materialLanguageCodeLabels[item] ?? item).join(", ")
+                        : "не ограничены"}
+                    </p>
+                    <p>Номер документа: {resolvedScope.documentNumber || "не задан"}</p>
+                    <p>Период “действует с”: {resolvedScope.periodStartFrom || "любая дата"} - {resolvedScope.periodStartTo || "любая дата"}</p>
+                    <p>Период “действует по”: {resolvedScope.periodEndFrom || "любая дата"} - {resolvedScope.periodEndTo || "любая дата"}</p>
+                    <p>Теги: {resolvedScope.tags.length > 0 ? resolvedScope.tags.join(", ") : "не заданы"}</p>
                     <p>RAG-проект: {normalizedActiveRagProjectName || resolvedScope.workspaceKey || "не задан"}</p>
                     <p>workspaceKey: {(resolvedScope.workspaceKey ?? normalizedActiveRagProjectKey) || "не задан"}</p>
-                    <p>Today uploads: {resolvedScope.uploadedTodayOnly ? "да" : "нет"}</p>
+                    <p>Только сегодняшние загрузки: {resolvedScope.uploadedTodayOnly ? "да" : "нет"}</p>
                   </div>
 
                   <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">

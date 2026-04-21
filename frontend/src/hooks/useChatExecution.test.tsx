@@ -138,7 +138,7 @@ function HookHarness({
       <button type="button" onClick={() => void chat.submit()}>
         submit-{mode}
       </button>
-      <button type="button" onClick={() => chat.updateRetrievalFilter("project", "Manual Project")}>
+      <button type="button" onClick={() => chat.updateRetrievalFilter("projectKeys", ["Manual Project"])}>
         set-manual-project
       </button>
       <button type="button" onClick={() => chat.dismissHint("documentNumber")}>
@@ -157,7 +157,7 @@ function HookHarness({
       <output data-testid={`${mode}-last-request-output`}>{chat.lastSubmittedRequest?.prompt ?? ""}</output>
       <output data-testid={`${mode}-hint-document-number-output`}>{chat.queryHints.documentNumber ?? ""}</output>
       <output data-testid={`${mode}-effective-document-number-output`}>{chat.effectiveRetrievalFilters.documentNumber ?? ""}</output>
-      <output data-testid={`${mode}-effective-project-output`}>{chat.effectiveRetrievalFilters.project ?? ""}</output>
+      <output data-testid={`${mode}-effective-project-output`}>{chat.effectiveRetrievalFilters.projectKeys?.join(", ") ?? ""}</output>
     </section>
   );
 }
@@ -301,9 +301,19 @@ describe("useChatExecution", () => {
           answerMode: "brief",
           knowledgeScope: {
             presetIds: [],
+            facetIds: [],
             documentClasses: [],
+            documentTypes: [],
+            documentStatuses: [],
+            projectKeys: [],
+            documentNumber: null,
+            languageCodes: [],
             tags: [],
             workspaceKey: null,
+            periodStartFrom: null,
+            periodStartTo: null,
+            periodEndFrom: null,
+            periodEndTo: null,
             uploadedTodayOnly: false,
           },
           temporaryInstruction: "Не выдумывай",
@@ -425,7 +435,7 @@ describe("useChatExecution", () => {
         expect.objectContaining({
           retrievalFilters: expect.objectContaining({
             documentNumber: "KZ-2026-0415-ENERGY",
-            project: expect.stringContaining("North Upgrade"),
+            projectKeys: expect.arrayContaining(["North Upgrade"]),
           }),
         }),
         expect.any(AbortSignal),
@@ -488,7 +498,7 @@ describe("useChatExecution", () => {
       expect(apiClient.executeChat).toHaveBeenCalledWith(
         expect.objectContaining({
           retrievalFilters: expect.objectContaining({
-            project: "Manual Project",
+            projectKeys: ["Manual Project"],
           }),
         }),
         expect.any(AbortSignal),
@@ -555,7 +565,7 @@ describe("useChatExecution", () => {
       expect(apiClient.executeChat).toHaveBeenCalledWith(
         expect.objectContaining({
           retrievalFilters: expect.objectContaining({
-            project: "Manual Project",
+            projectKeys: ["Manual Project"],
           }),
         }),
         expect.any(AbortSignal),

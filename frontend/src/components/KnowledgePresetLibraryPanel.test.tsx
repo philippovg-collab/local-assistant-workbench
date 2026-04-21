@@ -17,9 +17,19 @@ const detail: KnowledgePresetDetail = {
   ...summary,
   scope: {
     presetIds: [],
-    documentClasses: ["contracts"],
+    facetIds: [],
+    documentClasses: [],
+    documentTypes: ["CONTRACT"],
+    documentStatuses: ["ACTIVE"],
+    projectKeys: [],
+    documentNumber: null,
+    languageCodes: ["RU"],
     tags: ["premium"],
     workspaceKey: "legal",
+    periodStartFrom: null,
+    periodStartTo: null,
+    periodEndFrom: null,
+    periodEndTo: null,
     uploadedTodayOnly: false,
   },
 };
@@ -70,7 +80,9 @@ describe("KnowledgePresetLibraryPanel", () => {
         expect.objectContaining({
           name: "Contracts preset",
           scope: expect.objectContaining({
-            documentClasses: ["contracts"],
+            documentTypes: ["CONTRACT"],
+            documentStatuses: ["ACTIVE"],
+            languageCodes: ["RU"],
             tags: ["premium"],
           }),
         }),

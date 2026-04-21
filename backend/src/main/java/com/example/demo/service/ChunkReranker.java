@@ -219,34 +219,73 @@ public class ChunkReranker {
         RetrievalFilters effectiveFilters
     ) {
         int bonus = 0;
-        if (equalsIgnoreCase(effectiveFilters == null ? null : effectiveFilters.department(), metadata.department())) {
+        RetrievalFilters filters = effectiveFilters == null ? RetrievalFilters.empty() : effectiveFilters;
+        if (!filters.documentTypes().isEmpty() && filters.documentTypes().contains(metadata.documentType())) {
             bonus += 4;
         }
-        if (equalsIgnoreCase(effectiveFilters == null ? null : effectiveFilters.project(), metadata.project())) {
+        if (!filters.documentStatuses().isEmpty() && filters.documentStatuses().contains(metadata.documentStatus())) {
             bonus += 4;
         }
-        if (equalsIgnoreCase(effectiveFilters == null ? null : effectiveFilters.counterparty(), metadata.counterparty())) {
+        if (!filters.projectKeys().isEmpty() && filters.lowerCaseProjectKeys().contains(safe(metadata.projectKey()).toLowerCase(Locale.ROOT))) {
             bonus += 4;
         }
-        if (equalsIgnoreCase(effectiveFilters == null ? null : effectiveFilters.businessStatus(), metadata.businessStatus())) {
-            bonus += 4;
-        }
-        if (equalsIgnoreCase(effectiveFilters == null ? null : effectiveFilters.language(), metadata.language())) {
+        if (!filters.languageCodes().isEmpty() && filters.languageCodes().contains(metadata.languageCode())) {
             bonus += 4;
         }
         if (equalsIgnoreCase(queryHints == null ? null : queryHints.versionLabel(), metadata.versionLabel())) {
             bonus += 4;
         }
-        LocalDate documentDate = metadata.documentDate();
-        if (documentDate != null) {
-            LocalDate dateFrom = effectiveFilters == null ? null : effectiveFilters.documentDateFrom();
-            LocalDate dateTo = effectiveFilters == null ? null : effectiveFilters.documentDateTo();
+        if (equalsIgnoreCase(filters.department(), metadata.department())) {
+            bonus += 2;
+        }
+        if (equalsIgnoreCase(filters.project(), metadata.project())) {
+            bonus += 2;
+        }
+        if (equalsIgnoreCase(filters.counterparty(), metadata.counterparty())) {
+            bonus += 2;
+        }
+        if (equalsIgnoreCase(filters.businessStatus(), metadata.businessStatus())) {
+            bonus += 2;
+        }
+        if (equalsIgnoreCase(filters.language(), metadata.language())) {
+            bonus += 2;
+        }
+        LocalDate periodStart = metadata.periodStart();
+        if (periodStart != null) {
+            LocalDate dateFrom = filters.periodStartFrom();
+            LocalDate dateTo = filters.periodStartTo();
             if (dateFrom == null && queryHints != null) {
-                dateFrom = queryHints.documentDateFrom();
+                dateFrom = queryHints.periodStartFrom();
             }
             if (dateTo == null && queryHints != null) {
-                dateTo = queryHints.documentDateTo();
+                dateTo = queryHints.periodStartTo();
             }
+            if ((dateFrom != null || dateTo != null)
+                && (dateFrom == null || !periodStart.isBefore(dateFrom))
+                && (dateTo == null || !periodStart.isAfter(dateTo))) {
+                bonus += 4;
+            }
+        }
+        LocalDate periodEnd = metadata.periodEnd();
+        if (periodEnd != null) {
+            LocalDate dateFrom = filters.periodEndFrom();
+            LocalDate dateTo = filters.periodEndTo();
+            if (dateFrom == null && queryHints != null) {
+                dateFrom = queryHints.periodEndFrom();
+            }
+            if (dateTo == null && queryHints != null) {
+                dateTo = queryHints.periodEndTo();
+            }
+            if ((dateFrom != null || dateTo != null)
+                && (dateFrom == null || !periodEnd.isBefore(dateFrom))
+                && (dateTo == null || !periodEnd.isAfter(dateTo))) {
+                bonus += 4;
+            }
+        }
+        LocalDate documentDate = metadata.documentDate();
+        if (documentDate != null) {
+            LocalDate dateFrom = filters.documentDateFrom();
+            LocalDate dateTo = filters.documentDateTo();
             if ((dateFrom != null || dateTo != null)
                 && (dateFrom == null || !documentDate.isBefore(dateFrom))
                 && (dateTo == null || !documentDate.isAfter(dateTo))) {

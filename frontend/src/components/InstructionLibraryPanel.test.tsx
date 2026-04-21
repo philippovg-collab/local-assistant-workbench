@@ -34,7 +34,7 @@ describe("InstructionLibraryPanel", () => {
     vi.clearAllMocks();
   });
 
-  it("keeps add instruction visible and opens edit in a sheet", async () => {
+  it("keeps add instruction visible and opens edit in a centered dialog", async () => {
     const user = userEvent.setup();
     const onUpdateInstruction = vi.fn().mockResolvedValue(undefined);
 
@@ -66,7 +66,15 @@ describe("InstructionLibraryPanel", () => {
 
     await user.click(screen.getByRole("button", { name: "Редактировать" }));
 
-    expect(await screen.findByRole("dialog", { name: "Редактировать инструкцию" })).toBeTruthy();
+    const dialog = await screen.findByRole("dialog", { name: "Редактировать инструкцию" });
+    expect(dialog).toBeTruthy();
+    expect(dialog.className).toContain("left-[50%]");
+    expect(dialog.className).toContain("top-[50%]");
+    expect(dialog.className).toContain("translate-x-[-50%]");
+    expect(dialog.className).toContain("translate-y-[-50%]");
+    expect(dialog.className).toContain("max-h-[90vh]");
+    expect(dialog.className).not.toContain("right-0");
+    expect(dialog.className).not.toContain("h-full");
     expect(screen.getByText("Добавить инструкцию")).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: "Сохранить изменения" }));

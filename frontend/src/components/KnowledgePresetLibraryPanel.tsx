@@ -16,23 +16,39 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import type {
   CreateKnowledgePresetRequest,
-  KnowledgeDocumentClass,
+  DocumentStatus,
+  DocumentType,
   KnowledgePresetDetail,
   KnowledgePresetRevisionDiff,
   KnowledgePresetRevisionDetail,
   KnowledgePresetSummary,
+  MaterialLanguageCode,
+  ReferenceProject,
 } from "@/types";
 import { formatDate } from "@/utils/format";
-import { knowledgeDocumentClassLabels } from "@/utils/workbenchPresentation";
+import {
+  documentStatusLabels,
+  documentTypeLabels,
+  materialLanguageCodeLabels,
+} from "@/utils/materialMetadata";
 
 type KnowledgePresetLibraryPanelProps = {
   presets: KnowledgePresetSummary[];
+  filterKind?: "preset" | "facet";
   activeRagProjectKey?: string | null;
   activeRagProjectName?: string | null;
+  projects?: ReferenceProject[];
   selectedPreset: KnowledgePresetDetail | null;
   revisions: KnowledgePresetRevisionDetail[];
   revisionDiff: KnowledgePresetRevisionDiff | null;
@@ -56,9 +72,17 @@ type KnowledgePresetLibraryPanelProps = {
 type KnowledgePresetFormState = {
   name: string;
   description: string;
-  documentClasses: KnowledgeDocumentClass[];
+  documentTypes: DocumentType[];
+  documentStatuses: DocumentStatus[];
+  projectKeys: string[];
+  documentNumber: string;
+  languageCodes: MaterialLanguageCode[];
   tagsText: string;
   workspaceKey: string;
+  periodStartFrom: string;
+  periodStartTo: string;
+  periodEndFrom: string;
+  periodEndTo: string;
   uploadedTodayOnly: boolean;
   active: boolean;
 };
@@ -66,20 +90,35 @@ type KnowledgePresetFormState = {
 const initialPresetForm: KnowledgePresetFormState = {
   name: "",
   description: "",
-  documentClasses: [],
+  documentTypes: [],
+  documentStatuses: [],
+  projectKeys: [],
+  documentNumber: "",
+  languageCodes: [],
   tagsText: "",
   workspaceKey: "",
+  periodStartFrom: "",
+  periodStartTo: "",
+  periodEndFrom: "",
+  periodEndTo: "",
   uploadedTodayOnly: false,
   active: true,
 };
 
-const documentClasses: KnowledgeDocumentClass[] = [
-  "contracts",
-  "regulations",
-  "correspondence",
-  "techdocs",
-  "other",
+const documentTypes: DocumentType[] = [
+  "POLICY",
+  "CONTRACT",
+  "REPORT",
+  "PROCEDURE",
+  "PRESENTATION",
+  "SPREADSHEET",
+  "LETTER",
+  "MANUAL",
+  "FAQ",
+  "OTHER",
 ];
+const documentStatuses: DocumentStatus[] = ["ACTIVE", "DRAFT", "ARCHIVED", "REVOKED"];
+const languageCodes: MaterialLanguageCode[] = ["RU", "KK", "EN"];
 
 const normalizeTags = (value: string) =>
   value
@@ -90,17 +129,27 @@ const normalizeTags = (value: string) =>
 const presetDiffFieldLabels: Record<string, string> = {
   name: "Название",
   description: "Описание",
-  documentClasses: "Классы документов",
+  documentTypes: "Типы документов",
+  documentStatuses: "Статусы документов",
+  projectKeys: "Проекты",
+  documentNumber: "Номер документа",
+  languageCodes: "Языки",
   tags: "Теги",
   workspaceKey: "Workspace key",
+  periodStartFrom: "Действует с: от",
+  periodStartTo: "Действует с: до",
+  periodEndFrom: "Действует по: от",
+  periodEndTo: "Действует по: до",
   uploadedTodayOnly: "Только загруженные сегодня",
   active: "Активность",
 };
 
 export function KnowledgePresetLibraryPanel({
   presets,
+  filterKind = "preset",
   activeRagProjectKey = null,
   activeRagProjectName = null,
+  projects = [],
   selectedPreset,
   revisions,
   revisionDiff,
@@ -123,6 +172,13 @@ export function KnowledgePresetLibraryPanel({
   const [isEditingSubmitting, setIsEditingSubmitting] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const normalizedActiveRagProjectKey = activeRagProjectKey?.trim() ?? "";
+  const isFacet = filterKind === "facet";
+  const entityLabel = isFacet ? "фасет" : "preset";
+  const entityTitle = isFacet ? "Фасеты проекта" : "Пресеты проекта";
+  const activeProjects = useMemo(
+    () => projects.filter((project) => project.active && project.workspaceKey === normalizedActiveRagProjectKey),
+    [normalizedActiveRagProjectKey, projects],
+  );
   const visiblePresets = useMemo(
     () =>
       normalizedActiveRagProjectKey
@@ -133,16 +189,28 @@ export function KnowledgePresetLibraryPanel({
 
   const selectedScopeSummary = useMemo(() => {
     if (!selectedPreset) {
-      return "Выбери preset, чтобы увидеть детальный scope и историю ревизий.";
+      return `Выбери ${entityLabel}, чтобы увидеть критерии и историю ревизий.`;
     }
 
     const parts = [];
-    if (selectedPreset.scope.documentClasses.length > 0) {
-      parts.push(
-        `классы: ${selectedPreset.scope.documentClasses
-          .map((item) => knowledgeDocumentClassLabels[item])
-          .join(", ")}`,
-      );
+    const selectedDocumentTypes = selectedPreset.scope.documentTypes ?? [];
+    const selectedDocumentStatuses = selectedPreset.scope.documentStatuses ?? [];
+    const selectedProjectKeys = selectedPreset.scope.projectKeys ?? [];
+    const selectedLanguageCodes = selectedPreset.scope.languageCodes ?? [];
+    if (selectedDocumentTypes.length > 0) {
+      parts.push(`типы: ${selectedDocumentTypes.map((item) => documentTypeLabels[item]).join(", ")}`);
+    }
+    if (selectedDocumentStatuses.length > 0) {
+      parts.push(`статусы: ${selectedDocumentStatuses.map((item) => documentStatusLabels[item]).join(", ")}`);
+    }
+    if (selectedProjectKeys.length > 0) {
+      parts.push(`проекты: ${selectedProjectKeys.join(", ")}`);
+    }
+    if (selectedPreset.scope.documentNumber) {
+      parts.push(`номер: ${selectedPreset.scope.documentNumber}`);
+    }
+    if (selectedLanguageCodes.length > 0) {
+      parts.push(`языки: ${selectedLanguageCodes.map((item) => materialLanguageCodeLabels[item]).join(", ")}`);
     }
     if (selectedPreset.scope.tags.length > 0) {
       parts.push(`теги: ${selectedPreset.scope.tags.join(", ")}`);
@@ -153,19 +221,21 @@ export function KnowledgePresetLibraryPanel({
     if (selectedPreset.scope.uploadedTodayOnly) {
       parts.push("только загруженные сегодня");
     }
-    return parts.length > 0 ? parts.join(" · ") : "Preset не ограничивает корпус дополнительными фасетами.";
-  }, [selectedPreset]);
+    return parts.length > 0 ? parts.join(" · ") : `${isFacet ? "Фасет" : "Preset"} не ограничивает корпус дополнительными критериями.`;
+  }, [activeRagProjectName, entityLabel, isFacet, selectedPreset]);
 
-  const toggleDocumentClass = (
+  const toggleListValue = <Value extends string>(
     form: KnowledgePresetFormState,
     setForm: Dispatch<SetStateAction<KnowledgePresetFormState>>,
-    documentClass: KnowledgeDocumentClass,
+    field: "documentTypes" | "documentStatuses" | "projectKeys" | "languageCodes",
+    value: Value,
   ) => {
+    const currentValues = form[field] as Value[];
     setForm({
       ...form,
-      documentClasses: form.documentClasses.includes(documentClass)
-        ? form.documentClasses.filter((item) => item !== documentClass)
-        : [...form.documentClasses, documentClass],
+      [field]: currentValues.includes(value)
+        ? currentValues.filter((item) => item !== value)
+        : [...currentValues, value],
     });
   };
 
@@ -173,11 +243,22 @@ export function KnowledgePresetLibraryPanel({
     name: form.name.trim(),
     description: form.description.trim() || null,
     active: form.active,
+    kind: isFacet ? "FACET" : "PRESET",
     scope: {
       presetIds: [],
-      documentClasses: form.documentClasses,
+      facetIds: [],
+      documentClasses: [],
+      documentTypes: form.documentTypes,
+      documentStatuses: form.documentStatuses,
+      projectKeys: form.projectKeys,
+      documentNumber: form.documentNumber.trim() || null,
+      languageCodes: form.languageCodes,
       tags: normalizeTags(form.tagsText),
-    workspaceKey: normalizedActiveRagProjectKey || form.workspaceKey.trim() || null,
+      workspaceKey: normalizedActiveRagProjectKey || form.workspaceKey.trim() || null,
+      periodStartFrom: form.periodStartFrom || null,
+      periodStartTo: form.periodStartTo || null,
+      periodEndFrom: form.periodEndFrom || null,
+      periodEndTo: form.periodEndTo || null,
       uploadedTodayOnly: form.uploadedTodayOnly,
     },
   });
@@ -196,9 +277,17 @@ export function KnowledgePresetLibraryPanel({
     setEditForm({
       name: detail.name,
       description: detail.description ?? "",
-      documentClasses: detail.scope.documentClasses,
+      documentTypes: detail.scope.documentTypes ?? [],
+      documentStatuses: detail.scope.documentStatuses ?? [],
+      projectKeys: detail.scope.projectKeys ?? [],
+      documentNumber: detail.scope.documentNumber ?? "",
+      languageCodes: detail.scope.languageCodes ?? [],
       tagsText: detail.scope.tags.join(", "),
       workspaceKey: detail.scope.workspaceKey ?? "",
+      periodStartFrom: detail.scope.periodStartFrom ?? "",
+      periodStartTo: detail.scope.periodStartTo ?? "",
+      periodEndFrom: detail.scope.periodEndFrom ?? "",
+      periodEndTo: detail.scope.periodEndTo ?? "",
       uploadedTodayOnly: detail.scope.uploadedTodayOnly,
       active: detail.active,
     });
@@ -240,7 +329,7 @@ export function KnowledgePresetLibraryPanel({
 
   const handleDelete = async (presetId: string) => {
     const preset = presets.find((item) => item.id === presetId);
-    const confirmed = window.confirm(`Удалить knowledge preset "${preset?.name ?? presetId}"?`);
+    const confirmed = window.confirm(`Удалить ${entityLabel} "${preset?.name ?? presetId}"?`);
     if (!confirmed) {
       return;
     }
@@ -293,23 +382,148 @@ export function KnowledgePresetLibraryPanel({
       </div>
 
       <div className="space-y-3">
-        <Label>Классы документов</Label>
+        <Label>Типы документов</Label>
         <div className="grid gap-3 sm:grid-cols-2">
-          {documentClasses.map((documentClass) => (
+          {documentTypes.map((documentType) => (
             <label
               className="flex items-center gap-3 rounded-[20px] border border-field-border bg-field px-4 py-3"
-              key={documentClass}
+              key={documentType}
             >
               <Checkbox
-                aria-label={`Выбрать класс ${knowledgeDocumentClassLabels[documentClass]}`}
-                checked={form.documentClasses.includes(documentClass)}
-                onCheckedChange={() => toggleDocumentClass(form, setForm, documentClass)}
+                aria-label={`Выбрать тип ${documentTypeLabels[documentType]}`}
+                checked={form.documentTypes.includes(documentType)}
+                onCheckedChange={() => toggleListValue(form, setForm, "documentTypes", documentType)}
               />
               <span className="text-sm text-foreground">
-                {knowledgeDocumentClassLabels[documentClass]}
+                {documentTypeLabels[documentType]}
               </span>
             </label>
           ))}
+        </div>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <div className="space-y-3">
+          <Label>Статусы документов</Label>
+          <div className="grid gap-3">
+            {documentStatuses.map((documentStatus) => (
+              <label
+                className="flex items-center gap-3 rounded-[20px] border border-field-border bg-field px-4 py-3"
+                key={documentStatus}
+              >
+                <Checkbox
+                  aria-label={`Выбрать статус ${documentStatusLabels[documentStatus]}`}
+                  checked={form.documentStatuses.includes(documentStatus)}
+                  onCheckedChange={() => toggleListValue(form, setForm, "documentStatuses", documentStatus)}
+                />
+                <span className="text-sm text-foreground">{documentStatusLabels[documentStatus]}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+
+        <div className="space-y-3">
+          <Label>Язык документа</Label>
+          <div className="grid gap-3">
+            {languageCodes.map((languageCode) => (
+              <label
+                className="flex items-center gap-3 rounded-[20px] border border-field-border bg-field px-4 py-3"
+                key={languageCode}
+              >
+                <Checkbox
+                  aria-label={`Выбрать язык ${materialLanguageCodeLabels[languageCode]}`}
+                  checked={form.languageCodes.includes(languageCode)}
+                  onCheckedChange={() => toggleListValue(form, setForm, "languageCodes", languageCode)}
+                />
+                <span className="text-sm text-foreground">{materialLanguageCodeLabels[languageCode]}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <div className="space-y-2">
+          <Label htmlFor={`${idPrefix}-preset-project`}>Проект</Label>
+          <Select
+            value=""
+            onValueChange={(value) => toggleListValue(form, setForm, "projectKeys", value)}
+          >
+            <SelectTrigger id={`${idPrefix}-preset-project`}>
+              <SelectValue placeholder={activeProjects.length === 0 ? "Нет активных проектов" : "Добавить проект"} />
+            </SelectTrigger>
+            <SelectContent>
+              {activeProjects.map((project) => (
+                <SelectItem key={project.key} value={project.key}>
+                  {project.nameRu}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {form.projectKeys.length > 0 ? (
+            <div className="flex flex-wrap gap-2">
+              {form.projectKeys.map((projectKey) => (
+                <Button
+                  key={projectKey}
+                  size="sm"
+                  type="button"
+                  variant="secondary"
+                  onClick={() => toggleListValue(form, setForm, "projectKeys", projectKey)}
+                >
+                  {activeProjects.find((project) => project.key === projectKey)?.nameRu ?? projectKey}
+                </Button>
+              ))}
+            </div>
+          ) : null}
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor={`${idPrefix}-preset-document-number`}>Номер документа</Label>
+          <Input
+            id={`${idPrefix}-preset-document-number`}
+            placeholder="Например: POL-2026-17"
+            value={form.documentNumber}
+            onChange={(event) => setForm((current) => ({ ...current, documentNumber: event.target.value }))}
+          />
+        </div>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-4">
+        <div className="space-y-2">
+          <Label htmlFor={`${idPrefix}-period-start-from`}>Действует с: от</Label>
+          <Input
+            id={`${idPrefix}-period-start-from`}
+            type="date"
+            value={form.periodStartFrom}
+            onChange={(event) => setForm((current) => ({ ...current, periodStartFrom: event.target.value }))}
+          />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor={`${idPrefix}-period-start-to`}>Действует с: до</Label>
+          <Input
+            id={`${idPrefix}-period-start-to`}
+            type="date"
+            value={form.periodStartTo}
+            onChange={(event) => setForm((current) => ({ ...current, periodStartTo: event.target.value }))}
+          />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor={`${idPrefix}-period-end-from`}>Действует по: от</Label>
+          <Input
+            id={`${idPrefix}-period-end-from`}
+            type="date"
+            value={form.periodEndFrom}
+            onChange={(event) => setForm((current) => ({ ...current, periodEndFrom: event.target.value }))}
+          />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor={`${idPrefix}-period-end-to`}>Действует по: до</Label>
+          <Input
+            id={`${idPrefix}-period-end-to`}
+            type="date"
+            value={form.periodEndTo}
+            onChange={(event) => setForm((current) => ({ ...current, periodEndTo: event.target.value }))}
+          />
         </div>
       </div>
 
@@ -348,7 +562,7 @@ export function KnowledgePresetLibraryPanel({
 
       <label className="flex items-center gap-3 rounded-[20px] border border-field-border bg-field px-4 py-3">
         <Checkbox
-          aria-label="Ограничить preset файлами, загруженными сегодня"
+          aria-label={`Ограничить ${entityLabel} файлами, загруженными сегодня`}
           checked={form.uploadedTodayOnly}
           onCheckedChange={(checked) =>
             setForm((current) => ({ ...current, uploadedTodayOnly: Boolean(checked) }))
@@ -359,13 +573,13 @@ export function KnowledgePresetLibraryPanel({
 
       <label className="flex items-center gap-3 rounded-[20px] border border-field-border bg-field px-4 py-3">
         <Checkbox
-          aria-label="Сделать knowledge preset активным"
+          aria-label={`Сделать ${entityLabel} активным`}
           checked={form.active}
           onCheckedChange={(checked) =>
             setForm((current) => ({ ...current, active: Boolean(checked) }))
           }
         />
-        <span className="text-sm text-foreground">Preset активен и доступен в выборе корпуса</span>
+        <span className="text-sm text-foreground">{isFacet ? "Фасет" : "Preset"} активен и доступен в выборе корпуса</span>
       </label>
 
       <div className="flex flex-wrap gap-3">
@@ -387,22 +601,26 @@ export function KnowledgePresetLibraryPanel({
       <Card className="order-2">
         <CardHeader>
           <SectionIntro
-            badge={`${visiblePresets.length} project preset(s)`}
+            badge={`${visiblePresets.length} ${isFacet ? "facet" : "preset"}(s)`}
             badgeVariant="secondary"
-            description="Пресеты проекта ограничивают retrieval внутри активного RAG-проекта. Shared preset без workspace тоже можно видеть, но итоговый запрос всё равно остаётся в активном проекте."
+            description={isFacet
+              ? "Фасеты проекта задают сохранённые фильтры поиска по тем же полям, которые используются при загрузке материалов."
+              : "Пресеты проекта ограничивают retrieval внутри активного RAG-проекта. Shared preset без workspace тоже можно видеть, но итоговый запрос всё равно остаётся в активном проекте."}
             eyebrow="Knowledge Scope"
-            title={`Пресеты проекта: ${activeRagProjectName || normalizedActiveRagProjectKey || "general"}`}
+            title={`${entityTitle}: ${activeRagProjectName || normalizedActiveRagProjectKey || "general"}`}
           />
         </CardHeader>
         <CardContent className="mt-0 space-y-4">
           {isLoading ? (
-            <EmptyState description="Читаем presets корпуса." title="Загружаем knowledge presets" />
+            <EmptyState description={isFacet ? "Читаем фасеты проекта." : "Читаем presets корпуса."} title={isFacet ? "Загружаем фасеты" : "Загружаем knowledge presets"} />
           ) : error ? (
-            <EmptyState description={error} tone="danger" title="Не удалось загрузить presets" />
+            <EmptyState description={error} tone="danger" title={isFacet ? "Не удалось загрузить фасеты" : "Не удалось загрузить presets"} />
           ) : visiblePresets.length === 0 ? (
             <EmptyState
-              description="Сохрани первый preset, чтобы retrieval можно было ограничивать релевантными фасетами внутри проекта."
-              title="Пресеты проекта пока пусты"
+              description={isFacet
+                ? "Сохрани первый фасет, чтобы быстро включать нужные фильтры поиска внутри проекта."
+                : "Сохрани первый preset, чтобы retrieval можно было ограничивать релевантными фасетами внутри проекта."}
+              title={isFacet ? "Фасеты проекта пока пусты" : "Пресеты проекта пока пусты"}
             />
           ) : (
             <div className="space-y-3">
@@ -453,9 +671,11 @@ export function KnowledgePresetLibraryPanel({
             <SectionIntro
               badge="Создание"
               badgeVariant="secondary"
-              description="Preset задаёт, по какому корпусу документов стоит искать ответ. Редактирование существующего preset открывается отдельно по кнопке в списке."
-              eyebrow="Preset Editor"
-              title="Создать preset проекта"
+              description={isFacet
+                ? "Фасет задаёт сохранённый фильтр поиска внутри активного RAG-проекта."
+                : "Preset задаёт, по какому корпусу документов стоит искать ответ. Редактирование существующего preset открывается отдельно по кнопке в списке."}
+              eyebrow={isFacet ? "Facet Editor" : "Preset Editor"}
+              title={isFacet ? "Создать фасет проекта" : "Создать preset проекта"}
             />
           </CardHeader>
           <CardContent className="mt-0 space-y-4">
@@ -465,13 +685,13 @@ export function KnowledgePresetLibraryPanel({
               idPrefix: "create",
               isBusy: isSubmitting,
               busyLabel: "Создаём...",
-              idleLabel: "Сохранить preset",
+              idleLabel: isFacet ? "Сохранить фасет" : "Сохранить preset",
               onSubmit: handleSubmit,
             })}
 
             {message ? (
               <Alert variant="success">
-                <AlertTitle>Knowledge preset сохранён</AlertTitle>
+                <AlertTitle>{isFacet ? "Фасет сохранён" : "Knowledge preset сохранён"}</AlertTitle>
                 <AlertDescription>{message}</AlertDescription>
               </Alert>
             ) : null}
@@ -490,7 +710,7 @@ export function KnowledgePresetLibraryPanel({
             <SectionIntro
               badge={selectedPreset ? `rev ${selectedPreset.revision}` : "preview"}
               badgeVariant="secondary"
-              eyebrow="Preset Inspector"
+              eyebrow={isFacet ? "Facet Inspector" : "Preset Inspector"}
               title="Scope и история выбранного набора знаний"
             />
           </CardHeader>
@@ -596,9 +816,16 @@ export function KnowledgePresetLibraryPanel({
 
                         <Separator className="my-3" />
                         <p className="text-sm leading-6 text-foreground">
-                          {revision.scope.documentClasses.length > 0
-                            ? revision.scope.documentClasses.map((item) => knowledgeDocumentClassLabels[item]).join(", ")
-                            : "Без ограничения по классам"}
+                          {(revision.scope.documentTypes ?? []).length > 0
+                            ? (revision.scope.documentTypes ?? []).map((item) => documentTypeLabels[item]).join(", ")
+                            : "Без ограничения по типам"}
+                          {(revision.scope.documentStatuses ?? []).length > 0
+                            ? ` · statuses: ${(revision.scope.documentStatuses ?? []).map((item) => documentStatusLabels[item]).join(", ")}`
+                            : ""}
+                          {(revision.scope.projectKeys ?? []).length > 0 ? ` · projects: ${(revision.scope.projectKeys ?? []).join(", ")}` : ""}
+                          {(revision.scope.languageCodes ?? []).length > 0
+                            ? ` · languages: ${(revision.scope.languageCodes ?? []).map((item) => materialLanguageCodeLabels[item]).join(", ")}`
+                            : ""}
                           {revision.scope.tags.length > 0 ? ` · tags: ${revision.scope.tags.join(", ")}` : ""}
                           {revision.scope.workspaceKey ? ` · workspace: ${revision.scope.workspaceKey}` : ""}
                           {revision.scope.uploadedTodayOnly ? " · today uploads only" : ""}
@@ -610,9 +837,9 @@ export function KnowledgePresetLibraryPanel({
               </>
             ) : (
               <EmptyState
-                description="Открой любой preset слева, чтобы увидеть его scope и историю ревизий."
+                description={`Открой любой ${entityLabel} слева, чтобы увидеть его scope и историю ревизий.`}
                 icon={Database}
-                title="Preset не выбран"
+                title={isFacet ? "Фасет не выбран" : "Preset не выбран"}
               />
             )}
           </CardContent>
@@ -631,9 +858,9 @@ export function KnowledgePresetLibraryPanel({
       >
         <DialogContent className="max-h-[88vh] max-w-2xl overflow-y-auto">
           <DialogHeader className="mb-2">
-            <DialogTitle>Редактировать knowledge preset</DialogTitle>
+            <DialogTitle>{isFacet ? "Редактировать фасет" : "Редактировать knowledge preset"}</DialogTitle>
             <DialogDescription>
-              Изменения сохраняются отдельной ревизией. Блок создания preset на странице остаётся независимым.
+              Изменения сохраняются отдельной ревизией. Блок создания на странице остаётся независимым.
             </DialogDescription>
           </DialogHeader>
 

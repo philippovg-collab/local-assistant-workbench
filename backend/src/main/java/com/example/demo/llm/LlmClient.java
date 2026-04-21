@@ -11,8 +11,12 @@ public interface LlmClient {
 
     record ChatRequest(
         String model,
-        List<Message> messages
+        List<Message> messages,
+        Integer timeoutSeconds
     ) {
+        public ChatRequest(String model, List<Message> messages) {
+            this(model, messages, null);
+        }
     }
 
     record Message(

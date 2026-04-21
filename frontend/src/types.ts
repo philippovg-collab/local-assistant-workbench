@@ -217,6 +217,14 @@ export type RetrievalFilters = {
   language?: string | null;
   tags?: string[];
   sourceTrustMin?: SourceTrustLevel | null;
+  documentTypes?: DocumentType[];
+  documentStatuses?: DocumentStatus[];
+  projectKeys?: string[];
+  languageCodes?: MaterialLanguageCode[];
+  periodStartFrom?: string | null;
+  periodStartTo?: string | null;
+  periodEndFrom?: string | null;
+  periodEndTo?: string | null;
 };
 
 export type RetrievalFilterKey = keyof RetrievalFilters;
@@ -231,6 +239,14 @@ export type RetrievalQueryHints = {
   counterparty?: string | null;
   businessStatus?: string | null;
   department?: string | null;
+  documentTypes?: DocumentType[];
+  documentStatuses?: DocumentStatus[];
+  projectKeys?: string[];
+  languageCodes?: MaterialLanguageCode[];
+  periodStartFrom?: string | null;
+  periodStartTo?: string | null;
+  periodEndFrom?: string | null;
+  periodEndTo?: string | null;
 };
 
 export type ChunkScoreBreakdown = {
@@ -427,9 +443,19 @@ export type ChatSource = {
 
 export type KnowledgeScope = {
   presetIds: string[];
+  facetIds: string[];
   documentClasses: KnowledgeDocumentClass[];
+  documentTypes: DocumentType[];
+  documentStatuses: DocumentStatus[];
+  projectKeys: string[];
+  documentNumber?: string | null;
+  languageCodes: MaterialLanguageCode[];
   tags: string[];
   workspaceKey?: string | null;
+  periodStartFrom?: string | null;
+  periodStartTo?: string | null;
+  periodEndFrom?: string | null;
+  periodEndTo?: string | null;
   uploadedTodayOnly: boolean;
 };
 
@@ -441,9 +467,19 @@ export type KnowledgePresetReference = {
 
 export type KnowledgeScopeResolved = {
   presets: KnowledgePresetReference[];
+  facets: KnowledgePresetReference[];
   documentClasses: KnowledgeDocumentClass[];
+  documentTypes: DocumentType[];
+  documentStatuses: DocumentStatus[];
+  projectKeys: string[];
+  documentNumber?: string | null;
+  languageCodes: MaterialLanguageCode[];
   tags: string[];
   workspaceKey?: string | null;
+  periodStartFrom?: string | null;
+  periodStartTo?: string | null;
+  periodEndFrom?: string | null;
+  periodEndTo?: string | null;
   uploadedTodayOnly: boolean;
 };
 
@@ -503,6 +539,7 @@ export type KnowledgePresetRevisionDiff = {
 
 export type KnowledgePresetSummary = {
   id: string;
+  kind?: "PRESET" | "FACET";
   name: string;
   description?: string | null;
   workspaceKey?: string | null;
@@ -577,6 +614,7 @@ export type ReferenceProjectInput = {
 
 export type KnowledgePresetRevisionDetail = {
   presetId: string;
+  kind?: "PRESET" | "FACET";
   revision: number;
   name: string;
   description?: string | null;
@@ -591,6 +629,7 @@ export type CreateKnowledgePresetRequest = {
   name: string;
   description?: string | null;
   scope: KnowledgeScope;
+  kind?: "PRESET" | "FACET";
   active?: boolean;
 };
 

@@ -51,6 +51,7 @@ app:
       short-target: 5
       medium-target: 10
       large-target: 16
+      timeout-seconds: 8
   instructions:
     legacy-import-enabled: false
   ocr:

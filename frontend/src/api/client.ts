@@ -362,6 +362,9 @@ export const apiClient = {
   fetchKnowledgePresets(signal?: AbortSignal) {
     return requestJson<KnowledgePresetSummary[]>("/api/knowledge-presets", { signal });
   },
+  fetchKnowledgeFacets(signal?: AbortSignal) {
+    return requestJson<KnowledgePresetSummary[]>("/api/knowledge-facets", { signal });
+  },
   fetchReferenceWorkspaces(input: { activeOnly?: boolean } = {}, signal?: AbortSignal) {
     const params = new URLSearchParams();
     if (input.activeOnly !== undefined) {
@@ -446,8 +449,14 @@ export const apiClient = {
   fetchKnowledgePreset(presetId: string, signal?: AbortSignal) {
     return requestJson<KnowledgePresetDetail>(`/api/knowledge-presets/${presetId}`, { signal });
   },
+  fetchKnowledgeFacet(facetId: string, signal?: AbortSignal) {
+    return requestJson<KnowledgePresetDetail>(`/api/knowledge-facets/${facetId}`, { signal });
+  },
   fetchKnowledgePresetRevisions(presetId: string, signal?: AbortSignal) {
     return requestJson<KnowledgePresetRevisionDetail[]>(`/api/knowledge-presets/${presetId}/revisions`, { signal });
+  },
+  fetchKnowledgeFacetRevisions(facetId: string, signal?: AbortSignal) {
+    return requestJson<KnowledgePresetRevisionDetail[]>(`/api/knowledge-facets/${facetId}/revisions`, { signal });
   },
   fetchKnowledgePresetDiff(presetId: string, fromRevision: number, toRevision: number, signal?: AbortSignal) {
     return requestJson<KnowledgePresetRevisionDiff>(
@@ -455,8 +464,23 @@ export const apiClient = {
       { signal },
     );
   },
+  fetchKnowledgeFacetDiff(facetId: string, fromRevision: number, toRevision: number, signal?: AbortSignal) {
+    return requestJson<KnowledgePresetRevisionDiff>(
+      `/api/knowledge-facets/${facetId}/diff?fromRevision=${fromRevision}&toRevision=${toRevision}`,
+      { signal },
+    );
+  },
   createKnowledgePreset(input: CreateKnowledgePresetRequest) {
     return requestJson<KnowledgePresetDetail>("/api/knowledge-presets", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(input),
+    });
+  },
+  createKnowledgeFacet(input: CreateKnowledgePresetRequest) {
+    return requestJson<KnowledgePresetDetail>("/api/knowledge-facets", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -473,13 +497,32 @@ export const apiClient = {
       body: JSON.stringify(input),
     });
   },
+  updateKnowledgeFacet(facetId: string, input: CreateKnowledgePresetRequest) {
+    return requestJson<KnowledgePresetDetail>(`/api/knowledge-facets/${facetId}`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(input),
+    });
+  },
   restoreKnowledgePresetRevision(presetId: string, revision: number) {
     return requestJson<KnowledgePresetDetail>(`/api/knowledge-presets/${presetId}/restore/${revision}`, {
       method: "POST",
     });
   },
+  restoreKnowledgeFacetRevision(facetId: string, revision: number) {
+    return requestJson<KnowledgePresetDetail>(`/api/knowledge-facets/${facetId}/restore/${revision}`, {
+      method: "POST",
+    });
+  },
   deleteKnowledgePreset(presetId: string) {
     return requestVoid(`/api/knowledge-presets/${presetId}`, {
+      method: "DELETE",
+    });
+  },
+  deleteKnowledgeFacet(facetId: string) {
+    return requestVoid(`/api/knowledge-facets/${facetId}`, {
       method: "DELETE",
     });
   },

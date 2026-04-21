@@ -97,8 +97,12 @@ class SearchableChunkDocumentTest {
         assertEquals(List.of("Grid operations", "Tariff matrix"), documents.get(0).headingTrail());
         assertEquals("table-1", documents.get(0).tableId());
         assertEquals("HIGH", documents.get(0).parserConfidence());
+        assertEquals("CONTRACT", documents.get(0).documentType());
+        assertEquals("ACTIVE", documents.get(0).documentStatus());
         assertEquals("KZ-2026-0415-ENERGY", documents.get(0).documentNumber());
         assertEquals(LocalDate.parse("2026-04-15"), documents.get(0).documentDate());
+        assertEquals(LocalDate.parse("2026-04-01"), documents.get(0).periodStart());
+        assertEquals(LocalDate.parse("2026-06-30"), documents.get(0).periodEnd());
         assertEquals("Grid operations", documents.get(0).department());
         assertEquals("North Upgrade", documents.get(0).project());
         assertEquals("GridBuild LLP", documents.get(0).counterparty());
@@ -133,13 +137,20 @@ class SearchableChunkDocumentTest {
             "table-1",
             "slide-1",
             "HIGH",
+            "legal-workspace",
+            "CONTRACT",
+            "ACTIVE",
+            "north-upgrade",
             "KZ-2026-0415-ENERGY",
+            null,
+            null,
             null,
             "Grid operations",
             "North Upgrade",
             "GridBuild LLP",
             "APPROVED",
             "ru",
+            "RU",
             List.of("dispatch", "grid"),
             "HIGH",
             "file",

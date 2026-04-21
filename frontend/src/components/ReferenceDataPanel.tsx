@@ -3,6 +3,7 @@ import { CheckCircle2, Database, Pencil, PlusCircle, RefreshCw, RotateCcw, XCirc
 import { EmptyState } from "@/components/app/EmptyState";
 import { SectionIntro } from "@/components/app/SectionIntro";
 import { KnowledgePresetLibraryPanel } from "@/components/KnowledgePresetLibraryPanel";
+import { RagProjectSwitcher } from "@/components/RagProjectSwitcher";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -41,13 +42,15 @@ type ReferenceDataController = {
 
 type ReferenceDataPanelProps = {
   knowledgePresets: ComponentProps<typeof KnowledgePresetLibraryPanel>;
+  knowledgeFacets?: ComponentProps<typeof KnowledgePresetLibraryPanel>;
   referenceData: ReferenceDataController;
   ragProjects?: RagProjectController;
   activeRagProjectKey?: string | null;
   onActiveRagProjectChange?: (projectKey: string) => void;
+  showRagProjectSwitcher?: boolean;
 };
 
-type ReferenceTab = "ragProjects" | "presets" | "workspaces" | "projects";
+type ReferenceTab = "ragProjects" | "presets" | "facets" | "workspaces" | "projects";
 
 type RagProjectController = {
   projects: RagProjectSummary[];
@@ -199,10 +202,12 @@ const buildProjectUpdateInput = (form: ProjectFormState): ReferenceProjectInput 
 
 export function ReferenceDataPanel({
   knowledgePresets,
+  knowledgeFacets,
   referenceData,
   ragProjects: ragProjectsController,
   activeRagProjectKey = "general",
   onActiveRagProjectChange = () => undefined,
+  showRagProjectSwitcher = true,
 }: ReferenceDataPanelProps) {
   const ragProjects = ragProjectsController ?? {
     projects: referenceData.workspaces.map((workspace) => ({
@@ -302,6 +307,19 @@ export function ReferenceDataPanel({
         left.sortOrder - right.sortOrder || left.name.localeCompare(right.name, "ru")),
     [ragProjects.projects],
   );
+  const activeRagProjects = useMemo(
+    () => sortedRagProjects.filter((project) => project.active),
+    [sortedRagProjects],
+  );
+  const activeRagProject = useMemo(
+    () =>
+      activeRagProjects.find((project) => project.key === activeRagProjectKey)
+      ?? activeRagProjects.find((project) => project.isDefault)
+      ?? activeRagProjects[0]
+      ?? null,
+    [activeRagProjectKey, activeRagProjects],
+  );
+  const resolvedActiveRagProjectKey = activeRagProject?.key ?? activeRagProjectKey ?? "general";
 
   const validateRagProjectForm = (form: RagProjectFormState, mode: "create" | "edit") => {
     if (mode === "create" && !form.key.trim()) {
@@ -571,7 +589,7 @@ export function ReferenceDataPanel({
     }
   };
 
-  const isReferenceDirectoryTab = activeTab !== "presets";
+  const isReferenceDirectoryTab = activeTab !== "presets" && activeTab !== "facets";
 
   return (
     <div className="space-y-6">
@@ -593,7 +611,7 @@ export function ReferenceDataPanel({
             Обновить
           </Button>
         ) : undefined}
-        badge={activeTab === "presets" ? "/api/knowledge-presets" : activeTab === "ragProjects" ? "/api/rag-projects" : "/api/reference"}
+        badge={activeTab === "presets" ? "/api/knowledge-presets" : activeTab === "facets" ? "/api/knowledge-facets" : activeTab === "ragProjects" ? "/api/rag-projects" : "/api/reference"}
         badgeVariant="default"
         description="RAG-проект выбирает отдельный корпус материалов, пресетов, проектных инструкций и историю запусков. Legacy business projects скрыты из основного v1 UI."
         eyebrow="Справочники"
@@ -616,6 +634,14 @@ export function ReferenceDataPanel({
         >
           <Database className="h-4 w-4" />
           Пресеты проекта
+        </Button>
+        <Button
+          type="button"
+          variant={activeTab === "facets" ? "default" : "secondary"}
+          onClick={() => setActiveTab("facets")}
+        >
+          <Database className="h-4 w-4" />
+          Фасеты проекта
         </Button>
       </div>
 
@@ -663,6 +689,25 @@ export function ReferenceDataPanel({
 
       {activeTab === "ragProjects" ? (
         <section className="space-y-5" aria-label="RAG-проекты">
+          {showRagProjectSwitcher ? (
+            <RagProjectSwitcher
+              actionError={ragProjects.actionError}
+              activeProject={activeRagProject}
+              activeProjectKey={resolvedActiveRagProjectKey}
+              error={ragProjects.error}
+              isLoading={ragProjects.isLoading}
+              projects={ragProjects.projects}
+              onCreateProject={async (input) => {
+                const created = await ragProjects.createProject(input);
+                onActiveRagProjectChange(created.key);
+                void referenceData.reload();
+                return created;
+              }}
+              onReload={() => ragProjects.reload()}
+              onSelectProject={onActiveRagProjectChange}
+            />
+          ) : null}
+
           <form className="surface-panel rounded-[28px] border p-5" onSubmit={handleCreateRagProject}>
             <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-foreground">
               <PlusCircle className="h-4 w-4 text-primary" />
@@ -860,6 +905,18 @@ export function ReferenceDataPanel({
             {...knowledgePresets}
             activeRagProjectKey={activeRagProjectKey}
             activeRagProjectName={sortedRagProjects.find((project) => project.key === activeRagProjectKey)?.name ?? activeRagProjectKey}
+            filterKind="preset"
+            projects={projects}
+          />
+        </section>
+      ) : activeTab === "facets" ? (
+        <section className="space-y-5" aria-label="Фасеты">
+          <KnowledgePresetLibraryPanel
+            {...(knowledgeFacets ?? knowledgePresets)}
+            activeRagProjectKey={activeRagProjectKey}
+            activeRagProjectName={sortedRagProjects.find((project) => project.key === activeRagProjectKey)?.name ?? activeRagProjectKey}
+            filterKind="facet"
+            projects={projects}
           />
         </section>
       ) : activeTab === "workspaces" ? (

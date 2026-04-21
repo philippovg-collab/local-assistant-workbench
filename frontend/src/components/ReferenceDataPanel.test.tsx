@@ -118,13 +118,15 @@ describe("ReferenceDataPanel", () => {
       "RAG-проекты",
       "Пресеты проекта",
     ]);
-    expect(screen.getByRole("button", { name: "Создать RAG-проект" })).toBeTruthy();
+    expect(screen.getByText("Активный RAG-проект")).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: "Создать RAG-проект" }).length).toBeGreaterThan(0);
     expect(screen.getByText("Архивная область")).toBeTruthy();
     expect(screen.getAllByText("неактивен").length).toBeGreaterThan(0);
     expect(screen.queryByRole("button", { name: "Рабочие области" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Проекты" })).toBeNull();
 
     await user.click(screen.getByRole("button", { name: "Пресеты проекта" }));
+    expect(screen.queryByText("Активный RAG-проект")).toBeNull();
     expect(screen.getByText("Создать preset проекта")).toBeTruthy();
     expect(screen.getByText("Пресеты проекта: Общая")).toBeTruthy();
   });
@@ -138,7 +140,11 @@ describe("ReferenceDataPanel", () => {
     await user.clear(screen.getByLabelText("Порядок"));
     await user.type(screen.getByLabelText("Порядок"), "5");
     await user.click(screen.getByText("Основной"));
-    await user.click(screen.getByRole("button", { name: "Создать RAG-проект" }));
+    const createRagProjectButton = screen
+      .getAllByRole("button", { name: "Создать RAG-проект" })
+      .find((button) => button.getAttribute("type") === "submit");
+    expect(createRagProjectButton).toBeTruthy();
+    await user.click(createRagProjectButton as HTMLButtonElement);
 
     await waitFor(() => {
       expect(referenceData.createWorkspace).toHaveBeenCalledWith({
@@ -155,7 +161,7 @@ describe("ReferenceDataPanel", () => {
   it("edits and deactivates a RAG-project through update", async () => {
     const user = userEvent.setup();
     const referenceData = renderPanel();
-    const workspaceArticle = screen.getByText("Общая").closest("article") as HTMLElement;
+    const workspaceArticle = screen.getByRole("heading", { name: "Общая" }).closest("article") as HTMLElement;
 
     await user.click(within(workspaceArticle).getByRole("button", { name: "Редактировать" }));
     await user.clear(within(workspaceArticle).getByLabelText("Название"));
@@ -192,12 +198,17 @@ describe("ReferenceDataPanel", () => {
     const user = userEvent.setup();
     const referenceData = renderPanel();
 
-    await user.click(screen.getByRole("button", { name: "Создать RAG-проект" }));
+    const createRagProjectButton = screen
+      .getAllByRole("button", { name: "Создать RAG-проект" })
+      .find((button) => button.getAttribute("type") === "submit");
+    expect(createRagProjectButton).toBeTruthy();
+
+    await user.click(createRagProjectButton as HTMLButtonElement);
     expect(await screen.findByText("Укажите ключ RAG-проекта.")).toBeTruthy();
     expect(referenceData.createWorkspace).not.toHaveBeenCalled();
 
     await user.type(screen.getByLabelText("Ключ"), "south-grid");
-    await user.click(screen.getByRole("button", { name: "Создать RAG-проект" }));
+    await user.click(createRagProjectButton as HTMLButtonElement);
     expect(await screen.findByText("Укажите название RAG-проекта.")).toBeTruthy();
   });
 });

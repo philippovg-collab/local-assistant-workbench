@@ -95,7 +95,15 @@ public final class InputLimits {
         }
         requireMaxListSize(scope.presetIds(), INSTRUCTION_IDS_MAX, fieldPrefix + ".presetIds");
         requireMaxStringListEntries(scope.presetIds(), MODEL_MAX, fieldPrefix + ".presetIds");
+        requireMaxListSize(scope.facetIds(), INSTRUCTION_IDS_MAX, fieldPrefix + ".facetIds");
+        requireMaxStringListEntries(scope.facetIds(), MODEL_MAX, fieldPrefix + ".facetIds");
         requireMaxListSize(scope.documentClasses(), TAGS_MAX, fieldPrefix + ".documentClasses");
+        requireMaxListSize(scope.documentTypes(), TAGS_MAX, fieldPrefix + ".documentTypes");
+        requireMaxListSize(scope.documentStatuses(), TAGS_MAX, fieldPrefix + ".documentStatuses");
+        requireMaxListSize(scope.projectKeys(), TAGS_MAX, fieldPrefix + ".projectKeys");
+        requireMaxStringListEntries(scope.projectKeys(), WORKSPACE_KEY_MAX, fieldPrefix + ".projectKeys");
+        requireMaxLength(scope.documentNumber(), FILTER_TEXT_MAX, fieldPrefix + ".documentNumber");
+        requireMaxListSize(scope.languageCodes(), TAGS_MAX, fieldPrefix + ".languageCodes");
         requireMaxListSize(scope.tags(), TAGS_MAX, fieldPrefix + ".tags");
         requireMaxStringListEntries(scope.tags(), TAG_MAX, fieldPrefix + ".tags");
         requireMaxLength(scope.workspaceKey(), WORKSPACE_KEY_MAX, fieldPrefix + ".workspaceKey");
@@ -113,6 +121,11 @@ public final class InputLimits {
         requireMaxLength(filters.language(), FILTER_TEXT_MAX, fieldPrefix + ".language");
         requireMaxListSize(filters.tags(), TAGS_MAX, fieldPrefix + ".tags");
         requireMaxStringListEntries(filters.tags(), TAG_MAX, fieldPrefix + ".tags");
+        requireMaxListSize(filters.documentTypes(), TAGS_MAX, fieldPrefix + ".documentTypes");
+        requireMaxListSize(filters.documentStatuses(), TAGS_MAX, fieldPrefix + ".documentStatuses");
+        requireMaxListSize(filters.projectKeys(), TAGS_MAX, fieldPrefix + ".projectKeys");
+        requireMaxStringListEntries(filters.projectKeys(), WORKSPACE_KEY_MAX, fieldPrefix + ".projectKeys");
+        requireMaxListSize(filters.languageCodes(), TAGS_MAX, fieldPrefix + ".languageCodes");
     }
 
     public static void requireMaxLength(String value, int maxLength, String fieldName) {

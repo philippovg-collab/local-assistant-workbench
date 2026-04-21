@@ -1,12 +1,13 @@
 package com.example.demo.service;
 
+import com.example.demo.model.DocumentStatus;
+import com.example.demo.model.MaterialLanguageCode;
 import com.example.demo.model.RetrievalQueryHints;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
-import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.springframework.stereotype.Component;
@@ -66,14 +67,22 @@ public class RetrievalQueryHintExtractor {
 
         return new RetrievalQueryHints(
             extractDocumentNumber(normalized),
+            null,
+            null,
+            extractVersionLabel(normalized),
+            null,
+            null,
+            null,
+            null,
+            null,
+            List.of(),
+            extractDocumentStatuses(normalized),
+            projectKeyHint(normalized),
+            extractLanguageCodes(normalized),
             documentDateFrom,
             documentDateTo,
-            extractVersionLabel(normalized),
-            extractLanguage(normalized),
-            extractFacet(normalized, PROJECT_PATTERN),
-            extractFacet(normalized, COUNTERPARTY_PATTERN),
-            extractFacet(normalized, STATUS_PATTERN),
-            extractFacet(normalized, DEPARTMENT_PATTERN)
+            null,
+            null
         );
     }
 
@@ -119,28 +128,54 @@ public class RetrievalQueryHintExtractor {
         return null;
     }
 
-    private String extractLanguage(String query) {
+    private List<String> projectKeyHint(String query) {
+        String project = extractFacet(query, PROJECT_PATTERN);
+        return StringUtils.hasText(project) ? List.of(project) : List.of();
+    }
+
+    private List<MaterialLanguageCode> extractLanguageCodes(String query) {
         String normalized = query.toLowerCase(Locale.ROOT);
         if (normalized.contains("на русском")
             || normalized.contains("русский")
             || normalized.contains("русском")
             || Pattern.compile("(?iu)\\bru\\b").matcher(query).find()) {
-            return "ru";
+            return List.of(MaterialLanguageCode.RU);
         }
         if (normalized.contains("на английском")
             || normalized.contains("английский")
             || normalized.contains("английском")
             || normalized.contains("english")
             || Pattern.compile("(?iu)\\ben\\b").matcher(query).find()) {
-            return "en";
+            return List.of(MaterialLanguageCode.EN);
         }
         if (normalized.contains("на казахском")
             || normalized.contains("казахский")
             || normalized.contains("казахском")
             || Pattern.compile("(?iu)\\bkk\\b").matcher(query).find()) {
-            return "kk";
+            return List.of(MaterialLanguageCode.KK);
         }
-        return null;
+        return List.of();
+    }
+
+    private List<DocumentStatus> extractDocumentStatuses(String query) {
+        String statusText = extractFacet(query, STATUS_PATTERN);
+        if (!StringUtils.hasText(statusText)) {
+            return List.of();
+        }
+        String normalized = statusText.toLowerCase(Locale.ROOT);
+        if (normalized.contains("active") || normalized.contains("действ") || normalized.contains("актив")) {
+            return List.of(DocumentStatus.ACTIVE);
+        }
+        if (normalized.contains("draft") || normalized.contains("чернов")) {
+            return List.of(DocumentStatus.DRAFT);
+        }
+        if (normalized.contains("archive") || normalized.contains("архив")) {
+            return List.of(DocumentStatus.ARCHIVED);
+        }
+        if (normalized.contains("revoked") || normalized.contains("отозв") || normalized.contains("отмен")) {
+            return List.of(DocumentStatus.REVOKED);
+        }
+        return List.of();
     }
 
     private String extractFacet(String query, Pattern pattern) {

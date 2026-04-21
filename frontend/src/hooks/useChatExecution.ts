@@ -166,10 +166,20 @@ export const useChatExecution = ({
       ? { ...knowledgeScope, workspaceKey: workspaceKey?.trim() || knowledgeScope.workspaceKey || null }
       : knowledgeScope;
     const hasKnowledgeScope =
-      effectiveKnowledgeScope.presetIds.length > 0 ||
-      effectiveKnowledgeScope.documentClasses.length > 0 ||
-      effectiveKnowledgeScope.tags.length > 0 ||
+      (effectiveKnowledgeScope.presetIds ?? []).length > 0 ||
+      (effectiveKnowledgeScope.facetIds ?? []).length > 0 ||
+      (effectiveKnowledgeScope.documentClasses ?? []).length > 0 ||
+      (effectiveKnowledgeScope.documentTypes ?? []).length > 0 ||
+      (effectiveKnowledgeScope.documentStatuses ?? []).length > 0 ||
+      (effectiveKnowledgeScope.projectKeys ?? []).length > 0 ||
+      Boolean(effectiveKnowledgeScope.documentNumber?.trim()) ||
+      (effectiveKnowledgeScope.languageCodes ?? []).length > 0 ||
+      (effectiveKnowledgeScope.tags ?? []).length > 0 ||
       Boolean(effectiveKnowledgeScope.workspaceKey?.trim()) ||
+      Boolean(effectiveKnowledgeScope.periodStartFrom) ||
+      Boolean(effectiveKnowledgeScope.periodStartTo) ||
+      Boolean(effectiveKnowledgeScope.periodEndFrom) ||
+      Boolean(effectiveKnowledgeScope.periodEndTo) ||
       effectiveKnowledgeScope.uploadedTodayOnly;
 
     const request: ChatExecutionRequest = {

@@ -78,7 +78,7 @@ public class OllamaLlmClient implements LlmClient {
             OpenAiChatCompletionResponse completion = transport.postJson(
                 properties.getBaseUrl(),
                 "/v1/chat/completions",
-                Duration.ofSeconds(properties.getTimeoutSeconds()),
+                chatTimeout(request),
                 payload,
                 OpenAiChatCompletionResponse.class,
                 "llm.provider_unavailable",
@@ -127,6 +127,14 @@ public class OllamaLlmClient implements LlmClient {
                 exception
             );
         }
+    }
+
+    private Duration chatTimeout(ChatRequest request) {
+        Integer requestTimeoutSeconds = request == null ? null : request.timeoutSeconds();
+        int timeoutSeconds = requestTimeoutSeconds != null && requestTimeoutSeconds > 0
+            ? requestTimeoutSeconds
+            : properties.getTimeoutSeconds();
+        return Duration.ofSeconds(timeoutSeconds);
     }
 
     private String rawResponseOf(OpenAiChatCompletionResponse completion) {

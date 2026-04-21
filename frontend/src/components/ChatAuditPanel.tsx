@@ -20,6 +20,11 @@ import {
   retrievalTraceWithDefaults,
   supportVerdictLabels,
 } from "@/utils/workbenchPresentation";
+import {
+  documentStatusLabels,
+  documentTypeLabels,
+  materialLanguageCodeLabels,
+} from "@/utils/materialMetadata";
 
 type ChatAuditPanelProps = {
   runs: ChatAuditRunSummary[];
@@ -37,8 +42,29 @@ const formatScopeSummary = (scope: KnowledgeScopeResolved) => {
   if (scope.presets.length > 0) {
     parts.push(`presets: ${scope.presets.map((preset) => `${preset.name} (rev ${preset.revision})`).join(", ")}`);
   }
-  if (scope.documentClasses.length > 0) {
-    parts.push(`classes: ${scope.documentClasses.join(", ")}`);
+  if (scope.facets.length > 0) {
+    parts.push(`facets: ${scope.facets.map((facet) => `${facet.name} (rev ${facet.revision})`).join(", ")}`);
+  }
+  if (scope.documentTypes.length > 0) {
+    parts.push(`types: ${scope.documentTypes.map((item) => documentTypeLabels[item] ?? item).join(", ")}`);
+  }
+  if (scope.documentStatuses.length > 0) {
+    parts.push(`statuses: ${scope.documentStatuses.map((item) => documentStatusLabels[item] ?? item).join(", ")}`);
+  }
+  if (scope.projectKeys.length > 0) {
+    parts.push(`projects: ${scope.projectKeys.join(", ")}`);
+  }
+  if (scope.documentNumber) {
+    parts.push(`number: ${scope.documentNumber}`);
+  }
+  if (scope.languageCodes.length > 0) {
+    parts.push(`languages: ${scope.languageCodes.map((item) => materialLanguageCodeLabels[item] ?? item).join(", ")}`);
+  }
+  if (scope.periodStartFrom || scope.periodStartTo) {
+    parts.push(`valid from: ${scope.periodStartFrom ?? "*"}..${scope.periodStartTo ?? "*"}`);
+  }
+  if (scope.periodEndFrom || scope.periodEndTo) {
+    parts.push(`valid to: ${scope.periodEndFrom ?? "*"}..${scope.periodEndTo ?? "*"}`);
   }
   if (scope.tags.length > 0) {
     parts.push(`tags: ${scope.tags.join(", ")}`);

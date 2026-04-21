@@ -108,6 +108,42 @@ public class ElasticsearchLexicalSearchProvider implements LexicalSearchProvider
         if (safeFilters.documentNumber() != null) {
             filterClauses.add(exactFilter("documentNumber", safeFilters.documentNumber()));
         }
+        if (!safeFilters.documentTypeNames().isEmpty()) {
+            filterClauses.add(termsFilter("documentType", safeFilters.documentTypeNames()));
+        }
+        if (!safeFilters.documentStatusNames().isEmpty()) {
+            filterClauses.add(termsFilter("documentStatus", safeFilters.documentStatusNames()));
+        }
+        if (!safeFilters.lowerCaseProjectKeys().isEmpty()) {
+            filterClauses.add(termsFilter("projectKey", safeFilters.lowerCaseProjectKeys()));
+        }
+        if (!safeFilters.languageCodeNames().isEmpty()) {
+            filterClauses.add(termsFilter("languageCode", safeFilters.languageCodeNames()));
+        }
+        if (safeFilters.periodStartFrom() != null) {
+            filterClauses.add(Query.of(root -> root.range(range -> range
+                .field("periodStart")
+                .gte(JsonData.of(safeFilters.periodStartFrom().toString()))
+            )));
+        }
+        if (safeFilters.periodStartTo() != null) {
+            filterClauses.add(Query.of(root -> root.range(range -> range
+                .field("periodStart")
+                .lte(JsonData.of(safeFilters.periodStartTo().toString()))
+            )));
+        }
+        if (safeFilters.periodEndFrom() != null) {
+            filterClauses.add(Query.of(root -> root.range(range -> range
+                .field("periodEnd")
+                .gte(JsonData.of(safeFilters.periodEndFrom().toString()))
+            )));
+        }
+        if (safeFilters.periodEndTo() != null) {
+            filterClauses.add(Query.of(root -> root.range(range -> range
+                .field("periodEnd")
+                .lte(JsonData.of(safeFilters.periodEndTo().toString()))
+            )));
+        }
         if (safeFilters.documentDateFrom() != null) {
             filterClauses.add(Query.of(root -> root.range(range -> range
                 .field("documentDate")
@@ -176,6 +212,13 @@ public class ElasticsearchLexicalSearchProvider implements LexicalSearchProvider
         return Query.of(root -> root.term(term -> term
             .field(field)
             .value(value.toLowerCase(Locale.ROOT))
+        ));
+    }
+
+    private Query termsFilter(String field, List<String> values) {
+        return Query.of(root -> root.terms(terms -> terms
+            .field(field)
+            .terms(queryValues -> queryValues.value(values.stream().map(FieldValue::of).toList()))
         ));
     }
 

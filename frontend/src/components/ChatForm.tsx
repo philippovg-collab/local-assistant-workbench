@@ -17,28 +17,23 @@ import { Textarea } from "@/components/ui/textarea";
 import type {
   AnswerMode,
   InstructionSummary,
-  KnowledgeDocumentClass,
   KnowledgePresetSummary,
   ModelInfo,
 } from "@/types";
 import {
   answerModeDescriptions,
   answerModeLabels,
-  knowledgeDocumentClassLabels,
 } from "@/utils/workbenchPresentation";
 
 type KnowledgeControls = {
   presets: KnowledgePresetSummary[];
+  facets: KnowledgePresetSummary[];
   selectedPresetIds: string[];
   onTogglePreset: (presetId: string) => void;
-  selectedDocumentClasses: KnowledgeDocumentClass[];
-  onToggleDocumentClass: (documentClass: KnowledgeDocumentClass) => void;
-  knowledgeTagsText: string;
-  onKnowledgeTagsTextChange: (value: string) => void;
+  selectedFacetIds: string[];
+  onToggleFacet: (facetId: string) => void;
   workspaceKey: string;
   workspaceName: string;
-  uploadedTodayOnly: boolean;
-  onUploadedTodayOnlyChange: (value: boolean) => void;
   activeScopeSummary: string;
 };
 
@@ -72,14 +67,6 @@ export type ChatFormProps = {
   error: string | null;
   onSubmit: () => Promise<unknown>;
 };
-
-const documentClasses: KnowledgeDocumentClass[] = [
-  "contracts",
-  "regulations",
-  "correspondence",
-  "techdocs",
-  "other",
-];
 
 export function ChatForm({
   models,
@@ -115,7 +102,6 @@ export function ChatForm({
   const answerModeLabelId = useId();
   const temporaryInstructionId = useId();
   const promptId = useId();
-  const knowledgeTagsId = useId();
   const isModelCatalogUnavailable = models.length === 0;
   const modelCatalogMessage = modelsError
     ? `Каталог моделей недоступен: ${modelsError}`
@@ -214,7 +200,7 @@ export function ChatForm({
                 </p>
                 {knowledgeControls.presets.length === 0 ? (
                   <p className="text-sm leading-6 text-muted-foreground">
-                    Пресеты корпуса пока не настроены. Можно использовать ручные фасеты ниже.
+                    Пресеты корпуса пока не настроены.
                   </p>
                 ) : (
                   <div className="grid gap-3">
@@ -245,65 +231,53 @@ export function ChatForm({
                 )}
               </div>
 
-              <div className="space-y-4">
-                <div className="space-y-3">
-                  <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">
-                    Фасеты поиска
+              <div className="space-y-3">
+                <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">
+                  Фасеты поиска
+                </p>
+                {knowledgeControls.facets.length === 0 ? (
+                  <p className="text-sm leading-6 text-muted-foreground">
+                    Фасеты проекта пока не настроены.
                   </p>
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    {documentClasses.map((documentClass) => (
-                      <label
-                        className="flex items-center gap-3 rounded-[20px] border border-field-border bg-field px-4 py-3"
-                        key={documentClass}
-                      >
-                        <Checkbox
-                          aria-label={`Ограничить корпус ${knowledgeDocumentClassLabels[documentClass]}`}
-                          checked={knowledgeControls.selectedDocumentClasses.includes(documentClass)}
-                          onCheckedChange={() => knowledgeControls.onToggleDocumentClass(documentClass)}
-                        />
-                        <span className="text-sm text-foreground">
-                          {knowledgeDocumentClassLabels[documentClass]}
-                        </span>
-                      </label>
-                    ))}
+                ) : (
+                  <div className="grid gap-3">
+                    {knowledgeControls.facets.map((facet) => {
+                      const checked = knowledgeControls.selectedFacetIds.includes(facet.id);
+                      return (
+                        <label
+                          className="flex items-start gap-3 rounded-[20px] border border-field-border bg-field px-4 py-3"
+                          key={facet.id}
+                        >
+                          <Checkbox
+                            aria-label={`Выбрать фасет ${facet.name}`}
+                            checked={checked}
+                            onCheckedChange={() => knowledgeControls.onToggleFacet(facet.id)}
+                          />
+                          <div className="space-y-1">
+                            <strong className="block text-sm font-semibold text-foreground">
+                              {facet.name}
+                            </strong>
+                            <p className="text-sm leading-6 text-muted-foreground">
+                              {facet.description?.trim() || `Ревизия ${facet.revision}`}
+                            </p>
+                          </div>
+                        </label>
+                      );
+                    })}
                   </div>
-                </div>
+                )}
+              </div>
+            </div>
 
-                <div className="grid gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor={knowledgeTagsId}>Теги корпуса</Label>
-                    <Textarea
-                      id={knowledgeTagsId}
-                      placeholder="Например: финансы, premium, SLA"
-                      rows={2}
-                      value={knowledgeControls.knowledgeTagsText}
-                      onChange={(event) => knowledgeControls.onKnowledgeTagsTextChange(event.target.value)}
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label>RAG-проект</Label>
-                    <div className="rounded-[20px] border border-field-border bg-field px-4 py-3 text-sm text-foreground">
-                      <strong className="block font-semibold">
-                        {knowledgeControls.workspaceName || knowledgeControls.workspaceKey || "general"}
-                      </strong>
-                      <span className="text-xs text-muted-foreground">
-                        key: {knowledgeControls.workspaceKey || "general"}
-                      </span>
-                    </div>
-                  </div>
-
-                  <label className="flex items-center gap-3 rounded-[20px] border border-field-border bg-field px-4 py-3">
-                    <Checkbox
-                      aria-label="Ограничить поиск загруженными сегодня файлами"
-                      checked={knowledgeControls.uploadedTodayOnly}
-                      onCheckedChange={(checked) =>
-                        knowledgeControls.onUploadedTodayOnlyChange(Boolean(checked))
-                      }
-                    />
-                    <span className="text-sm text-foreground">Только загруженные сегодня файлы</span>
-                  </label>
-                </div>
+            <div className="space-y-2">
+              <Label>RAG-проект</Label>
+              <div className="rounded-[20px] border border-field-border bg-field px-4 py-3 text-sm text-foreground">
+                <strong className="block font-semibold">
+                  {knowledgeControls.workspaceName || knowledgeControls.workspaceKey || "general"}
+                </strong>
+                <span className="text-xs text-muted-foreground">
+                  key: {knowledgeControls.workspaceKey || "general"}
+                </span>
               </div>
             </div>
 

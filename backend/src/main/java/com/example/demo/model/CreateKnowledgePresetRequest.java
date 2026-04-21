@@ -10,6 +10,15 @@ public record CreateKnowledgePresetRequest(
     String description,
     @Valid
     KnowledgeScope scope,
+    SavedKnowledgeFilterKind kind,
     Boolean active
 ) {
+    public CreateKnowledgePresetRequest(
+        String name,
+        String description,
+        KnowledgeScope scope,
+        Boolean active
+    ) {
+        this(name, description, scope, null, active);
+    }
 }
