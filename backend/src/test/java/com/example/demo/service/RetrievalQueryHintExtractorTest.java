@@ -3,7 +3,9 @@ package com.example.demo.service;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
+import com.example.demo.model.DocumentType;
 import com.example.demo.model.RetrievalQueryHints;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 
 class RetrievalQueryHintExtractorTest {
@@ -23,6 +25,8 @@ class RetrievalQueryHintExtractorTest {
         assertEquals("версия 2", hints.versionLabel());
         assertEquals("ru", hints.language());
         assertEquals("North Upgrade", hints.project());
+        assertEquals(List.of(), hints.projectKeys());
+        assertEquals(List.of(DocumentType.CONTRACT), hints.documentTypes());
         assertEquals("GridBuild LLP", hints.counterparty());
         assertEquals("APPROVED", hints.businessStatus());
         assertEquals("Grid operations", hints.department());
@@ -39,6 +43,7 @@ class RetrievalQueryHintExtractorTest {
         assertEquals("revision 3", hints.versionLabel());
         assertEquals("en", hints.language());
         assertEquals("Alpha", hints.project());
+        assertEquals(List.of(), hints.projectKeys());
     }
 
     @Test

@@ -9,6 +9,7 @@ backend/storage/
 !.env.example
 artifacts/
 backups/
+__pycache__/
 *.log
 .DS_Store
 .idea/

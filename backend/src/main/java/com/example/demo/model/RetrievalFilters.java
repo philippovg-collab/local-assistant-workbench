@@ -87,7 +87,7 @@ public record RetrievalFilters(
             sourceTrustMin,
             List.of(),
             parseLegacyDocumentStatuses(businessStatus),
-            normalizeText(project) == null ? List.of() : List.of(normalizeText(project)),
+            List.of(),
             parseLegacyLanguageCodes(language),
             null,
             null,

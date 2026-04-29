@@ -374,6 +374,8 @@ Rollback здесь purely behavioral:
 ./scripts/test-backend.sh critical-materials  # minimal Docker-backed material proof
 ./scripts/test-backend.sh integration  # full proof: mvn verify (working Docker/Testcontainers required)
 ./scripts/test-backend.sh integration -Dit.test=MaterialControllerIT
+./scripts/review-local.sh             # PR review guard + backend/frontend coverage + frontend build
+./scripts/review-local.sh --integration # review guard + full backend integration proof
 ./scripts/sonar-review.sh             # coverage + Sonar analysis + Quality Gate
 curl http://127.0.0.1:11434/api/tags
 curl http://127.0.0.1:8080/api/health
@@ -395,6 +397,24 @@ curl http://127.0.0.1:8080/api/instructions
 - `InMemoryMaterialRepository` допустим для pure service/domain behavior, но не считается авторитетным proof для constraint/cascade/order semantics.
 - Для локального `critical-materials` и `integration` proof недостаточно просто видеть команду `docker` в `PATH`: текущий shell/runtime должен реально давать `Testcontainers` доступ к Docker daemon/socket. Если Docker недоступен, скрипт завершится ранним preflight failure вместо длинного Maven-прогона.
 - В текущем Codex Desktop runtime с Colima/non-default Docker socket `critical-materials` и `integration` намеренно завершаются ранним preflight failure: это честнее, чем уходить в длинный `mvn verify`, который все равно упадет внутри `Testcontainers` на Docker API negotiation.
+
+## Code review guardrails
+
+Code review в этом проекте проверяет поведение, границы модулей, тестовую цену изменения и срок жизни временных путей. Подробный чеклист лежит в [docs/code-review.md](docs/code-review.md).
+
+Перед PR запусти локальный контур:
+
+```bash
+./scripts/review-local.sh
+```
+
+Для medium/high-risk backend changes, особенно вокруг PostgreSQL, Elasticsearch, migrations, OCR, RAG retrieval, security или Docker-backed integration, используй:
+
+```bash
+./scripts/review-local.sh --integration
+```
+
+Каждый PR должен заполнить `Risk / Review Focus`, `Tests / Evidence` и `Anti-Sprawl` из `.github/pull_request_template.md`. Если production diff добавляет или меняет `legacy`, `fallback`, `rollout`, `bestEffort` или compatibility path, PR обязан указать reason, owner scenario, test coverage и removal criterion; это проверяет `.github/workflows/review-contract.yml`.
 
 ## Sonar review
 

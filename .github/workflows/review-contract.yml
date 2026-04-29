@@ -1,0 +1,26 @@
+name: Review Contract
+
+on:
+  pull_request:
+    types:
+      - opened
+      - edited
+      - synchronize
+      - reopened
+      - ready_for_review
+
+jobs:
+  review-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Build PR diff
+        run: |
+          git diff --unified=0 --no-ext-diff \
+            "${{ github.event.pull_request.base.sha }}" \
+            "${{ github.event.pull_request.head.sha }}" \
+            > /tmp/review.diff
+      - name: Validate review contract
+        run: python3 scripts/review-contract.py --event-path "$GITHUB_EVENT_PATH" --diff-file /tmp/review.diff

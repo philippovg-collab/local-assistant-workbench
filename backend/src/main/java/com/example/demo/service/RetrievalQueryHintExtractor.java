@@ -1,6 +1,7 @@
 package com.example.demo.service;
 
 import com.example.demo.model.DocumentStatus;
+import com.example.demo.model.DocumentType;
 import com.example.demo.model.MaterialLanguageCode;
 import com.example.demo.model.RetrievalQueryHints;
 import java.time.LocalDate;
@@ -65,22 +66,25 @@ public class RetrievalQueryHintExtractor {
             }
         }
 
+        List<MaterialLanguageCode> languageCodes = extractLanguageCodes(normalized);
+        String project = extractFacet(normalized, PROJECT_PATTERN);
+
         return new RetrievalQueryHints(
             extractDocumentNumber(normalized),
-            null,
-            null,
-            extractVersionLabel(normalized),
-            null,
-            null,
-            null,
-            null,
-            null,
-            List.of(),
-            extractDocumentStatuses(normalized),
-            projectKeyHint(normalized),
-            extractLanguageCodes(normalized),
             documentDateFrom,
             documentDateTo,
+            extractVersionLabel(normalized),
+            legacyLanguageValue(languageCodes),
+            project,
+            extractFacet(normalized, COUNTERPARTY_PATTERN),
+            extractFacet(normalized, STATUS_PATTERN),
+            extractFacet(normalized, DEPARTMENT_PATTERN),
+            extractDocumentTypes(normalized),
+            extractDocumentStatuses(normalized),
+            List.of(),
+            languageCodes,
+            null,
+            null,
             null,
             null
         );
@@ -128,11 +132,6 @@ public class RetrievalQueryHintExtractor {
         return null;
     }
 
-    private List<String> projectKeyHint(String query) {
-        String project = extractFacet(query, PROJECT_PATTERN);
-        return StringUtils.hasText(project) ? List.of(project) : List.of();
-    }
-
     private List<MaterialLanguageCode> extractLanguageCodes(String query) {
         String normalized = query.toLowerCase(Locale.ROOT);
         if (normalized.contains("на русском")
@@ -157,6 +156,13 @@ public class RetrievalQueryHintExtractor {
         return List.of();
     }
 
+    private String legacyLanguageValue(List<MaterialLanguageCode> languageCodes) {
+        if (languageCodes == null || languageCodes.isEmpty()) {
+            return null;
+        }
+        return languageCodes.getFirst().name().toLowerCase(Locale.ROOT);
+    }
+
     private List<DocumentStatus> extractDocumentStatuses(String query) {
         String statusText = extractFacet(query, STATUS_PATTERN);
         if (!StringUtils.hasText(statusText)) {
@@ -178,6 +184,38 @@ public class RetrievalQueryHintExtractor {
         return List.of();
     }
 
+    private List<DocumentType> extractDocumentTypes(String query) {
+        String normalized = query.toLowerCase(Locale.ROOT);
+        if (normalized.contains("договор") || normalized.contains("contract")) {
+            return List.of(DocumentType.CONTRACT);
+        }
+        if (normalized.contains("политик") || normalized.contains("policy")) {
+            return List.of(DocumentType.POLICY);
+        }
+        if (normalized.contains("отчет") || normalized.contains("отчёт") || normalized.contains("report")) {
+            return List.of(DocumentType.REPORT);
+        }
+        if (normalized.contains("регламент") || normalized.contains("procedure")) {
+            return List.of(DocumentType.PROCEDURE);
+        }
+        if (normalized.contains("презентац") || normalized.contains("presentation")) {
+            return List.of(DocumentType.PRESENTATION);
+        }
+        if (normalized.contains("таблиц") || normalized.contains("spreadsheet")) {
+            return List.of(DocumentType.SPREADSHEET);
+        }
+        if (normalized.contains("письм") || normalized.contains("letter")) {
+            return List.of(DocumentType.LETTER);
+        }
+        if (normalized.contains("инструкц") || normalized.contains("manual")) {
+            return List.of(DocumentType.MANUAL);
+        }
+        if (normalized.contains("faq")) {
+            return List.of(DocumentType.FAQ);
+        }
+        return List.of();
+    }
+
     private String extractFacet(String query, Pattern pattern) {
         Matcher matcher = pattern.matcher(query);
         if (!matcher.find()) {
@@ -192,7 +230,7 @@ public class RetrievalQueryHintExtractor {
         }
         String normalized = rawValue.trim()
             .replaceAll("[,.;:!?]+$", "")
-            .replaceAll("(?iu)\\s+(договор|contract|контрагент|counterparty|status|статус|подразделение|department|version|версия)\\b.*$", "")
+            .replaceAll("(?iu)\\s+(договор|contract|контрагент|counterparty|status|статус|подразделение|department|version|версия|on|in)\\b.*$", "")
             .trim();
         return normalized.isEmpty() ? null : normalized;
     }
