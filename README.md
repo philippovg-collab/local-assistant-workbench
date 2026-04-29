@@ -374,6 +374,7 @@ Rollback здесь purely behavioral:
 ./scripts/test-backend.sh critical-materials  # minimal Docker-backed material proof
 ./scripts/test-backend.sh integration  # full proof: mvn verify (working Docker/Testcontainers required)
 ./scripts/test-backend.sh integration -Dit.test=MaterialControllerIT
+./scripts/sonar-review.sh             # coverage + Sonar analysis + Quality Gate
 curl http://127.0.0.1:11434/api/tags
 curl http://127.0.0.1:8080/api/health
 curl http://127.0.0.1:8080/api/models
@@ -394,6 +395,32 @@ curl http://127.0.0.1:8080/api/instructions
 - `InMemoryMaterialRepository` допустим для pure service/domain behavior, но не считается авторитетным proof для constraint/cascade/order semantics.
 - Для локального `critical-materials` и `integration` proof недостаточно просто видеть команду `docker` в `PATH`: текущий shell/runtime должен реально давать `Testcontainers` доступ к Docker daemon/socket. Если Docker недоступен, скрипт завершится ранним preflight failure вместо длинного Maven-прогона.
 - В текущем Codex Desktop runtime с Colima/non-default Docker socket `critical-materials` и `integration` намеренно завершаются ранним preflight failure: это честнее, чем уходить в длинный `mvn verify`, который все равно упадет внутри `Testcontainers` на Docker API negotiation.
+
+## Sonar review
+
+Sonar review запускается как quality-check цикл перед merge/release: сначала проект генерирует coverage-отчеты, затем Sonar Scanner отправляет исходники и метрики в SonarCloud/SonarQube и ждёт Quality Gate.
+
+Локальный запуск:
+
+```bash
+export SONAR_TOKEN=your-token
+export SONAR_HOST_URL=https://sonarcloud.io
+./scripts/sonar-review.sh
+```
+
+Для полного backend proof с `*IT.java` вместо fast unit-suite:
+
+```bash
+./scripts/sonar-review.sh --integration
+```
+
+Если нужен self-hosted SonarQube, передай URL сервера:
+
+```bash
+./scripts/sonar-review.sh --host-url http://localhost:9000
+```
+
+Workflow использует `sonar-project.properties`: production sources лежат в `backend/src/main/java` и `frontend/src`, backend coverage импортируется из `backend/target/site/jacoco/jacoco.xml`, frontend coverage из `frontend/coverage/lcov.info`. После анализа ревью начинается с `Issues` по `New Code`, затем отдельно проверяются `Security Hotspots`, `Coverage on New Code` и итоговый `Quality Gate`.
 
 ## Основной Chat API
 

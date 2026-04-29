@@ -1,7 +1,9 @@
 frontend/node_modules/
 frontend/dist/
+frontend/coverage/
 backend/target/
 backend/storage/
+.scannerwork/
 .env
 .env.*
 !.env.example
