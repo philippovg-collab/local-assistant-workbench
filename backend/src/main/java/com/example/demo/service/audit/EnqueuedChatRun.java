@@ -1,4 +1,4 @@
-package com.example.demo.infrastructure.audit;
+package com.example.demo.service.audit;
 
 import java.time.Instant;
 

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { apiClient, isApiClientError } from "../api/client";
 import { translateCommonApiError } from "../api/errorMessages";
 import type {
@@ -18,7 +18,12 @@ const translatePresetError = (error: unknown, fallback: string) => {
   return translateCommonApiError(error, fallback);
 };
 
-export const useKnowledgePresets = () => {
+type UseKnowledgePresetsOptions = {
+  enabled?: boolean;
+};
+
+export const useKnowledgePresets = (options: UseKnowledgePresetsOptions = {}) => {
+  const { enabled = true } = options;
   const [presets, setPresets] = useState<KnowledgePresetSummary[]>([]);
   const [selectedPreset, setSelectedPreset] = useState<KnowledgePresetDetail | null>(null);
   const [revisions, setRevisions] = useState<KnowledgePresetRevisionDetail[]>([]);
@@ -26,9 +31,16 @@ export const useKnowledgePresets = () => {
   const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(enabled);
+  const hasLoadedRef = useRef(false);
 
   const loadPresets = async (signal?: AbortSignal) => {
+    if (!enabled) {
+      setIsLoading(false);
+      return null;
+    }
+
+    setIsLoading(true);
     try {
       const payload = await apiClient.fetchKnowledgePresets(signal);
       setPresets(payload);
@@ -36,6 +48,7 @@ export const useKnowledgePresets = () => {
         selectedPreset && payload.some((preset) => preset.id === selectedPreset.id) ? current : null,
       );
       setError(null);
+      hasLoadedRef.current = true;
       return payload;
     } catch (loadError) {
       if (signal?.aborted) {
@@ -49,10 +62,18 @@ export const useKnowledgePresets = () => {
   };
 
   useEffect(() => {
+    if (!enabled) {
+      setIsLoading(false);
+      return;
+    }
+    if (hasLoadedRef.current) {
+      return;
+    }
+
     const controller = new AbortController();
     void loadPresets(controller.signal);
     return () => controller.abort();
-  }, []);
+  }, [enabled]);
 
   const loadPreset = async (presetId: string, signal?: AbortSignal) => {
     try {

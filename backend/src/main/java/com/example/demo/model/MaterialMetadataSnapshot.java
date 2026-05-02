@@ -83,13 +83,13 @@ public record MaterialMetadataSnapshot(
         effectiveTags = unionTags.isEmpty() ? effectiveTags : unionTags;
         tags = effectiveTags;
         sourceTrust = sourceTrust == null ? SourceTrustLevel.UNKNOWN : sourceTrust;
+        project = normalizeText(project);
         projectKey = normalizeText(projectKey);
-        project = projectKey != null ? projectKey : normalizeText(project);
         workspaceKey = normalizeText(rawWorkspaceKey);
         counterparty = normalizeText(counterparty);
+        businessStatus = normalizeText(businessStatus);
         documentStatus = documentStatus == null ? parseLegacyDocumentStatus(businessStatus) : documentStatus;
         documentStatus = documentStatus == null ? DocumentStatus.ACTIVE : documentStatus;
-        businessStatus = documentStatus.name();
         provenance = withDerivedOrigins(provenance, rawDocumentType, rawWorkspaceKey, workspaceKey, documentStatus);
     }
 

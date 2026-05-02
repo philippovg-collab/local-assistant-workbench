@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { apiClient } from "@/api/client";
 import { translateCommonApiError } from "@/api/errorMessages";
 import type {
@@ -24,17 +24,13 @@ export const useReferenceData = (options: UseReferenceDataOptions = {}) => {
   const [actionError, setActionError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(enabled);
+  const loadedParamsRef = useRef<string | null>(null);
+  const paramsKey = JSON.stringify({ activeOnly });
 
-  const loadReferenceData = async (signal?: AbortSignal) => {
-    if (!enabled) {
-      setWorkspaces([]);
-      setProjects([]);
-      setError(null);
+  const loadReferenceData = async (signal?: AbortSignal, options: { force?: boolean } = {}) => {
+    if (!enabled && !options.force) {
       setIsLoading(false);
-      return {
-        workspaces: [],
-        projects: [],
-      };
+      return null;
     }
 
     setIsLoading(true);
@@ -46,6 +42,7 @@ export const useReferenceData = (options: UseReferenceDataOptions = {}) => {
       setWorkspaces(nextWorkspaces);
       setProjects(nextProjects);
       setError(null);
+      loadedParamsRef.current = paramsKey;
       return {
         workspaces: nextWorkspaces,
         projects: nextProjects,
@@ -63,17 +60,17 @@ export const useReferenceData = (options: UseReferenceDataOptions = {}) => {
 
   useEffect(() => {
     if (!enabled) {
-      setWorkspaces([]);
-      setProjects([]);
-      setError(null);
       setIsLoading(false);
+      return;
+    }
+    if (loadedParamsRef.current === paramsKey) {
       return;
     }
 
     const controller = new AbortController();
     void loadReferenceData(controller.signal);
     return () => controller.abort();
-  }, [activeOnly, enabled]);
+  }, [activeOnly, enabled, paramsKey]);
 
   const projectsByWorkspace = useMemo(() => {
     const grouped = new Map<string, ReferenceProject[]>();
@@ -98,7 +95,7 @@ export const useReferenceData = (options: UseReferenceDataOptions = {}) => {
     setMessage(null);
     try {
       const created = await apiClient.createReferenceWorkspace(input);
-      await loadReferenceData();
+      await loadReferenceData(undefined, { force: true });
       setMessage("Рабочая область сохранена.");
       return created;
     } catch (submissionError) {
@@ -112,7 +109,7 @@ export const useReferenceData = (options: UseReferenceDataOptions = {}) => {
     setMessage(null);
     try {
       const updated = await apiClient.updateReferenceWorkspace(workspaceKey, input);
-      await loadReferenceData();
+      await loadReferenceData(undefined, { force: true });
       setMessage("Рабочая область обновлена.");
       return updated;
     } catch (submissionError) {
@@ -126,7 +123,7 @@ export const useReferenceData = (options: UseReferenceDataOptions = {}) => {
     setMessage(null);
     try {
       const created = await apiClient.createReferenceProject(input);
-      await loadReferenceData();
+      await loadReferenceData(undefined, { force: true });
       setMessage("Проект сохранён.");
       return created;
     } catch (submissionError) {
@@ -140,7 +137,7 @@ export const useReferenceData = (options: UseReferenceDataOptions = {}) => {
     setMessage(null);
     try {
       const updated = await apiClient.updateReferenceProject(projectKey, input);
-      await loadReferenceData();
+      await loadReferenceData(undefined, { force: true });
       setMessage("Проект обновлён.");
       return updated;
     } catch (submissionError) {
@@ -156,8 +153,8 @@ export const useReferenceData = (options: UseReferenceDataOptions = {}) => {
     actionError,
     message,
     isLoading,
-    reload: loadReferenceData,
-    loadReferenceData,
+    reload: (signal?: AbortSignal) => loadReferenceData(signal, { force: true }),
+    loadReferenceData: (signal?: AbortSignal) => loadReferenceData(signal, { force: true }),
     projectsForWorkspace,
     createWorkspace,
     updateWorkspace,

@@ -111,6 +111,9 @@ export function ChatForm({
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (isSubmitDisabled || isModelCatalogUnavailable) {
+      return;
+    }
     await onSubmit();
   };
 

@@ -11,7 +11,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.example.demo.embedding.EmbeddingClient;
-import com.example.demo.infrastructure.material.PostgresMaterialRepository;
+import com.example.demo.infrastructure.material.PostgresMaterialTestRepositoryBundle;
 import com.example.demo.llm.LlmClient;
 import com.example.demo.model.MaterialIndexingStatus;
 import com.example.demo.model.MaterialVersionState;
@@ -33,6 +33,7 @@ import org.springframework.context.annotation.Primary;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.transaction.PlatformTransactionManager;
 
 @SpringBootTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
@@ -48,8 +49,7 @@ class ElasticsearchPhase5DownIT extends PostgresIntegrationTestSupport {
         registry.add("spring.elasticsearch.uris", () -> "http://127.0.0.1:9233");
     }
 
-    @Autowired
-    private PostgresMaterialRepository repository;
+    private PostgresMaterialTestRepositoryBundle repository;
 
     @Autowired
     private MaterialSearchSyncLifecycleService lifecycleService;
@@ -66,8 +66,12 @@ class ElasticsearchPhase5DownIT extends PostgresIntegrationTestSupport {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
+    @Autowired
+    private PlatformTransactionManager transactionManager;
+
     @BeforeEach
     void resetState() {
+        repository = new PostgresMaterialTestRepositoryBundle(jdbcTemplate, transactionManager);
         jdbcTemplate.execute("TRUNCATE TABLE material_search_sync_queue, material_chunks, materials CASCADE");
     }
 
@@ -118,7 +122,7 @@ class ElasticsearchPhase5DownIT extends PostgresIntegrationTestSupport {
             updatedAt
         );
 
-        repository.save(record, List.of(new StoredMaterialChunk(0, content, List.of(), 1, "direct-text", false)));
+        repository.catalog().save(record, List.of(new StoredMaterialChunk(0, content, List.of(), 1, "direct-text", false)));
         lifecycleService.markIndexingReady(
             record.id(),
             List.of(new StoredEmbeddedMaterialChunk(

@@ -2,9 +2,6 @@ package com.example.demo.service;
 
 import com.example.demo.api.ApiException;
 import com.example.demo.api.InputLimits;
-import com.example.demo.infrastructure.knowledge.PostgresKnowledgePresetRepository;
-import com.example.demo.infrastructure.knowledge.StoredKnowledgePresetRecord;
-import com.example.demo.infrastructure.knowledge.StoredKnowledgePresetRevisionRecord;
 import com.example.demo.model.CreateKnowledgePresetRequest;
 import com.example.demo.model.DocumentStatus;
 import com.example.demo.model.DocumentType;
@@ -18,6 +15,9 @@ import com.example.demo.model.KnowledgeScopeResolved;
 import com.example.demo.model.MaterialLanguageCode;
 import com.example.demo.model.RevisionDiffEntry;
 import com.example.demo.model.SavedKnowledgeFilterKind;
+import com.example.demo.service.knowledge.port.KnowledgePresetRepository;
+import com.example.demo.service.knowledge.port.StoredKnowledgePresetRecord;
+import com.example.demo.service.knowledge.port.StoredKnowledgePresetRevisionRecord;
 import java.time.LocalDate;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -32,9 +32,9 @@ import org.springframework.util.StringUtils;
 @Service
 public class KnowledgePresetService {
 
-    private final PostgresKnowledgePresetRepository repository;
+    private final KnowledgePresetRepository repository;
 
-    public KnowledgePresetService(PostgresKnowledgePresetRepository repository) {
+    public KnowledgePresetService(KnowledgePresetRepository repository) {
         this.repository = repository;
     }
 

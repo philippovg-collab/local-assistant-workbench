@@ -10,7 +10,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.example.demo.infrastructure.audit.PostgresChatRunTraceRepository;
+import com.example.demo.service.audit.port.ChatRunTraceRepository;
 import com.example.demo.model.AnswerMode;
 import com.example.demo.model.ChatExecutionResponse;
 import com.example.demo.model.ChatExecutionRequest;
@@ -25,7 +25,7 @@ class ChatRunTraceServiceTest {
 
     @Test
     void completeRunWritesCompletedEventOnlyWhenTransitionSucceeds() {
-        PostgresChatRunTraceRepository repository = mock(PostgresChatRunTraceRepository.class);
+        ChatRunTraceRepository repository = mock(ChatRunTraceRepository.class);
         ChatRunTraceService service = new ChatRunTraceService(repository);
         ChatRunTraceService.RunTraceContext context = context();
         when(repository.completeRun(
@@ -34,7 +34,8 @@ class ChatRunTraceServiceTest {
             eq(AnswerMode.BRIEF),
             eq("ready"),
             any(Instant.class),
-            anyLong()
+            anyLong(),
+            eq(null)
         )).thenReturn(true);
 
         boolean completed = service.completeRun(context, "qwen2.5:7b", AnswerMode.BRIEF, "ready");
@@ -45,7 +46,7 @@ class ChatRunTraceServiceTest {
 
     @Test
     void completeRunDoesNotWriteCompletedEventWhenTransitionIsRejected() {
-        PostgresChatRunTraceRepository repository = mock(PostgresChatRunTraceRepository.class);
+        ChatRunTraceRepository repository = mock(ChatRunTraceRepository.class);
         ChatRunTraceService service = new ChatRunTraceService(repository);
         ChatRunTraceService.RunTraceContext context = context();
         when(repository.completeRun(
@@ -54,7 +55,8 @@ class ChatRunTraceServiceTest {
             eq(AnswerMode.BRIEF),
             eq("ready"),
             any(Instant.class),
-            anyLong()
+            anyLong(),
+            eq(null)
         )).thenReturn(false);
 
         boolean completed = service.completeRun(context, "qwen2.5:7b", AnswerMode.BRIEF, "ready");
@@ -65,7 +67,7 @@ class ChatRunTraceServiceTest {
 
     @Test
     void completeRunWithResultDelegatesAtomicTerminalResultWrite() {
-        PostgresChatRunTraceRepository repository = mock(PostgresChatRunTraceRepository.class);
+        ChatRunTraceRepository repository = mock(ChatRunTraceRepository.class);
         ChatRunTraceService service = new ChatRunTraceService(repository);
         ChatRunTraceService.RunTraceContext context = context();
         ChatExecutionResponse response = response(context.id());
@@ -76,7 +78,8 @@ class ChatRunTraceServiceTest {
             eq("ready"),
             any(Instant.class),
             anyLong(),
-            eq(response)
+            eq(response),
+            eq(null)
         )).thenReturn(true);
 
         boolean completed = service.completeRunWithResult(context, response);
@@ -89,14 +92,15 @@ class ChatRunTraceServiceTest {
             eq("ready"),
             any(Instant.class),
             anyLong(),
-            eq(response)
+            eq(response),
+            eq(null)
         );
         verify(repository, never()).insertEvent(eq(context.id()), eq("COMPLETED"), any(), any(Instant.class));
     }
 
     @Test
     void completeRunWithResultReturnsFalseWhenAtomicTransitionIsRejected() {
-        PostgresChatRunTraceRepository repository = mock(PostgresChatRunTraceRepository.class);
+        ChatRunTraceRepository repository = mock(ChatRunTraceRepository.class);
         ChatRunTraceService service = new ChatRunTraceService(repository);
         ChatRunTraceService.RunTraceContext context = context();
         ChatExecutionResponse response = response(context.id());
@@ -107,7 +111,8 @@ class ChatRunTraceServiceTest {
             eq("ready"),
             any(Instant.class),
             anyLong(),
-            eq(response)
+            eq(response),
+            eq(null)
         )).thenReturn(false);
 
         boolean completed = service.completeRunWithResult(context, response);
@@ -118,7 +123,7 @@ class ChatRunTraceServiceTest {
 
     @Test
     void failRunWritesFailedEventOnlyWhenTransitionSucceeds() {
-        PostgresChatRunTraceRepository repository = mock(PostgresChatRunTraceRepository.class);
+        ChatRunTraceRepository repository = mock(ChatRunTraceRepository.class);
         ChatRunTraceService service = new ChatRunTraceService(repository);
         ChatRunTraceService.RunTraceContext context = context();
         RuntimeException failure = new IllegalStateException("boom");
@@ -128,7 +133,8 @@ class ChatRunTraceServiceTest {
             eq("chat_trace.execution_failed"),
             eq("boom"),
             any(Instant.class),
-            anyLong()
+            anyLong(),
+            eq(null)
         )).thenReturn(true);
 
         boolean failed = service.failRun(context, "LLM", failure);
@@ -151,7 +157,7 @@ class ChatRunTraceServiceTest {
 
     @Test
     void failRunDoesNotWriteFailedEventWhenTransitionIsRejected() {
-        PostgresChatRunTraceRepository repository = mock(PostgresChatRunTraceRepository.class);
+        ChatRunTraceRepository repository = mock(ChatRunTraceRepository.class);
         ChatRunTraceService service = new ChatRunTraceService(repository);
         ChatRunTraceService.RunTraceContext context = context();
         RuntimeException failure = new IllegalStateException("boom");
@@ -161,7 +167,8 @@ class ChatRunTraceServiceTest {
             eq("chat_trace.execution_failed"),
             eq("boom"),
             any(Instant.class),
-            anyLong()
+            anyLong(),
+            eq(null)
         )).thenReturn(false);
 
         boolean failed = service.failRun(context, "LLM", failure);
@@ -172,7 +179,7 @@ class ChatRunTraceServiceTest {
 
     @Test
     void nonTerminalStageEventsUseMutableRunGuard() {
-        PostgresChatRunTraceRepository repository = mock(PostgresChatRunTraceRepository.class);
+        ChatRunTraceRepository repository = mock(ChatRunTraceRepository.class);
         ChatRunTraceService service = new ChatRunTraceService(repository);
         ChatRunTraceService.RunTraceContext context = context();
         ChatExecutionRequest request = new ChatExecutionRequest(

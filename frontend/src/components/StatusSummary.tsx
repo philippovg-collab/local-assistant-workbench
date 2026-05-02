@@ -17,10 +17,10 @@ import { buildSearchPresentation } from "@/utils/searchPresentation";
 type StatusSummaryProps = {
   health: HealthResponse | null;
   healthError: string | null;
-  models: ModelInfo[];
+  models?: ModelInfo[];
   modelsError: string | null;
   ragPresentation: RagReadinessPresentation;
-  instructionsCount: number;
+  instructionsCount?: number | null;
 };
 
 const badgeVariantByStatus = (
@@ -41,8 +41,9 @@ export function StatusSummary({
   models,
   modelsError,
   ragPresentation,
-  instructionsCount,
+  instructionsCount = null,
 }: StatusSummaryProps) {
+  const modelCount = models?.length ?? 0;
   const isBackendHealthy = health?.status === "UP";
   const searchMode = health?.searchMode;
   const searchProvider = health?.searchProvider;
@@ -62,7 +63,7 @@ export function StatusSummary({
     ? health.directReasonMessage ?? "Direct chat path сейчас недоступен."
     : health?.llmStatus === "DOWN"
       ? health.llmReasonMessage ?? "Каталог моделей сейчас недоступен."
-    : modelsError ?? "Единый LLM client обслуживает direct и RAG режимы.";
+    : modelsError ?? (models ? "Единый LLM client обслуживает direct и RAG режимы." : "Каталог моделей загрузится при открытии Studio.");
   const queueSummary = health
     ? `${health.indexingPendingCount ?? 0} pending / ${health.indexingInProgressCount ?? 0} in progress / ${health.indexingFailedCount ?? 0} failed`
     : "Ожидаем snapshot очереди индексации.";
@@ -83,7 +84,7 @@ export function StatusSummary({
     ? `${health.qualityLayer.metadataCoverage.activeWithEffectiveMetadata}/${health.qualityLayer.metadataCoverage.activeTotal} active материалов с canonical metadata`
     : "Ждём metadata coverage.";
   const qualityBackfillSummary = health?.qualityLayer
-    ? `${health.qualityLayer.activeBackfillCoverage.structuredProfileActive}/${health.qualityLayer.activeBackfillCoverage.activeTotal} active на structured-v1`
+    ? `${health.qualityLayer.activeBackfillCoverage.structuredProfileActive}/${health.qualityLayer.activeBackfillCoverage.activeTotal} active на structured-v1 · pending=${health.qualityLayer.activeBackfillCoverage.pendingBackfill} · partial-ready=${health.qualityLayer.activeBackfillCoverage.partialReadyActive}`
     : "Ждём ACTIVE backfill coverage.";
   const qualityRetrievalWindowSummary = health?.qualityLayer
     ? `sample=${health.qualityLayer.retrievalWindow.sampleSize} · no-context=${Math.round(health.qualityLayer.retrievalWindow.noContextRate * 100)}%`
@@ -104,11 +105,13 @@ export function StatusSummary({
           ? "Direct недоступен"
           : health?.llmStatus === "DOWN"
             ? "Каталог моделей недоступен"
-          : models.length > 0
-            ? `${models.length} моделей`
-            : "Нет списка моделей",
+          : models
+            ? modelCount > 0
+              ? `${modelCount} моделей`
+              : "Нет списка моделей"
+            : "По запросу",
       message: llmMessage,
-      tone: health?.directStatus === "DOWN" || health?.llmStatus === "DOWN" ? "warn" : models.length > 0 ? "online" : "idle",
+      tone: health?.directStatus === "DOWN" || health?.llmStatus === "DOWN" ? "warn" : modelCount > 0 ? "online" : "idle",
     },
     {
       icon: SearchCheck,
@@ -127,10 +130,11 @@ export function StatusSummary({
     {
       icon: BookCopy,
       label: "Инструкции",
-      headline: `${instructionsCount}`,
-      message:
-        "Instruction snippets теперь подключаются явно и реально влияют на prompt policy.",
-      tone: instructionsCount > 0 ? "online" : "idle",
+      headline: instructionsCount === null ? "По запросу" : `${instructionsCount}`,
+      message: instructionsCount === null
+        ? "Instruction snippets загрузятся при открытии вкладок Instructions или Studio."
+        : "Instruction snippets теперь подключаются явно и реально влияют на prompt policy.",
+      tone: instructionsCount && instructionsCount > 0 ? "online" : "idle",
     },
   ] as const;
 
@@ -262,7 +266,7 @@ export function StatusSummary({
                   <Badge variant={badgeVariantByStatus(card.tone)}>{card.label}</Badge>
                 </div>
                 <div className="space-y-2">
-                  <strong className="block text-xl font-semibold tracking-[-0.04em] text-foreground">
+                  <strong className="block text-xl font-semibold tracking-normal text-foreground">
                     {card.headline}
                   </strong>
                   <p className="text-sm leading-6 text-muted-foreground">{card.message}</p>

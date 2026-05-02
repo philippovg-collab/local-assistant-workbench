@@ -6,6 +6,7 @@ import com.example.demo.service.material.MaterialChunkSearchMatch;
 import com.example.demo.service.material.MaterialIndexingLease;
 import com.example.demo.service.material.MaterialLineageIdentity;
 import com.example.demo.service.material.MaterialRetrievalScopeSnapshot;
+import com.example.demo.service.material.MaterialSearchScope;
 import com.example.demo.service.material.MaterialSearchSyncQueueEntry;
 import com.example.demo.service.material.QualityLayerCoverageSnapshot;
 import com.example.demo.service.material.SearchSyncDeliveryState;
@@ -375,18 +376,13 @@ public class InMemoryMaterialRepository implements
             .filter(record -> matchesKnowledgeScope(record, effectiveScope, uploadedAfterInclusive, uploadedBeforeExclusive))
             .filter(record -> matchesRetrievalFilters(record, effectiveFilters))
             .toList();
-        Set<String> scopedReadyMaterialIds = scopedRecords.stream()
-            .filter(this::isSearchable)
-            .map(StoredMaterialRecord::id)
-            .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
         return new MaterialRetrievalScopeSnapshot(
             allRecords.size(),
             (int) allRecords.stream().filter(record -> record.versionState() == MaterialVersionState.ACTIVE).count(),
             (int) allRecords.stream().filter(this::isSearchable).count(),
             scopedRecords.size(),
             (int) scopedRecords.stream().filter(record -> record.versionState() == MaterialVersionState.ACTIVE).count(),
-            scopedReadyMaterialIds.size(),
-            scopedReadyMaterialIds
+            (int) scopedRecords.stream().filter(this::isSearchable).count()
         );
     }
 
@@ -462,7 +458,7 @@ public class InMemoryMaterialRepository implements
 
     @Override
     public synchronized List<MaterialChunkSearchMatch> searchSemantic(float[] queryEmbedding, int limit) {
-        return searchSemantic(queryEmbedding, limit, null, RetrievalFilters.empty());
+        return searchSemantic(queryEmbedding, limit, MaterialSearchScope.unscoped());
     }
 
     @Override
@@ -471,7 +467,7 @@ public class InMemoryMaterialRepository implements
         int limit,
         Set<String> allowedMaterialIds
     ) {
-        return searchSemantic(queryEmbedding, limit, allowedMaterialIds, RetrievalFilters.empty());
+        return searchSemantic(queryEmbedding, limit, MaterialSearchScope.fromLegacyMaterialIds(allowedMaterialIds));
     }
 
     @Override
@@ -481,13 +477,29 @@ public class InMemoryMaterialRepository implements
         Set<String> allowedMaterialIds,
         RetrievalFilters filters
     ) {
+        return searchSemantic(
+            queryEmbedding,
+            limit,
+            MaterialSearchScope.fromLegacyMaterialIds(allowedMaterialIds, filters)
+        );
+    }
+
+    @Override
+    public synchronized List<MaterialChunkSearchMatch> searchSemantic(
+        float[] queryEmbedding,
+        int limit,
+        MaterialSearchScope scope
+    ) {
         if (queryEmbedding == null || queryEmbedding.length == 0 || limit <= 0) {
+            return List.of();
+        }
+        MaterialSearchScope safeScope = scope == null ? MaterialSearchScope.unscoped() : scope;
+        if (safeScope.isNoResults()) {
             return List.of();
         }
 
         return readyRecords().stream()
-            .filter(record -> allowedMaterialIds == null || allowedMaterialIds.contains(record.id()))
-            .filter(record -> matchesRetrievalFilters(record, filters))
+            .filter(record -> matchesMaterialSearchScope(record, safeScope))
             .flatMap(record -> embeddedChunksByMaterialId.getOrDefault(record.id(), List.of()).stream()
                 .map(chunk -> new SemanticCandidate(record, chunk, cosineDistance(queryEmbedding, chunk.embedding()))))
             .sorted(Comparator
@@ -517,12 +529,12 @@ public class InMemoryMaterialRepository implements
 
     @Override
     public synchronized List<MaterialChunkSearchMatch> search(String query, int limit) {
-        return search(query, limit, null, RetrievalFilters.empty());
+        return search(query, limit, MaterialSearchScope.unscoped());
     }
 
     @Override
     public synchronized List<MaterialChunkSearchMatch> search(String query, int limit, Set<String> allowedMaterialIds) {
-        return search(query, limit, allowedMaterialIds, RetrievalFilters.empty());
+        return search(query, limit, MaterialSearchScope.fromLegacyMaterialIds(allowedMaterialIds));
     }
 
     @Override
@@ -532,7 +544,20 @@ public class InMemoryMaterialRepository implements
         Set<String> allowedMaterialIds,
         RetrievalFilters filters
     ) {
+        return search(query, limit, MaterialSearchScope.fromLegacyMaterialIds(allowedMaterialIds, filters));
+    }
+
+    @Override
+    public synchronized List<MaterialChunkSearchMatch> search(
+        String query,
+        int limit,
+        MaterialSearchScope scope
+    ) {
         if (query == null || query.isBlank() || limit <= 0) {
+            return List.of();
+        }
+        MaterialSearchScope safeScope = scope == null ? MaterialSearchScope.unscoped() : scope;
+        if (safeScope.isNoResults()) {
             return List.of();
         }
 
@@ -540,8 +565,7 @@ public class InMemoryMaterialRepository implements
         String normalizedPrompt = normalize(query);
 
         return readyRecords().stream()
-            .filter(record -> allowedMaterialIds == null || allowedMaterialIds.contains(record.id()))
-            .filter(record -> matchesRetrievalFilters(record, filters))
+            .filter(record -> matchesMaterialSearchScope(record, safeScope))
             .flatMap(record -> embeddedChunksByMaterialId.getOrDefault(record.id(), List.of()).stream()
                 .map(chunk -> new LexicalCandidate(record, chunk, lexicalScore(record.title(), chunk.text(), normalizedPrompt, queryTokens))))
             .filter(candidate -> candidate.score() > 0)
@@ -1053,6 +1077,7 @@ public class InMemoryMaterialRepository implements
             record.sourceType(),
             record.originalFileName(),
             record.mediaType(),
+            record.createdAt(),
             record.updatedAt(),
             record.metadata(),
             chunks
@@ -1123,6 +1148,30 @@ public class InMemoryMaterialRepository implements
         if (!scope.documentClasses().isEmpty() && !scope.documentClasses().contains(record.metadata().knowledgeDocumentClass())) {
             return false;
         }
+        if (!scope.documentTypes().isEmpty() && !scope.documentTypes().contains(record.metadata().documentType())) {
+            return false;
+        }
+        if (!scope.documentStatuses().isEmpty() && !scope.documentStatuses().contains(record.metadata().documentStatus())) {
+            return false;
+        }
+        if (!scope.projectKeys().isEmpty()) {
+            String recordProjectKey = record.metadata().projectKey();
+            Set<String> scopeProjectKeys = scope.projectKeys().stream()
+                .map(value -> value.toLowerCase(Locale.ROOT))
+                .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
+            if (recordProjectKey == null || !scopeProjectKeys.contains(recordProjectKey.toLowerCase(Locale.ROOT))) {
+                return false;
+            }
+        }
+        if (scope.documentNumber() != null) {
+            String recordDocumentNumber = record.metadata().documentNumber();
+            if (recordDocumentNumber == null || !scope.documentNumber().equalsIgnoreCase(recordDocumentNumber)) {
+                return false;
+            }
+        }
+        if (!scope.languageCodes().isEmpty() && !scope.languageCodes().contains(record.metadata().languageCode())) {
+            return false;
+        }
         if (!scope.tags().isEmpty()) {
             Set<String> recordTags = record.metadata().tags().stream()
                 .map(tag -> tag.toLowerCase(Locale.ROOT))
@@ -1148,12 +1197,50 @@ public class InMemoryMaterialRepository implements
                 return false;
             }
         }
+        if (scope.periodStartFrom() != null
+            && (record.metadata().periodStart() == null || record.metadata().periodStart().isBefore(scope.periodStartFrom()))) {
+            return false;
+        }
+        if (scope.periodStartTo() != null
+            && (record.metadata().periodStart() == null || record.metadata().periodStart().isAfter(scope.periodStartTo()))) {
+            return false;
+        }
+        if (scope.periodEndFrom() != null
+            && (record.metadata().periodEnd() == null || record.metadata().periodEnd().isBefore(scope.periodEndFrom()))) {
+            return false;
+        }
+        if (scope.periodEndTo() != null
+            && (record.metadata().periodEnd() == null || record.metadata().periodEnd().isAfter(scope.periodEndTo()))) {
+            return false;
+        }
         return true;
     }
 
     private boolean matchesRetrievalFilters(StoredMaterialRecord record, RetrievalFilters filters) {
         RetrievalFilters safeFilters = filters == null ? RetrievalFilters.empty() : filters;
         return safeFilters.isEmpty() || safeFilters.matches(record.metadata());
+    }
+
+    private boolean matchesMaterialSearchScope(StoredMaterialRecord record, MaterialSearchScope scope) {
+        if (scope.isUnscoped()) {
+            return true;
+        }
+        if (scope.isNoResults()) {
+            return false;
+        }
+        if (scope.isMaterialIds() && !scope.materialIds().contains(record.id())) {
+            return false;
+        }
+        if (scope.isFiltered()
+            && !matchesKnowledgeScope(
+                record,
+                scope.knowledgeScope(),
+                scope.uploadedAfterInclusive(),
+                scope.uploadedBeforeExclusive()
+            )) {
+            return false;
+        }
+        return matchesRetrievalFilters(record, scope.retrievalFilters());
     }
 
     private boolean hasMeaningfulMetadata(StoredMaterialRecord record) {

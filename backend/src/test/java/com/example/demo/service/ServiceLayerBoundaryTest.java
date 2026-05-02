@@ -8,32 +8,37 @@ import java.nio.file.Path;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
-class MaterialLayerBoundaryTest {
+class ServiceLayerBoundaryTest {
 
     @Test
-    void serviceLayerDoesNotImportMaterialInfrastructure() throws IOException {
+    void serviceLayerDoesNotImportInfrastructure() throws IOException {
         Path serviceRoot = Path.of("src/main/java/com/example/demo/service");
         List<String> violations;
         try (var files = Files.walk(serviceRoot)) {
             violations = files
                 .filter(path -> path.toString().endsWith(".java"))
-                .filter(path -> fileContains(path, "com.example.demo.infrastructure.material"))
-                .map(Path::toString)
+                .flatMap(path -> forbiddenInfrastructureImports(path).stream())
                 .sorted()
                 .toList();
         }
 
         assertTrue(
             violations.isEmpty(),
-            () -> "Service layer must depend on service.material ports/domain, not infrastructure.material: " + violations
+            () -> "Service layer must depend on service-level ports/domain, not infrastructure adapters: " + violations
         );
     }
 
-    private static boolean fileContains(Path path, String needle) {
+    private static List<String> forbiddenInfrastructureImports(Path path) {
+        String source;
         try {
-            return Files.readString(path).contains(needle);
+            source = Files.readString(path);
         } catch (IOException exception) {
             throw new IllegalStateException("Failed to read " + path, exception);
         }
+        return source.lines()
+            .map(String::trim)
+            .filter(line -> line.startsWith("import com.example.demo.infrastructure."))
+            .map(line -> path + ": " + line)
+            .toList();
     }
 }

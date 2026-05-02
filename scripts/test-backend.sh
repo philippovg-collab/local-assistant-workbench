@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR=$(cd "$(dirname "$0")/.." && pwd)
 BACKEND_DIR="$ROOT_DIR/backend"
 DEFAULT_JAVA_21_HOME="/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home"
-CRITICAL_MATERIAL_IT_CLASSES="PostgresMaterialRepositoryIT,MaterialLineageVersionMigrationIT,MaterialSearchSyncLifecycleIT,MaterialRuntimeTopologyIT"
+CRITICAL_MATERIAL_IT_CLASSES="PostgresMaterialAdaptersIT,MaterialLineageVersionMigrationIT,MaterialSearchSyncLifecycleIT,MaterialRuntimeTopologyIT"
 FAST_METADATA_FLOW_TESTS="MaterialControllerMetadataFlowTest,MaterialControllerContractTest,MaterialServiceTest"
 NON_DOCKER_FAST_IT_CLASSES="Phase6RetrievalQualityIT"
 

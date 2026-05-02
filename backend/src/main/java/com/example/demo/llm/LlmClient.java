@@ -1,6 +1,7 @@
 package com.example.demo.llm;
 
 import com.example.demo.model.OllamaModelInfo;
+import com.example.demo.service.cancellation.ChatCancellationToken;
 import java.util.List;
 
 public interface LlmClient {
@@ -8,6 +9,16 @@ public interface LlmClient {
     List<OllamaModelInfo> listModels();
 
     ChatResult chat(ChatRequest request);
+
+    default ChatResult chat(ChatRequest request, ChatCancellationToken cancellationToken) {
+        ChatCancellationToken effectiveToken = cancellationToken == null
+            ? ChatCancellationToken.none()
+            : cancellationToken;
+        effectiveToken.throwIfCancellationRequested();
+        ChatResult result = chat(request);
+        effectiveToken.throwIfCancellationRequested();
+        return result;
+    }
 
     record ChatRequest(
         String model,

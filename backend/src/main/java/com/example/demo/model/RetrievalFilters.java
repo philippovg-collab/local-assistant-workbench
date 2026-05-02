@@ -86,7 +86,7 @@ public record RetrievalFilters(
             tags,
             sourceTrustMin,
             List.of(),
-            parseLegacyDocumentStatuses(businessStatus),
+            List.of(),
             List.of(),
             parseLegacyLanguageCodes(language),
             null,
@@ -102,21 +102,23 @@ public record RetrievalFilters(
 
     public RetrievalFilters mergeMissing(RetrievalFilters fallback) {
         RetrievalFilters safeFallback = fallback == null ? empty() : fallback;
+        boolean hasProjectCriteria = project != null || !projectKeys.isEmpty();
+        boolean hasLanguageCriteria = language != null || !languageCodes.isEmpty();
         return new RetrievalFilters(
             documentNumber != null ? documentNumber : safeFallback.documentNumber(),
             documentDateFrom != null ? documentDateFrom : safeFallback.documentDateFrom(),
             documentDateTo != null ? documentDateTo : safeFallback.documentDateTo(),
             department != null ? department : safeFallback.department(),
-            project != null ? project : safeFallback.project(),
+            project != null ? project : hasProjectCriteria ? null : safeFallback.project(),
             counterparty != null ? counterparty : safeFallback.counterparty(),
             businessStatus != null ? businessStatus : safeFallback.businessStatus(),
-            language != null ? language : safeFallback.language(),
+            language != null ? language : hasLanguageCriteria ? null : safeFallback.language(),
             !tags.isEmpty() ? tags : safeFallback.tags(),
             sourceTrustMin != null ? sourceTrustMin : safeFallback.sourceTrustMin(),
             !documentTypes.isEmpty() ? documentTypes : safeFallback.documentTypes(),
             !documentStatuses.isEmpty() ? documentStatuses : safeFallback.documentStatuses(),
-            !projectKeys.isEmpty() ? projectKeys : safeFallback.projectKeys(),
-            !languageCodes.isEmpty() ? languageCodes : safeFallback.languageCodes(),
+            !projectKeys.isEmpty() ? projectKeys : hasProjectCriteria ? List.of() : safeFallback.projectKeys(),
+            !languageCodes.isEmpty() ? languageCodes : hasLanguageCriteria ? List.of() : safeFallback.languageCodes(),
             periodStartFrom != null ? periodStartFrom : safeFallback.periodStartFrom(),
             periodStartTo != null ? periodStartTo : safeFallback.periodStartTo(),
             periodEndFrom != null ? periodEndFrom : safeFallback.periodEndFrom(),
@@ -159,7 +161,9 @@ public record RetrievalFilters(
         if (department != null && !equalsIgnoreCase(department, safeMetadata.department())) {
             return false;
         }
-        if (project != null && !equalsIgnoreCase(project, safeMetadata.project())) {
+        if (project != null
+            && !equalsIgnoreCase(project, safeMetadata.project())
+            && !equalsIgnoreCase(project, safeMetadata.projectKey())) {
             return false;
         }
         if (counterparty != null && !equalsIgnoreCase(counterparty, safeMetadata.counterparty())) {
@@ -242,7 +246,7 @@ public record RetrievalFilters(
     }
 
     public boolean hasExplicitDocumentStatuses() {
-        return !documentStatuses.isEmpty() || businessStatus != null;
+        return !documentStatuses.isEmpty();
     }
 
     public boolean hasExplicitPeriods() {
@@ -307,18 +311,6 @@ public record RetrievalFilters(
     private static String normalizeTag(String rawValue) {
         String normalized = normalizeText(rawValue);
         return normalized == null ? null : normalized.toLowerCase(Locale.ROOT);
-    }
-
-    private static List<DocumentStatus> parseLegacyDocumentStatuses(String rawValue) {
-        String normalized = normalizeText(rawValue);
-        if (normalized == null) {
-            return List.of();
-        }
-        try {
-            return List.of(DocumentStatus.valueOf(normalized.toUpperCase(Locale.ROOT)));
-        } catch (IllegalArgumentException ignored) {
-            return List.of();
-        }
     }
 
     private static List<MaterialLanguageCode> parseLegacyLanguageCodes(String rawValue) {

@@ -1,6 +1,9 @@
 package com.example.demo.infrastructure.reference;
 
 import com.example.demo.api.ApiException;
+import com.example.demo.service.reference.StoredReferenceProjectRecord;
+import com.example.demo.service.reference.StoredReferenceWorkspaceRecord;
+import com.example.demo.service.reference.port.ReferenceDataRepository;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
@@ -12,7 +15,7 @@ import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
 
 @Repository
-public class PostgresReferenceDataRepository {
+public class PostgresReferenceDataRepository implements ReferenceDataRepository {
 
     private static final RowMapper<StoredReferenceWorkspaceRecord> WORKSPACE_ROW_MAPPER = (resultSet, rowNum) ->
         new StoredReferenceWorkspaceRecord(

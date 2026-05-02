@@ -36,6 +36,8 @@ import com.example.demo.model.KnowledgeScope;
 import com.example.demo.model.KnowledgeScopeResolved;
 import com.example.demo.model.OllamaModelInfo;
 import com.example.demo.model.RetrievalTrace;
+import com.example.demo.service.cancellation.ChatCancellationHandle;
+import com.example.demo.service.cancellation.ChatRunCancelledException;
 import com.example.demo.support.DeterministicEmbeddingClient;
 import com.example.demo.support.InMemoryInstructionRepository;
 import com.example.demo.support.InMemoryMaterialRepository;
@@ -574,7 +576,104 @@ class ChatExecutionServiceTest {
     }
 
     @Test
-    void returnsSuccessfulChatResponseWhenAuditStorageFails() {
+    void cancellationBeforeLlmSkipsModelAndTerminalWrites() {
+        CapturingLlmClient llmClient = new CapturingLlmClient();
+        ChatRunTraceService traceService = Mockito.mock(ChatRunTraceService.class);
+        ChatCancellationHandle cancellationHandle = new ChatCancellationHandle();
+        cancellationHandle.requestCancellation();
+        ChatRunTraceService.RunTraceContext traceContext = traceContext();
+        ChatExecutionService service = tracedService(llmClient, createMaterialService(), traceService);
+
+        assertThrows(ChatRunCancelledException.class, () -> service.executeWithTraceContext(
+            new ChatExecutionRequest(ChatMode.DIRECT, null, "Отмени до LLM", null, List.of()),
+            traceContext,
+            cancellationHandle
+        ));
+
+        assertEquals(0, llmClient.chatCalls);
+        Mockito.verify(traceService, Mockito.never()).saveLlmSuccess(Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any());
+        Mockito.verify(traceService, Mockito.never()).saveOutput(Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.anyBoolean(), Mockito.anyBoolean());
+        Mockito.verify(traceService, Mockito.never()).completeRunWithResult(Mockito.any(), Mockito.any());
+        Mockito.verify(traceService, Mockito.never()).failRun(Mockito.any(), Mockito.any(), Mockito.any());
+    }
+
+    @Test
+    void cancellationDuringRetrievalSkipsTraceAndLlmWrites() {
+        CapturingLlmClient llmClient = new CapturingLlmClient();
+        MaterialService materialService = Mockito.mock(MaterialService.class);
+        ChatRunTraceService traceService = Mockito.mock(ChatRunTraceService.class);
+        ChatCancellationHandle cancellationHandle = new ChatCancellationHandle();
+        ChatRunTraceService.RunTraceContext traceContext = traceContext();
+        Mockito.when(materialService.retrieveContext(Mockito.anyString(), Mockito.any(), Mockito.any(), Mockito.any()))
+            .thenAnswer(invocation -> {
+                cancellationHandle.requestCancellation();
+                return new MaterialRetrievalResult(1, 1, 1, List.of());
+            });
+        ChatExecutionService service = tracedService(llmClient, materialService, traceService);
+
+        assertThrows(ChatRunCancelledException.class, () -> service.executeWithTraceContext(
+            new ChatExecutionRequest(ChatMode.RAG, null, "Отмени на retrieval", null, List.of()),
+            traceContext,
+            cancellationHandle
+        ));
+
+        assertEquals(0, llmClient.chatCalls);
+        Mockito.verify(traceService, Mockito.never()).saveRetrievalSummary(Mockito.eq(traceContext), Mockito.eq("DONE"), Mockito.any(), Mockito.any());
+        Mockito.verify(traceService, Mockito.never()).saveLlmSuccess(Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any());
+        Mockito.verify(traceService, Mockito.never()).saveOutput(Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.anyBoolean(), Mockito.anyBoolean());
+        Mockito.verify(traceService, Mockito.never()).failRun(Mockito.any(), Mockito.any(), Mockito.any());
+    }
+
+    @Test
+    void cancellationDuringLlmDoesNotPersistLlmFailureOrOutput() {
+        CapturingLlmClient llmClient = new CapturingLlmClient();
+        ChatRunTraceService traceService = Mockito.mock(ChatRunTraceService.class);
+        ChatCancellationHandle cancellationHandle = new ChatCancellationHandle();
+        llmClient.onChat = cancellationHandle::requestCancellation;
+        ChatRunTraceService.RunTraceContext traceContext = traceContext();
+        ChatExecutionService service = tracedService(llmClient, createMaterialService(), traceService);
+
+        assertThrows(ChatRunCancelledException.class, () -> service.executeWithTraceContext(
+            new ChatExecutionRequest(ChatMode.DIRECT, null, "Отмени во время LLM", null, List.of()),
+            traceContext,
+            cancellationHandle
+        ));
+
+        assertEquals(1, llmClient.chatCalls);
+        Mockito.verify(traceService, Mockito.never()).saveLlmSuccess(Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any());
+        Mockito.verify(traceService, Mockito.never()).saveLlmFailure(Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any());
+        Mockito.verify(traceService, Mockito.never()).saveOutput(Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.anyBoolean(), Mockito.anyBoolean());
+        Mockito.verify(traceService, Mockito.never()).completeRunWithResult(Mockito.any(), Mockito.any());
+        Mockito.verify(traceService, Mockito.never()).failRun(Mockito.any(), Mockito.any(), Mockito.any());
+    }
+
+    @Test
+    void cancellationAfterLlmBeforeOutputDoesNotPersistOutputOrCompleteRun() {
+        CapturingLlmClient llmClient = new CapturingLlmClient();
+        ChatRunTraceService traceService = Mockito.mock(ChatRunTraceService.class);
+        ChatCancellationHandle cancellationHandle = new ChatCancellationHandle();
+        ChatRunTraceService.RunTraceContext traceContext = traceContext();
+        Mockito.doAnswer(invocation -> {
+            cancellationHandle.requestCancellation();
+            return null;
+        }).when(traceService).saveLlmSuccess(Mockito.eq(traceContext), Mockito.any(), Mockito.any(), Mockito.isNull());
+        ChatExecutionService service = tracedService(llmClient, createMaterialService(), traceService);
+
+        assertThrows(ChatRunCancelledException.class, () -> service.executeWithTraceContext(
+            new ChatExecutionRequest(ChatMode.DIRECT, null, "Отмени после LLM", null, List.of()),
+            traceContext,
+            cancellationHandle
+        ));
+
+        assertEquals(1, llmClient.chatCalls);
+        Mockito.verify(traceService).saveLlmSuccess(Mockito.eq(traceContext), Mockito.any(), Mockito.any(), Mockito.isNull());
+        Mockito.verify(traceService, Mockito.never()).saveOutput(Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(), Mockito.anyBoolean(), Mockito.anyBoolean());
+        Mockito.verify(traceService, Mockito.never()).completeRunWithResult(Mockito.any(), Mockito.any());
+        Mockito.verify(traceService, Mockito.never()).failRun(Mockito.any(), Mockito.any(), Mockito.any());
+    }
+
+    @Test
+    void legacyAuditStorageIsNotAnExecutionPath() {
         CapturingLlmClient llmClient = new CapturingLlmClient();
         MaterialService materialService = createMaterialService();
         InstructionService instructionService = createInstructionService();
@@ -606,21 +705,25 @@ class ChatExecutionServiceTest {
     }
 
     @Test
-    void failsChatResponseWhenAuditStorageFailsInFailClosedMode() {
+    void failsChatResponseWhenTraceStorageFailsInFailClosedMode() {
         CapturingLlmClient llmClient = new CapturingLlmClient();
         MaterialService materialService = createMaterialService();
         InstructionService instructionService = createInstructionService();
         KnowledgePresetService knowledgePresetService = passthroughKnowledgePresetService();
         ChatAuditService chatAuditService = Mockito.mock(ChatAuditService.class);
-        Mockito.when(chatAuditService.record(Mockito.any())).thenThrow(new IllegalStateException("audit storage down"));
+        ChatRunTraceService traceService = Mockito.mock(ChatRunTraceService.class);
+        Mockito.when(traceService.startRun(Mockito.any(), Mockito.eq(ChatMode.DIRECT)))
+            .thenThrow(new IllegalStateException("trace storage down"));
         ChatAuditProperties auditProperties = new ChatAuditProperties();
         auditProperties.setFailClosed(true);
         ChatExecutionService service = new ChatExecutionService(
             llmClient,
+            new LlmTracingClient(llmClient),
             materialService,
             instructionService,
             knowledgePresetService,
             chatAuditService,
+            traceService,
             auditProperties,
             new PromptPolicyResolver(new LlmProperties()),
             new AnswerModePostProcessor(new MaterialContentSupport(new MaterialProperties()))
@@ -634,8 +737,8 @@ class ChatExecutionServiceTest {
             List.of()
         )));
 
-        assertEquals("chat_audit.record_failed", exception.getCode());
-        assertEquals(1, llmClient.chatCalls);
+        assertEquals("chat_trace.storage_failed", exception.getCode());
+        assertEquals(0, llmClient.chatCalls);
     }
 
     private ChatExecutionFixture createChatExecutionFixture(CapturingLlmClient llmClient) {
@@ -658,6 +761,32 @@ class ChatExecutionServiceTest {
             ),
             materialService,
             instructionService
+        );
+    }
+
+    private ChatExecutionService tracedService(
+        CapturingLlmClient llmClient,
+        MaterialService materialService,
+        ChatRunTraceService traceService
+    ) {
+        return new ChatExecutionService(
+            llmClient,
+            new LlmTracingClient(llmClient),
+            materialService,
+            createInstructionService(),
+            passthroughKnowledgePresetService(),
+            mockAuditService(),
+            traceService,
+            new ChatAuditProperties(),
+            new PromptPolicyResolver(new LlmProperties()),
+            new AnswerModePostProcessor(new MaterialContentSupport(new MaterialProperties()))
+        );
+    }
+
+    private ChatRunTraceService.RunTraceContext traceContext() {
+        return new ChatRunTraceService.RunTraceContext(
+            UUID.randomUUID().toString(),
+            Instant.parse("2026-04-19T00:00:00Z")
         );
     }
 
@@ -718,7 +847,7 @@ class ChatExecutionServiceTest {
                 lifecycleService,
                 indexingService,
                 afterCommitExecutor,
-                new MaterialMetadataResolver()
+                new MaterialMetadataResolver(new com.example.demo.support.NoopReferenceDataRepository())
             ),
             new MaterialIngestionService(
                 repository,
@@ -726,7 +855,7 @@ class ChatExecutionServiceTest {
                 extractor,
                 properties,
                 contentSupport,
-                new MaterialMetadataResolver(),
+                new MaterialMetadataResolver(new com.example.demo.support.NoopReferenceDataRepository()),
                 lifecycleService,
                 indexingService,
                 afterCommitExecutor
@@ -778,6 +907,8 @@ class ChatExecutionServiceTest {
         private ChatRequest lastRequest;
         private int chatCalls = 0;
         private String nextAnswer = "ok";
+        private Runnable onChat = () -> {
+        };
 
         @Override
         public List<OllamaModelInfo> listModels() {
@@ -788,6 +919,7 @@ class ChatExecutionServiceTest {
         public ChatResult chat(ChatRequest request) {
             chatCalls++;
             lastRequest = request;
+            onChat.run();
             return new ChatResult(
                 request.model() == null ? "qwen2.5:7b" : request.model(),
                 nextAnswer,

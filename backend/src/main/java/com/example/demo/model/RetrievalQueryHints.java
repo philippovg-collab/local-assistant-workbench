@@ -68,7 +68,7 @@ public record RetrievalQueryHints(
             department,
             List.of(),
             List.of(),
-            project == null || project.isBlank() ? List.of() : List.of(project.trim()),
+            List.of(),
             parseLegacyLanguageCodes(language),
             null,
             null,

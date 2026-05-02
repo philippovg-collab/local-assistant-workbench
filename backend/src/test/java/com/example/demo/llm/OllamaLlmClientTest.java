@@ -1,11 +1,15 @@
 package com.example.demo.llm;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.example.demo.api.ApiException;
 import com.example.demo.config.LlmProperties;
 import com.example.demo.model.OllamaModelInfo;
+import com.example.demo.service.cancellation.ChatCancellationHandle;
+import com.example.demo.service.cancellation.ChatCancellationToken;
+import com.example.demo.service.cancellation.ChatRunCancelledException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
@@ -115,6 +119,38 @@ class OllamaLlmClientTest {
     }
 
     @Test
+    void chatUsesCancellableTransportPathAndStopsWhenTokenIsCancelled() {
+        RecordingTransport transport = new RecordingTransport(objectMapper);
+        transport.chatResponseJson = successfulChatResponse();
+        ChatCancellationHandle cancellationHandle = new ChatCancellationHandle();
+        transport.onCancellablePost = cancellationHandle::requestCancellation;
+        OllamaLlmClient client = new OllamaLlmClient(transport, defaultProperties());
+
+        assertThrows(ChatRunCancelledException.class, () -> client.chat(new LlmClient.ChatRequest(
+            "qwen2.5:7b",
+            List.of(new LlmClient.Message("user", "Привет"))
+        ), cancellationHandle));
+
+        assertEquals("/v1/chat/completions", transport.lastPostPath);
+        assertSame(cancellationHandle, transport.lastCancellationToken);
+    }
+
+    @Test
+    void chatDoesNotSendWhenTokenIsAlreadyCancelled() {
+        RecordingTransport transport = new RecordingTransport(objectMapper);
+        ChatCancellationHandle cancellationHandle = new ChatCancellationHandle();
+        cancellationHandle.requestCancellation();
+        OllamaLlmClient client = new OllamaLlmClient(transport, defaultProperties());
+
+        assertThrows(ChatRunCancelledException.class, () -> client.chat(new LlmClient.ChatRequest(
+            "qwen2.5:7b",
+            List.of(new LlmClient.Message("user", "Привет"))
+        ), cancellationHandle));
+
+        assertEquals(null, transport.lastPostPath);
+    }
+
+    @Test
     void listModelsReadsTagsEndpoint() {
         RecordingTransport transport = new RecordingTransport(objectMapper);
         transport.tagsResponseJson = """
@@ -172,6 +208,9 @@ class OllamaLlmClientTest {
         private String chatResponseJson;
         private String tagsResponseJson;
         private ApiException postFailure;
+        private ChatCancellationToken lastCancellationToken;
+        private Runnable onCancellablePost = () -> {
+        };
 
         private RecordingTransport(ObjectMapper objectMapper) {
             super(objectMapper);
@@ -243,6 +282,46 @@ class OllamaLlmClientTest {
                     exception
                 );
             }
+        }
+
+        @Override
+        public <T> T postJson(
+            String baseUrl,
+            String path,
+            Duration timeout,
+            Object payload,
+            Class<T> responseType,
+            ChatCancellationToken cancellationToken,
+            String unavailableCode,
+            String unavailableMessage,
+            String badResponseCode,
+            String badResponseMessage,
+            String parseFailedCode,
+            String parseFailedMessage,
+            String interruptedCode,
+            String interruptedMessage,
+            String invalidConfigurationCode,
+            String invalidConfigurationMessage
+        ) {
+            lastCancellationToken = cancellationToken;
+            onCancellablePost.run();
+            return postJson(
+                baseUrl,
+                path,
+                timeout,
+                payload,
+                responseType,
+                unavailableCode,
+                unavailableMessage,
+                badResponseCode,
+                badResponseMessage,
+                parseFailedCode,
+                parseFailedMessage,
+                interruptedCode,
+                interruptedMessage,
+                invalidConfigurationCode,
+                invalidConfigurationMessage
+            );
         }
 
         private String captureNextGetPath(Runnable action) {

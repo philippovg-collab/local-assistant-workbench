@@ -1,4 +1,4 @@
-package com.example.demo.infrastructure.audit;
+package com.example.demo.service.audit;
 
 import com.example.demo.model.ChatExecutionRequest;
 import java.time.Instant;
@@ -8,6 +8,11 @@ public record ChatRunQueueLease(
     ChatExecutionRequest request,
     Instant createdAt,
     Instant claimedAt,
-    int attemptCount
+    int attemptCount,
+    String leaseOwner,
+    Instant leaseExpiresAt
 ) {
+    public ChatRunLeaseToken leaseToken() {
+        return ChatRunLeaseToken.from(this);
+    }
 }

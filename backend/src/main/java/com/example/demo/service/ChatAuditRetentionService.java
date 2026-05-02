@@ -1,8 +1,8 @@
 package com.example.demo.service;
 
 import com.example.demo.config.ChatAuditProperties;
-import com.example.demo.infrastructure.audit.PostgresChatAuditRepository;
-import com.example.demo.infrastructure.audit.PostgresChatRunTraceRepository;
+import com.example.demo.service.audit.port.ChatAuditRepository;
+import com.example.demo.service.audit.port.ChatRunTraceRepository;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import org.slf4j.Logger;
@@ -16,13 +16,13 @@ public class ChatAuditRetentionService {
     private static final Logger logger = LoggerFactory.getLogger(ChatAuditRetentionService.class);
 
     private final ChatAuditProperties properties;
-    private final PostgresChatRunTraceRepository traceRepository;
-    private final PostgresChatAuditRepository legacyAuditRepository;
+    private final ChatRunTraceRepository traceRepository;
+    private final ChatAuditRepository legacyAuditRepository;
 
     public ChatAuditRetentionService(
         ChatAuditProperties properties,
-        PostgresChatRunTraceRepository traceRepository,
-        PostgresChatAuditRepository legacyAuditRepository
+        ChatRunTraceRepository traceRepository,
+        ChatAuditRepository legacyAuditRepository
     ) {
         this.properties = properties;
         this.traceRepository = traceRepository;

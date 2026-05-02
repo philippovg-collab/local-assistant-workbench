@@ -23,6 +23,7 @@ public record SearchableChunkDocument(
     String slideId,
     String parserConfidence,
     String workspaceKey,
+    String knowledgeDocumentClass,
     String documentType,
     String documentStatus,
     String projectKey,
@@ -39,6 +40,7 @@ public record SearchableChunkDocument(
     List<String> tags,
     String sourceTrust,
     String sourceType,
+    Instant createdAt,
     Instant updatedAt
 ) {
     public SearchableChunkDocument(
@@ -84,9 +86,11 @@ public record SearchableChunkDocument(
             null,
             null,
             null,
+            null,
             List.of(),
             null,
             sourceType,
+            null,
             updatedAt
         );
     }
@@ -145,6 +149,7 @@ public record SearchableChunkDocument(
                     chunk.slideId(),
                     chunk.parserConfidence().name(),
                     metadata.workspaceKey(),
+                    metadata.knowledgeDocumentClass().name(),
                     metadata.documentType().name(),
                     metadata.documentStatus().name(),
                     metadata.projectKey(),
@@ -161,6 +166,7 @@ public record SearchableChunkDocument(
                     metadata.tags(),
                     metadata.sourceTrust().name(),
                     snapshot.sourceType(),
+                    snapshot.createdAt(),
                     snapshot.updatedAt()
                 );
             })

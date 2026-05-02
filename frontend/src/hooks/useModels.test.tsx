@@ -15,8 +15,8 @@ vi.mock("../api/client", async () => {
   };
 });
 
-function ModelsHarness() {
-  const { models, error } = useModels();
+function ModelsHarness({ enabled = true }: { enabled?: boolean }) {
+  const { models, error } = useModels({ enabled });
 
   return (
     <section>
@@ -61,5 +61,37 @@ describe("useModels", () => {
 
     expect(apiClient.fetchModels).toHaveBeenCalledTimes(2);
     expect(screen.getByTestId("models-count").textContent).toBe("2");
+  });
+
+  it("does not fetch while disabled and keeps cached models across tab-style toggles", async () => {
+    vi.mocked(apiClient.fetchModels).mockResolvedValue([{ name: "qwen2.5:7b" }]);
+
+    const { rerender } = render(<ModelsHarness enabled={false} />);
+
+    expect(apiClient.fetchModels).not.toHaveBeenCalled();
+    expect(screen.getByTestId("models-count").textContent).toBe("0");
+
+    await act(async () => {
+      rerender(<ModelsHarness enabled />);
+      await Promise.resolve();
+    });
+
+    expect(apiClient.fetchModels).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId("models-count").textContent).toBe("1");
+
+    await act(async () => {
+      rerender(<ModelsHarness enabled={false} />);
+      await Promise.resolve();
+    });
+
+    expect(screen.getByTestId("models-count").textContent).toBe("1");
+
+    await act(async () => {
+      rerender(<ModelsHarness enabled />);
+      await Promise.resolve();
+    });
+
+    expect(apiClient.fetchModels).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId("models-count").textContent).toBe("1");
   });
 });

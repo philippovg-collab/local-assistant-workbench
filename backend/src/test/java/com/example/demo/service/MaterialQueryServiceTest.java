@@ -54,7 +54,7 @@ class MaterialQueryServiceTest {
             TestMaterialServices.lifecycleService(repository, repository, repository, repository, repository),
             org.mockito.Mockito.mock(MaterialIndexingService.class),
             new AfterCommitExecutor(),
-            new MaterialMetadataResolver()
+            new MaterialMetadataResolver(new com.example.demo.support.NoopReferenceDataRepository())
         );
 
         MaterialUploadPolicyResponse response = service.getUploadPolicy();
@@ -86,7 +86,7 @@ class MaterialQueryServiceTest {
             TestMaterialServices.lifecycleService(repository, repository, repository, repository, repository),
             org.mockito.Mockito.mock(MaterialIndexingService.class),
             new AfterCommitExecutor(),
-            new MaterialMetadataResolver()
+            new MaterialMetadataResolver(new com.example.demo.support.NoopReferenceDataRepository())
         );
 
         MaterialUploadPolicyResponse response = service.getUploadPolicy();
@@ -111,7 +111,7 @@ class MaterialQueryServiceTest {
             org.mockito.Mockito.mock(MaterialSearchSyncLifecycleService.class),
             org.mockito.Mockito.mock(MaterialIndexingService.class),
             new AfterCommitExecutor(),
-            new MaterialMetadataResolver()
+            new MaterialMetadataResolver(new com.example.demo.support.NoopReferenceDataRepository())
         );
 
         assertTrue(service.listSummaries().isEmpty());
@@ -149,7 +149,7 @@ class MaterialQueryServiceTest {
             org.mockito.Mockito.mock(MaterialSearchSyncLifecycleService.class),
             org.mockito.Mockito.mock(MaterialIndexingService.class),
             new AfterCommitExecutor(),
-            new MaterialMetadataResolver()
+            new MaterialMetadataResolver(new com.example.demo.support.NoopReferenceDataRepository())
         );
 
         MaterialListResponse page = service.listSummariesPage(100, 100);
@@ -704,6 +704,50 @@ class MaterialQueryServiceTest {
     }
 
     @Test
+    void rechunkActiveMaterialsRequiresStructuredRolloutEnabledAndLeavesStateUntouched() {
+        MaterialProperties properties = new MaterialProperties();
+        properties.setChunkProfile("structured-v1");
+        InMemoryMaterialRepository repository = new InMemoryMaterialRepository();
+        MaterialIndexingService indexingService = org.mockito.Mockito.mock(MaterialIndexingService.class);
+        RolloutProperties rolloutProperties = RolloutProperties.enabledForTests();
+        rolloutProperties.setStructuredV1(false);
+        MaterialQueryService service = createService(
+            repository,
+            properties,
+            indexingService,
+            rolloutProperties,
+            new MaterialMetadataResolver(new com.example.demo.support.NoopReferenceDataRepository())
+        );
+        StoredMaterialRecord active = materialRecord(
+            "Pricing FAQ",
+            "Alpha short sentence. Beta short sentence.",
+            "pricing-lineage",
+            MaterialVersionState.ACTIVE,
+            Instant.parse("2026-04-17T10:00:00Z"),
+            Instant.parse("2026-04-17T10:00:00Z")
+        );
+        repository.save(
+            active,
+            ChunkProfile.FIXED_V1.propertyValue(),
+            List.of(new StoredMaterialChunk(0, active.content(), List.of(), null, "direct-text", false)),
+            List.of(new StoredMaterialSegment(0, active.content(), null, "direct-text", false))
+        );
+
+        ApiException fullRunException = assertThrows(ApiException.class, service::rechunkActiveMaterials);
+        ApiException batchException = assertThrows(
+            ApiException.class,
+            () -> service.rechunkActiveMaterialsBatch(new RechunkActiveMaterialsBatchRequest(10, null, true))
+        );
+
+        assertEquals("material.structured_rollout_disabled", fullRunException.getCode());
+        assertEquals("material.structured_rollout_disabled", batchException.getCode());
+        assertEquals("fixed-v1", repository.findChunkProfile(active.id()));
+        assertEquals(MaterialIndexingStatus.READY, repository.findById(active.id()).orElseThrow().status());
+        assertTrue(repository.findAllSearchSyncEntries().isEmpty());
+        org.mockito.Mockito.verifyNoInteractions(indexingService);
+    }
+
+    @Test
     void reindexDoesNotChangeChunkProfileWhenGlobalTargetDiffers() {
         MaterialProperties properties = new MaterialProperties();
         properties.setChunkProfile("structured-v1");
@@ -846,13 +890,29 @@ class MaterialQueryServiceTest {
         MaterialProperties properties,
         MaterialIndexingService indexingService
     ) {
-        return createService(repository, properties, indexingService, new MaterialMetadataResolver());
+        return createService(repository, properties, indexingService, new MaterialMetadataResolver(new com.example.demo.support.NoopReferenceDataRepository()));
     }
 
     private MaterialQueryService createService(
         InMemoryMaterialRepository repository,
         MaterialProperties properties,
         MaterialIndexingService indexingService,
+        MaterialMetadataResolver metadataResolver
+    ) {
+        return createService(
+            repository,
+            properties,
+            indexingService,
+            RolloutProperties.enabledForTests(),
+            metadataResolver
+        );
+    }
+
+    private MaterialQueryService createService(
+        InMemoryMaterialRepository repository,
+        MaterialProperties properties,
+        MaterialIndexingService indexingService,
+        RolloutProperties rolloutProperties,
         MaterialMetadataResolver metadataResolver
     ) {
         MaterialSearchSyncLifecycleService lifecycleService = TestMaterialServices.lifecycleService(
@@ -872,7 +932,7 @@ class MaterialQueryServiceTest {
             lifecycleService,
             indexingService,
             new AfterCommitExecutor(),
-            RolloutProperties.enabledForTests(),
+            rolloutProperties == null ? RolloutProperties.enabledForTests() : rolloutProperties,
             metadataResolver
         );
     }

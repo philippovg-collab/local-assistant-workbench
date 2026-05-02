@@ -48,15 +48,15 @@ const renderPanel = (
     retrievalDebug: {
       queryHints: {
         documentNumber: "KZ-2026-0415-ENERGY",
-        project: null,
-        projectKeys: ["North Upgrade"],
+        project: "North Upgrade",
+        projectKeys: [],
       },
       manualFilters: {
         documentNumber: null,
         documentDateFrom: null,
         documentDateTo: null,
         department: null,
-        project: null,
+        project: "North Upgrade",
         counterparty: null,
         businessStatus: null,
         language: null,
@@ -84,7 +84,7 @@ const renderPanel = (
         sourceTrustMin: null,
         documentTypes: [],
         documentStatuses: [],
-        projectKeys: ["North Upgrade"],
+        projectKeys: [],
         languageCodes: [],
         periodStartFrom: null,
         periodStartTo: null,
@@ -223,7 +223,7 @@ const renderPanel = (
         documentDateFrom: null,
         documentDateTo: null,
         department: null,
-        project: null,
+        project: "North Upgrade",
         counterparty: null,
         businessStatus: null,
         language: null,
@@ -231,7 +231,7 @@ const renderPanel = (
         sourceTrustMin: null,
         documentTypes: [],
         documentStatuses: [],
-        projectKeys: ["North Upgrade"],
+        projectKeys: [],
         languageCodes: [],
         periodStartFrom: null,
         periodStartTo: null,
@@ -240,12 +240,12 @@ const renderPanel = (
       }}
       queryHints={{
         documentNumber: "KZ-2026-0415-ENERGY",
-        project: null,
-        projectKeys: ["North Upgrade"],
+        project: "North Upgrade",
+        projectKeys: [],
       }}
       metadataFiltersEnabled={true}
       queryHintsEnabled={true}
-      hintOwnedFields={["documentNumber", "projectKeys"]}
+      hintOwnedFields={["documentNumber", "project"]}
       manualOwnedFields={[]}
       dismissedHintKeys={[]}
       onRetrievalFilterChange={vi.fn()}

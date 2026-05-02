@@ -157,7 +157,9 @@ function HookHarness({
       <output data-testid={`${mode}-last-request-output`}>{chat.lastSubmittedRequest?.prompt ?? ""}</output>
       <output data-testid={`${mode}-hint-document-number-output`}>{chat.queryHints.documentNumber ?? ""}</output>
       <output data-testid={`${mode}-effective-document-number-output`}>{chat.effectiveRetrievalFilters.documentNumber ?? ""}</output>
-      <output data-testid={`${mode}-effective-project-output`}>{chat.effectiveRetrievalFilters.projectKeys?.join(", ") ?? ""}</output>
+      <output data-testid={`${mode}-effective-document-date-from-output`}>{chat.effectiveRetrievalFilters.documentDateFrom ?? ""}</output>
+      <output data-testid={`${mode}-effective-project-output`}>{chat.effectiveRetrievalFilters.project ?? ""}</output>
+      <output data-testid={`${mode}-effective-project-keys-output`}>{chat.effectiveRetrievalFilters.projectKeys?.join(", ") ?? ""}</output>
     </section>
   );
 }
@@ -427,6 +429,7 @@ describe("useChatExecution", () => {
 
     expect(screen.getByTestId("rag-hint-document-number-output").textContent).toBe("KZ-2026-0415-ENERGY");
     expect(screen.getByTestId("rag-effective-project-output").textContent).toContain("North Upgrade");
+    expect(screen.getByTestId("rag-effective-project-keys-output").textContent).toBe("");
 
     await user.click(screen.getByText("submit-rag"));
 
@@ -435,7 +438,9 @@ describe("useChatExecution", () => {
         expect.objectContaining({
           retrievalFilters: expect.objectContaining({
             documentNumber: "KZ-2026-0415-ENERGY",
-            projectKeys: expect.arrayContaining(["North Upgrade"]),
+            documentTypes: ["CONTRACT"],
+            project: "North Upgrade",
+            projectKeys: [],
           }),
         }),
         expect.any(AbortSignal),
@@ -557,7 +562,8 @@ describe("useChatExecution", () => {
     );
 
     await user.click(screen.getByText("set-manual-project"));
-    expect(screen.getByTestId("rag-effective-project-output").textContent).toBe("Manual Project");
+    expect(screen.getByTestId("rag-effective-project-output").textContent).toBe("");
+    expect(screen.getByTestId("rag-effective-project-keys-output").textContent).toBe("Manual Project");
 
     await user.click(screen.getByText("submit-rag"));
 
@@ -565,6 +571,7 @@ describe("useChatExecution", () => {
       expect(apiClient.executeChat).toHaveBeenCalledWith(
         expect.objectContaining({
           retrievalFilters: expect.objectContaining({
+            project: null,
             projectKeys: ["Manual Project"],
           }),
         }),
@@ -594,6 +601,42 @@ describe("useChatExecution", () => {
 
     await user.click(screen.getByText("reset-hints"));
     expect(screen.getByTestId("rag-effective-document-number-output").textContent).toBe("KZ-2026-0415-ENERGY");
+  });
+
+  it("maps query dates to document date filters instead of period filters", async () => {
+    const user = userEvent.setup();
+    vi.mocked(apiClient.executeChat).mockResolvedValue(buildChatExecutionResponse({
+      mode: "rag",
+      model: "qwen2.5:7b",
+      prompt: "Покажи договоры с 2026-04-01 по 2026-04-30",
+      answer: "Ответ",
+    }));
+
+    render(
+      <HookHarness
+        initialPrompt="Покажи договоры с 2026-04-01 по 2026-04-30"
+        mode="rag"
+        rolloutFlags={enabledFlags}
+      />,
+    );
+
+    expect(screen.getByTestId("rag-effective-document-date-from-output").textContent).toBe("2026-04-01");
+
+    await user.click(screen.getByText("submit-rag"));
+
+    await waitFor(() => {
+      expect(apiClient.executeChat).toHaveBeenCalledWith(
+        expect.objectContaining({
+          retrievalFilters: expect.objectContaining({
+            documentDateFrom: "2026-04-01",
+            documentDateTo: "2026-04-30",
+            periodStartFrom: null,
+            periodStartTo: null,
+          }),
+        }),
+        expect.any(AbortSignal),
+      );
+    });
   });
 
   it("shows requestId for unexpected backend failures", async () => {
@@ -730,5 +773,68 @@ describe("useChatExecution", () => {
     await waitFor(() => {
       expect(screen.getByTestId("direct-response-output").textContent).toBe("second answer");
     });
+  });
+
+  it("cancels the current durable run before resubmitting", async () => {
+    const user = userEvent.setup();
+    vi.mocked(apiClient.submitChatRun)
+      .mockResolvedValueOnce({
+        id: "run-1",
+        status: "RECEIVED",
+        createdAt: "2026-04-16T10:00:00Z",
+        statusUrl: "/api/chat-runs/run-1/status",
+        traceUrl: "/api/chat-runs/run-1/trace",
+        resultUrl: "/api/chat-runs/run-1/result",
+      })
+      .mockResolvedValueOnce({
+        id: "run-2",
+        status: "RECEIVED",
+        createdAt: "2026-04-16T10:00:01Z",
+        statusUrl: "/api/chat-runs/run-2/status",
+        traceUrl: "/api/chat-runs/run-2/trace",
+        resultUrl: "/api/chat-runs/run-2/result",
+      });
+    vi.mocked(apiClient.fetchChatRunStatus).mockImplementation(
+      () => new Promise(() => undefined),
+    );
+
+    render(<HookHarness initialPrompt="direct prompt" mode="direct" />);
+
+    await user.click(screen.getByText("submit-direct"));
+    await waitFor(() => {
+      expect(apiClient.fetchChatRunStatus).toHaveBeenCalledWith("run-1", expect.any(AbortSignal));
+    });
+
+    await user.click(screen.getByText("submit-direct"));
+
+    await waitFor(() => {
+      expect(apiClient.cancelChatRun).toHaveBeenCalledWith("run-1");
+    });
+  });
+
+  it("cancels the current durable run on unmount", async () => {
+    const user = userEvent.setup();
+    vi.mocked(apiClient.submitChatRun).mockResolvedValueOnce({
+      id: "run-1",
+      status: "RECEIVED",
+      createdAt: "2026-04-16T10:00:00Z",
+      statusUrl: "/api/chat-runs/run-1/status",
+      traceUrl: "/api/chat-runs/run-1/trace",
+      resultUrl: "/api/chat-runs/run-1/result",
+    });
+    vi.mocked(apiClient.fetchChatRunStatus).mockImplementation(
+      () => new Promise(() => undefined),
+    );
+
+    const { unmount } = render(<HookHarness initialPrompt="direct prompt" mode="direct" />);
+
+    await user.click(screen.getByText("submit-direct"));
+    await waitFor(() => {
+      expect(apiClient.fetchChatRunStatus).toHaveBeenCalledWith("run-1", expect.any(AbortSignal));
+    });
+
+    unmount();
+
+    expect(apiClient.cancelChatRun).toHaveBeenCalledWith("run-1");
   });
 });

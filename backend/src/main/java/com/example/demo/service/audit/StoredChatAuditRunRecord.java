@@ -1,4 +1,4 @@
-package com.example.demo.infrastructure.audit;
+package com.example.demo.service.audit;
 
 import com.example.demo.model.AnswerMode;
 import com.example.demo.model.ChatMode;

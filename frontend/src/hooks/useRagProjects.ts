@@ -1,22 +1,35 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { apiClient } from "@/api/client";
 import { translateCommonApiError } from "@/api/errorMessages";
 import type { RagProjectInput, RagProjectSummary } from "@/types";
 
-export const useRagProjects = (options: { activeOnly?: boolean } = {}) => {
-  const { activeOnly = false } = options;
+type UseRagProjectsOptions = {
+  activeOnly?: boolean;
+  enabled?: boolean;
+};
+
+export const useRagProjects = (options: UseRagProjectsOptions = {}) => {
+  const { activeOnly = false, enabled = true } = options;
   const [projects, setProjects] = useState<RagProjectSummary[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(enabled);
   const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const loadedParamsRef = useRef<string | null>(null);
+  const paramsKey = JSON.stringify({ activeOnly });
 
-  const loadProjects = async (signal?: AbortSignal) => {
+  const loadProjects = async (signal?: AbortSignal, options: { force?: boolean } = {}) => {
+    if (!enabled && !options.force) {
+      setIsLoading(false);
+      return null;
+    }
+
     setIsLoading(true);
     try {
       const payload = await apiClient.fetchRagProjects({ activeOnly }, signal);
       setProjects(payload);
       setError(null);
+      loadedParamsRef.current = paramsKey;
       return payload;
     } catch (loadError) {
       if (signal?.aborted) {
@@ -30,17 +43,25 @@ export const useRagProjects = (options: { activeOnly?: boolean } = {}) => {
   };
 
   useEffect(() => {
+    if (!enabled) {
+      setIsLoading(false);
+      return;
+    }
+    if (loadedParamsRef.current === paramsKey) {
+      return;
+    }
+
     const controller = new AbortController();
     void loadProjects(controller.signal);
     return () => controller.abort();
-  }, [activeOnly]);
+  }, [activeOnly, enabled, paramsKey]);
 
   const createProject = async (input: RagProjectInput) => {
     setActionError(null);
     setMessage(null);
     try {
       const created = await apiClient.createRagProject(input);
-      await loadProjects();
+      await loadProjects(undefined, { force: true });
       setMessage("RAG-проект создан.");
       return created;
     } catch (submissionError) {
@@ -54,7 +75,7 @@ export const useRagProjects = (options: { activeOnly?: boolean } = {}) => {
     setMessage(null);
     try {
       const updated = await apiClient.updateRagProject(projectKey, input);
-      await loadProjects();
+      await loadProjects(undefined, { force: true });
       setMessage("RAG-проект обновлён.");
       return updated;
     } catch (submissionError) {
@@ -69,7 +90,7 @@ export const useRagProjects = (options: { activeOnly?: boolean } = {}) => {
     error,
     actionError,
     message,
-    reload: loadProjects,
+    reload: (signal?: AbortSignal) => loadProjects(signal, { force: true }),
     createProject,
     updateProject,
   };

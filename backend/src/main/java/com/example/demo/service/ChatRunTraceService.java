@@ -1,9 +1,11 @@
 package com.example.demo.service;
 
 import com.example.demo.api.ApiException;
-import com.example.demo.infrastructure.audit.PostgresChatRunTraceRepository;
+import com.example.demo.service.audit.port.ChatRunTraceRepository;
 import com.example.demo.llm.LlmClient;
 import com.example.demo.model.AnswerMode;
+import com.example.demo.model.ChatAuditRunDetail;
+import com.example.demo.model.ChatAuditRunSummary;
 import com.example.demo.model.ChatExecutionResponse;
 import com.example.demo.model.ChatExecutionRequest;
 import com.example.demo.model.ChatMode;
@@ -16,10 +18,11 @@ import com.example.demo.model.LlmCallTrace;
 import com.example.demo.model.PromptPolicySnapshot;
 import com.example.demo.model.RetrievalDebug;
 import com.example.demo.model.RetrievalTrace;
-import java.time.Duration;
+import com.example.demo.service.audit.ChatRunLeaseToken;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -30,12 +33,18 @@ public class ChatRunTraceService {
 
     private static final String PROVIDER_OLLAMA = "ollama";
 
-    private final PostgresChatRunTraceRepository repository;
+    private final ChatRunTraceRepository repository;
+    private final ChatRunStateMachine stateMachine;
     private final AtomicInteger consecutiveFailureCount = new AtomicInteger(0);
     private final AtomicReference<TraceHealth> traceHealth = new AtomicReference<>(TraceHealth.up(null));
 
-    public ChatRunTraceService(PostgresChatRunTraceRepository repository) {
+    public ChatRunTraceService(ChatRunTraceRepository repository) {
         this.repository = repository;
+        this.stateMachine = new ChatRunStateMachine(repository);
+    }
+
+    public static ChatRunTraceService noop() {
+        return new ChatRunTraceService(new NoopChatRunTraceRepository());
     }
 
     public RunTraceContext startRun(ChatExecutionRequest request, ChatMode mode) {
@@ -201,61 +210,15 @@ public class ChatRunTraceService {
         AnswerMode appliedAnswerMode,
         String contextStatus
     ) {
-        return write(() -> {
-            Instant completedAt = Instant.now();
-            boolean completed = repository.completeRun(
-                context.id(),
-                resolvedModel,
-                appliedAnswerMode,
-                contextStatus,
-                completedAt,
-                Duration.between(context.createdAt(), completedAt).toMillis()
-            );
-            if (completed) {
-                repository.insertEvent(context.id(), "COMPLETED", Map.of(), completedAt);
-            }
-            return completed;
-        });
+        return write(() -> stateMachine.complete(context, resolvedModel, appliedAnswerMode, contextStatus));
     }
 
     public boolean completeRunWithResult(RunTraceContext context, ChatExecutionResponse response) {
-        return write(() -> {
-            Instant completedAt = Instant.now();
-            return repository.completeRunWithResult(
-                context.id(),
-                response == null ? null : response.model(),
-                response == null ? null : response.answerModeApplied(),
-                response == null ? null : response.contextStatus(),
-                completedAt,
-                Duration.between(context.createdAt(), completedAt).toMillis(),
-                response
-            );
-        });
+        return write(() -> stateMachine.completeWithResult(context, response));
     }
 
     public boolean failRun(RunTraceContext context, String failureStage, Throwable throwable) {
-        return write(() -> {
-            Instant failedAt = Instant.now();
-            boolean failed = repository.failRun(
-                context.id(),
-                failureStage,
-                reasonCode(throwable),
-                rootMessage(throwable),
-                failedAt,
-                Duration.between(context.createdAt(), failedAt).toMillis()
-            );
-            if (failed) {
-                repository.insertEvent(context.id(), "FAILED", Map.of(
-                    "stage",
-                    failureStage,
-                    "code",
-                    reasonCode(throwable),
-                    "message",
-                    rootMessage(throwable)
-                ), failedAt);
-            }
-            return failed;
-        });
+        return write(() -> stateMachine.fail(context, failureStage, throwable));
     }
 
     public boolean cancelRun(RunTraceContext context) {
@@ -266,17 +229,20 @@ public class ChatRunTraceService {
     }
 
     public boolean cancelRun(String runId, Instant createdAt) {
-        return write(() -> {
-            Instant cancelledAt = Instant.now();
-            boolean cancelled = repository.cancelRun(
-                runId,
-                cancelledAt,
-                createdAt == null ? 0 : Duration.between(createdAt, cancelledAt).toMillis()
-            );
-            if (cancelled) {
-                repository.insertEvent(runId, "CANCELLED", Map.of(), cancelledAt);
-            }
-            return cancelled;
+        return write(() -> stateMachine.cancel(runId, createdAt));
+    }
+
+    public boolean transitionStage(RunTraceContext context, String status) {
+        return write(() -> stateMachine.transitionStage(context, status));
+    }
+
+    public void insertEvent(RunTraceContext context, String eventType, Object payload) {
+        if (context == null) {
+            return;
+        }
+        write(() -> {
+            repository.insertEvent(context.id(), eventType, payload == null ? Map.of() : payload, Instant.now());
+            return null;
         });
     }
 
@@ -331,8 +297,12 @@ public class ChatRunTraceService {
 
     public record RunTraceContext(
         String id,
-        Instant createdAt
+        Instant createdAt,
+        ChatRunLeaseToken leaseToken
     ) {
+        public RunTraceContext(String id, Instant createdAt) {
+            this(id, createdAt, null);
+        }
     }
 
     public record TraceHealth(
@@ -365,5 +335,167 @@ public class ChatRunTraceService {
     @FunctionalInterface
     private interface TraceWriteOperation<T> {
         T execute();
+    }
+
+    private static final class NoopChatRunTraceRepository implements ChatRunTraceRepository {
+
+        @Override
+        public void insertHeader(String runId, ChatMode mode, String requestedModel, AnswerMode requestedAnswerMode, Instant createdAt) {
+        }
+
+        @Override
+        public void saveRequestSnapshot(String runId, ChatExecutionRequest request, ChatExecutionRequest normalizedRequest) {
+        }
+
+        @Override
+        public void savePromptSnapshot(String runId, PromptPolicySnapshot snapshot) {
+        }
+
+        @Override
+        public void savePromptMessages(String runId, List<ChatRunMessage> messages) {
+        }
+
+        @Override
+        public void saveRetrievalSummary(String runId, String retrievalStatus, RetrievalTrace trace, RetrievalDebug debug) {
+        }
+
+        @Override
+        public void insertLlmCall(String runId, LlmCallTrace call) {
+        }
+
+        @Override
+        public void saveOutput(String runId, ChatRunOutputTrace output) {
+        }
+
+        @Override
+        public boolean completeRun(
+            String runId,
+            String resolvedModel,
+            AnswerMode appliedAnswerMode,
+            String contextStatus,
+            Instant completedAt,
+            long latencyMsTotal
+        ) {
+            return true;
+        }
+
+        @Override
+        public boolean completeRun(
+            String runId,
+            String resolvedModel,
+            AnswerMode appliedAnswerMode,
+            String contextStatus,
+            Instant completedAt,
+            long latencyMsTotal,
+            ChatRunLeaseToken leaseToken
+        ) {
+            return true;
+        }
+
+        @Override
+        public boolean completeRunWithResult(
+            String runId,
+            String resolvedModel,
+            AnswerMode appliedAnswerMode,
+            String contextStatus,
+            Instant completedAt,
+            long latencyMsTotal,
+            ChatExecutionResponse response
+        ) {
+            return true;
+        }
+
+        @Override
+        public boolean completeRunWithResult(
+            String runId,
+            String resolvedModel,
+            AnswerMode appliedAnswerMode,
+            String contextStatus,
+            Instant completedAt,
+            long latencyMsTotal,
+            ChatExecutionResponse response,
+            ChatRunLeaseToken leaseToken
+        ) {
+            return true;
+        }
+
+        @Override
+        public Optional<ChatExecutionResponse> findResult(String runId) {
+            return Optional.empty();
+        }
+
+        @Override
+        public Optional<com.example.demo.service.audit.ChatRunHeaderStatus> findHeaderStatus(String runId) {
+            return Optional.empty();
+        }
+
+        @Override
+        public boolean insertResultIfAbsent(String runId, ChatExecutionResponse response, Instant completedAt, String source) {
+            return false;
+        }
+
+        @Override
+        public boolean transitionStage(String runId, String status, ChatRunLeaseToken leaseToken) {
+            return true;
+        }
+
+        @Override
+        public boolean failRun(
+            String runId,
+            String failureStage,
+            String failureCode,
+            String failureMessage,
+            Instant failedAt,
+            long latencyMsTotal
+        ) {
+            return false;
+        }
+
+        @Override
+        public boolean failRun(
+            String runId,
+            String failureStage,
+            String failureCode,
+            String failureMessage,
+            Instant failedAt,
+            long latencyMsTotal,
+            ChatRunLeaseToken leaseToken
+        ) {
+            return false;
+        }
+
+        @Override
+        public boolean cancelRun(String runId, Instant cancelledAt, long latencyMsTotal) {
+            return false;
+        }
+
+        @Override
+        public void insertEvent(String runId, String eventType, Object payload, Instant createdAt) {
+        }
+
+        @Override
+        public boolean insertEventIfRunMutable(String runId, String eventType, Object payload, Instant createdAt) {
+            return false;
+        }
+
+        @Override
+        public List<ChatAuditRunSummary> findRunSummaries(int limit, String workspaceKey) {
+            return List.of();
+        }
+
+        @Override
+        public Optional<ChatAuditRunDetail> findAuditRunDetail(String runId) {
+            return Optional.empty();
+        }
+
+        @Override
+        public Optional<com.example.demo.model.ChatRunTraceDetail> findTrace(String runId) {
+            return Optional.empty();
+        }
+
+        @Override
+        public int deleteRunsOlderThan(Instant cutoff) {
+            return 0;
+        }
     }
 }

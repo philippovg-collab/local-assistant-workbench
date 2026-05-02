@@ -139,6 +139,16 @@ class MaterialContentSupportTest {
     }
 
     @Test
+    void resolvesFixedChunkProfileWhenStructuredRolloutIsDisabled() {
+        MaterialProperties properties = new MaterialProperties();
+        properties.setChunkProfile(ChunkProfile.STRUCTURED_V1.propertyValue());
+        MaterialContentSupport rolloutAwareSupport = new MaterialContentSupport(properties);
+
+        assertEquals(ChunkProfile.FIXED_V1, rolloutAwareSupport.configuredChunkProfile(false));
+        assertEquals(ChunkProfile.STRUCTURED_V1, rolloutAwareSupport.configuredChunkProfile(true));
+    }
+
+    @Test
     void createsPseudoSegmentsFromLegacyChunksWithoutDroppingMetadata() {
         List<StoredMaterialSegment> segments = contentSupport.pseudoSegmentsFromChunks(
             List.of(new StoredMaterialChunk(

@@ -80,7 +80,7 @@ class SearchControllerFlowTest {
                         "department": "Grid operations",
                         "project": "North Upgrade",
                         "counterparty": "GridBuild LLP",
-                        "businessStatus": "ACTIVE",
+                        "businessStatus": "APPROVED",
                         "language": "ru",
                         "tags": ["dispatch"]
                       },

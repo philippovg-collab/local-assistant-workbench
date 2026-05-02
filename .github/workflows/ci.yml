@@ -7,8 +7,16 @@ on:
   pull_request:
 
 jobs:
+  static-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run Phase 5 static anti-regression gate
+        run: python3 scripts/phase5-static-gate.py
+
   backend:
     runs-on: ubuntu-latest
+    needs: static-gate
     defaults:
       run:
         working-directory: backend
@@ -87,6 +95,7 @@ jobs:
 
   frontend:
     runs-on: ubuntu-latest
+    needs: static-gate
     defaults:
       run:
         working-directory: frontend

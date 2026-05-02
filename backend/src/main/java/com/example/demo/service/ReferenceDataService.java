@@ -1,9 +1,9 @@
 package com.example.demo.service;
 
 import com.example.demo.api.ApiException;
-import com.example.demo.infrastructure.reference.PostgresReferenceDataRepository;
-import com.example.demo.infrastructure.reference.StoredReferenceProjectRecord;
-import com.example.demo.infrastructure.reference.StoredReferenceWorkspaceRecord;
+import com.example.demo.service.reference.port.ReferenceDataRepository;
+import com.example.demo.service.reference.StoredReferenceProjectRecord;
+import com.example.demo.service.reference.StoredReferenceWorkspaceRecord;
 import com.example.demo.model.ReferenceProject;
 import com.example.demo.model.ReferenceProjectRequest;
 import com.example.demo.model.ReferenceWorkspace;
@@ -21,9 +21,9 @@ public class ReferenceDataService {
 
     private static final Pattern MACHINE_KEY_PATTERN = Pattern.compile("^[a-z0-9]+(?:-[a-z0-9]+)*$");
 
-    private final PostgresReferenceDataRepository repository;
+    private final ReferenceDataRepository repository;
 
-    public ReferenceDataService(PostgresReferenceDataRepository repository) {
+    public ReferenceDataService(ReferenceDataRepository repository) {
         this.repository = repository;
     }
 

@@ -192,7 +192,7 @@ APP_LLM_EXTRA_MODELS=deepseek-r1:8b docker compose up -d ollama ollama-init back
 
 ### Optional Elasticsearch sidecar and rollout runbook
 
-Фазы 3-5 добавляют opt-in контур `Elasticsearch` для shadow indexing и production lexical rollout. Источник истины по материалам, lineage, readiness и embeddings по-прежнему `PostgreSQL`; рекомендуемый production mode после валидации — `APP_RAG_LEXICAL_PROVIDER=auto`, чтобы lexical path шёл через `Elasticsearch`, а при деградации search plane backend автоматически откатывался на PostgreSQL fallback.
+Фазы 3-5 добавляют opt-in контур `Elasticsearch` для shadow indexing и production lexical rollout. Источник истины по материалам, lineage, readiness и embeddings по-прежнему `PostgreSQL`; Elasticsearch lexical plane не является source of truth. Рекомендуемый production mode после валидации — `APP_RAG_LEXICAL_PROVIDER=auto`, чтобы lexical path шёл через `Elasticsearch`, а при деградации search plane backend автоматически откатывался на PostgreSQL fallback.
 
 Поднять локальный sidecar можно отдельно:
 
@@ -209,7 +209,7 @@ export SPRING_ELASTICSEARCH_USERNAME=elastic
 export SPRING_ELASTICSEARCH_PASSWORD=your-password
 ```
 
-После этого backend начнёт наполнять versioned index `rag-chunks-v1` через aliases `rag-chunks-read` и `rag-chunks-write`. Стандартный `./scripts/start-studio.sh` по умолчанию ничего не меняет и search sync не включает. В Codex/agent/PTY runtime поддерживаемый long-lived способ держать локальные сервисы живыми теперь только `./scripts/run-local-stack.sh`.
+После этого backend начнёт наполнять versioned index `rag-chunks-v3` через aliases `rag-chunks-read` и `rag-chunks-write`. Стандартный `./scripts/start-studio.sh` по умолчанию ничего не меняет и search sync не включает. В Codex/agent/PTY runtime поддерживаемый long-lived способ держать локальные сервисы живыми теперь только `./scripts/run-local-stack.sh`.
 
 При включённом `APP_SEARCH_SYNC_ENABLED=true` обычный backend startup теперь:
 
@@ -220,15 +220,27 @@ export SPRING_ELASTICSEARCH_PASSWORD=your-password
 
 Оба operator script используют те же `SPRING_ELASTICSEARCH_URIS`, `SPRING_ELASTICSEARCH_USERNAME`, `SPRING_ELASTICSEARCH_PASSWORD` и `APP_SEARCH_SYNC_INDEX_PREFIX`, что и runtime backend.
 
+#### Release checklist перед `auto`
+
+- Убедиться, что production defaults остаются `APP_SEARCH_SYNC_ENABLED=false` и `APP_RAG_LEXICAL_PROVIDER=postgres`.
+- Прогнать Docker-backed ES proof: `./scripts/test-backend.sh integration -Dit.test=ElasticsearchIndexSyncIT,ElasticsearchPhase4IT,ElasticsearchPhase5IT,ElasticsearchPhase5DownIT`.
+- Подготовить index version `v3`.
+- Пересобрать write index из PostgreSQL source of truth.
+- Проверить `/api/health`: search plane `UP`, backlog `0`, failed `0`.
+- Выполнить smoke search на подготовленном read target.
+- Продвинуть `rag-chunks-read` на `v3`.
+- Включить `APP_RAG_LEXICAL_PROVIDER=auto`.
+- Для rollback вернуть `APP_RAG_LEXICAL_PROVIDER=postgres` или продвинуть read alias на предыдущий проверенный target.
+
 #### Короткий operator runbook
 
 1. Prepare index
 
 ```bash
-./scripts/search-prepare-index.sh v2
+./scripts/search-prepare-index.sh v3
 ```
 
-Скрипт создаёт `rag-chunks-v2` при необходимости, переводит только `rag-chunks-write` на новый target и намеренно не делает read cutover.
+Скрипт создаёт `rag-chunks-v3` при необходимости, переводит только `rag-chunks-write` на новый target и намеренно не делает read cutover.
 
 2. Backfill / rebuild write index
 
@@ -244,10 +256,10 @@ export SPRING_ELASTICSEARCH_PASSWORD=your-password
 
 3. Shadow compare before cutover
 
-Для live rollout держи lexical mode на `APP_RAG_LEXICAL_PROVIDER=postgres` и включай shadow sampling через `APP_RAG_SHADOW_ENABLED=true`. Для локального или CI proof текущий Phase 4 artifact собирается существующим integration layout:
+Для live rollout держи lexical mode на `APP_RAG_LEXICAL_PROVIDER=postgres` и включай shadow sampling через `APP_RAG_SHADOW_ENABLED=true`. Для локального или CI proof текущий Phase 4/5 artifact собирается существующим integration layout:
 
 ```bash
-./scripts/test-backend.sh integration -Dit.test=ElasticsearchPhase4IT
+./scripts/test-backend.sh integration -Dit.test=ElasticsearchIndexSyncIT,ElasticsearchPhase4IT,ElasticsearchPhase5IT,ElasticsearchPhase5DownIT
 ```
 
 Отчёт сравнения пишется в `backend/target/search-quality/phase4-shadow-report.md`.
@@ -255,7 +267,7 @@ export SPRING_ELASTICSEARCH_PASSWORD=your-password
 4. Promote read alias
 
 ```bash
-./scripts/search-promote-read-alias.sh v2
+./scripts/search-promote-read-alias.sh v3
 ```
 
 После этого можно переводить runtime на `APP_RAG_LEXICAL_PROVIDER=auto`: lexical retrieval пойдёт через `Elasticsearch`, а при деградации search plane останется PostgreSQL fallback.
@@ -263,14 +275,14 @@ export SPRING_ELASTICSEARCH_PASSWORD=your-password
 5. Rollback
 
 ```bash
-./scripts/search-promote-read-alias.sh v1
+export APP_RAG_LEXICAL_PROVIDER=postgres
 ```
 
-Rollback здесь означает только возврат `rag-chunks-read` на предыдущую уже подготовленную версию. Он не очищает текущий `write` index и не двигает `rag-chunks-write`, пока оператор не сделает это отдельно.
+Rollback по provider mode возвращает runtime на PostgreSQL lexical path. Если нужен alias rollback, оператор вручную продвигает `rag-chunks-read` на предыдущий уже подготовленный target; это не очищает текущий `write` index и не двигает `rag-chunks-write`, пока оператор не сделает это отдельно.
 
 ### Quality-layer rollout
 
-Phase 7 добавляет отдельный rollout layer поверх существующего search lifecycle. Он не меняет `ACTIVE/SUPERSEDED`, не делает schema rollback и не вмешивается в текущий Elasticsearch alias/fallback flow. Все переключатели только config/env driven:
+Phase 6 quality rollout добавляет отдельный rollout layer поверх существующего search lifecycle. Он не меняет `ACTIVE/SUPERSEDED`, не делает schema rollback и не вмешивается в текущий Elasticsearch alias/fallback flow. Все переключатели только config/env driven:
 
 - `APP_ROLLOUT_METADATA_V1`
 - `APP_ROLLOUT_STRUCTURED_V1`
@@ -280,6 +292,22 @@ Phase 7 добавляет отдельный rollout layer поверх сущ�
 - `APP_ROLLOUT_QUERY_HINTS_V1`
 
 Каждый флаг по умолчанию `false`.
+
+#### Quality gate proof
+
+Перед production enablement прогоняй локальный proof без Docker и Elasticsearch:
+
+```bash
+./scripts/quality-rollout-proof.sh
+```
+
+Скрипт запускает `./scripts/test-backend.sh fast -Dtest=Phase6RetrievalQualityIT` и проверяет артефакты:
+
+- `backend/target/search-quality/phase6-quality-report.md`
+- `backend/target/search-quality/phase6-quality-report.json`
+- `backend/target/search-quality/phase6-rerank-report.md`
+
+Gate должен быть `PASS`: `structured-v1 + hybrid-v1` не должен регрессировать exact-match guards относительно `fixed-v1 + hybrid-v1`, а `structured-v1 + hybrid-rerank-v1` не должен увеличивать no-context count относительно `structured-v1 + hybrid-v1`.
 
 #### Flag semantics
 
@@ -294,11 +322,12 @@ Phase 7 добавляет отдельный rollout layer поверх сущ�
 
 1. Включить `APP_ROLLOUT_METADATA_V1=true`.
 2. Включить `APP_ROLLOUT_STRUCTURED_V1=true` только для новых ingest.
-3. Прогнать ACTIVE backfill через существующий batch API, начиная с dry-run.
-4. Включить `APP_ROLLOUT_METADATA_FILTERS_V1=true`.
-5. Включить `APP_ROLLOUT_SEARCH_API_V1=true`.
-6. Включить `APP_ROLLOUT_RERANKER_V1=true`.
-7. Включить `APP_ROLLOUT_QUERY_HINTS_V1=true`.
+3. Сделать dry-run `POST /api/materials/rechunk-active/batch`.
+4. Выполнить batch backfill по `nextCursor`.
+5. Включить `APP_ROLLOUT_METADATA_FILTERS_V1=true`.
+6. Включить `APP_ROLLOUT_SEARCH_API_V1=true`.
+7. Включить `APP_ROLLOUT_RERANKER_V1=true`.
+8. Включить `APP_ROLLOUT_QUERY_HINTS_V1=true`.
 
 #### Health fields to watch
 
@@ -310,6 +339,8 @@ Phase 7 добавляет отдельный rollout layer поверх сущ�
 - `qualityLayer.retrievalWindow`
 
 `retrievalWindow` intentionally ephemeral: это in-memory окно последних retrieval sample'ов, и оно сбрасывается после restart backend.
+
+ACTIVE backfill считается завершённым только когда `qualityLayer.activeBackfillCoverage.pendingBackfill=0` и `qualityLayer.activeBackfillCoverage.partialReadyActive=0`.
 
 #### ACTIVE backfill runbook
 
@@ -347,6 +378,7 @@ curl -sS -X POST http://127.0.0.1:8080/api/materials/rechunk-active/batch \
 Rollback здесь purely behavioral:
 
 - выключение флагов не удаляет уже сохранённые metadata, structured chunks или search documents;
+- уже сохранённые `structured-v1` chunks не удаляются: runtime должен уметь читать оба профиля;
 - Elasticsearch alias rollback остаётся прежним operator flow через `search-promote-read-alias.sh` и не считается частью quality-layer rollback.
 
 ## Остановка
@@ -365,8 +397,8 @@ Rollback здесь purely behavioral:
 ./scripts/test-model.sh
 ./scripts/pull-deepseek-local.sh
 ./scripts/start-elasticsearch.sh         # optional Elasticsearch sidecar for shadow indexing
-./scripts/search-prepare-index.sh v2     # create/index target version + move write alias safely
-./scripts/search-promote-read-alias.sh v2 # explicit read cutover after validation
+./scripts/search-prepare-index.sh v3     # create/index target version + move write alias safely
+./scripts/search-promote-read-alias.sh v3 # explicit read cutover after validation
 ./scripts/search-requeue-failed.sh       # recover FAILED search-sync events without manual SQL
 ./scripts/search-rebuild-write-index.sh  # wipe current write index and replay all searchable ACTIVE materials
 ./scripts/test-backend.sh              # fast-suite: mvn test

@@ -2,18 +2,28 @@ package com.example.demo.service;
 
 import com.example.demo.api.ApiException;
 import com.example.demo.config.ChatExecutionProperties;
-import com.example.demo.infrastructure.audit.ChatRunQueueLease;
-import com.example.demo.infrastructure.audit.EnqueuedChatRun;
-import com.example.demo.infrastructure.audit.PostgresChatRunQueueRepository;
+import com.example.demo.service.audit.ChatRunQueueLease;
+import com.example.demo.service.audit.EnqueuedChatRun;
+import com.example.demo.service.audit.port.ChatRunQueueRepository;
 import com.example.demo.model.ChatExecutionRequest;
 import com.example.demo.model.ChatMode;
 import com.example.demo.model.ChatRunSubmissionResponse;
 import com.example.demo.model.ChatRunTraceDetail;
+import com.example.demo.service.cancellation.ChatCancellationHandle;
+import com.example.demo.service.cancellation.ChatRunCancelledException;
+import com.example.demo.service.cancellation.ChatRunLeaseLostException;
+import java.lang.management.ManagementFactory;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
@@ -30,28 +40,33 @@ public class ChatRunExecutionService {
     private static final Logger logger = LoggerFactory.getLogger(ChatRunExecutionService.class);
 
     private final ExecutorService chatExecutionExecutor;
+    private final ScheduledExecutorService leaseHeartbeatExecutor;
     private final ChatExecutionProperties properties;
-    private final PostgresChatRunQueueRepository queueRepository;
+    private final ChatRunQueueRepository queueRepository;
     private final ChatExecutionService chatExecutionService;
     private final ChatRunTraceService chatRunTraceService;
     private final ChatRunQueryService chatRunQueryService;
-    private final Map<String, Thread> runningThreads = new ConcurrentHashMap<>();
+    private final String workerId;
+    private final Map<String, ChatCancellationHandle> runningRuns = new ConcurrentHashMap<>();
     private final AtomicInteger scheduledWorkers = new AtomicInteger(0);
 
     public ChatRunExecutionService(
         @Qualifier("chatExecutionExecutor") ExecutorService chatExecutionExecutor,
+        @Qualifier("chatLeaseHeartbeatExecutor") ScheduledExecutorService leaseHeartbeatExecutor,
         ChatExecutionProperties properties,
-        PostgresChatRunQueueRepository queueRepository,
+        ChatRunQueueRepository queueRepository,
         ChatExecutionService chatExecutionService,
         ChatRunTraceService chatRunTraceService,
         ChatRunQueryService chatRunQueryService
     ) {
         this.chatExecutionExecutor = chatExecutionExecutor;
+        this.leaseHeartbeatExecutor = leaseHeartbeatExecutor;
         this.properties = properties;
         this.queueRepository = queueRepository;
         this.chatExecutionService = chatExecutionService;
         this.chatRunTraceService = chatRunTraceService;
         this.chatRunQueryService = chatRunQueryService;
+        this.workerId = buildWorkerId();
     }
 
     @EventListener(ApplicationReadyEvent.class)
@@ -79,9 +94,9 @@ public class ChatRunExecutionService {
         ChatRunTraceDetail trace = chatRunQueryService.getTrace(runId);
         if (chatRunTraceService.cancelRun(trace.id(), trace.createdAt())) {
             queueRepository.deleteQueueEntry(trace.id());
-            Thread runningThread = runningThreads.remove(trace.id());
-            if (runningThread != null) {
-                runningThread.interrupt();
+            ChatCancellationHandle runningRun = runningRuns.get(trace.id());
+            if (runningRun != null) {
+                runningRun.requestCancellation();
             }
         }
         return chatRunQueryService.getTrace(trace.id());
@@ -110,12 +125,13 @@ public class ChatRunExecutionService {
     private void drainQueue() {
         try {
             Instant now = Instant.now();
-            queueRepository.recoverStaleClaims(
-                now.minusSeconds(Math.max(1, properties.getClaimLeaseSeconds())),
-                now
-            );
+            queueRepository.recoverExpiredLeases(now, properties.getMaxAttempts());
             while (!Thread.currentThread().isInterrupted()) {
-                ChatRunQueueLease lease = queueRepository.claimNext(Instant.now()).orElse(null);
+                ChatRunQueueLease lease = queueRepository.claimNext(
+                    workerId,
+                    Instant.now(),
+                    Duration.ofSeconds(Math.max(1, properties.getClaimLeaseSeconds()))
+                ).orElse(null);
                 if (lease == null) {
                     break;
                 }
@@ -132,20 +148,39 @@ public class ChatRunExecutionService {
     private void executeLease(ChatRunQueueLease lease) {
         ChatRunTraceService.RunTraceContext context = new ChatRunTraceService.RunTraceContext(
             lease.runId(),
-            lease.createdAt()
+            lease.createdAt(),
+            lease.leaseToken()
         );
-        Thread currentThread = Thread.currentThread();
-        runningThreads.put(lease.runId(), currentThread);
+        ChatCancellationHandle cancellationHandle = new ChatCancellationHandle();
+        runningRuns.put(lease.runId(), cancellationHandle);
+        LeaseHeartbeat heartbeat = null;
         try {
-            if (!currentThread.isInterrupted()) {
-                chatExecutionService.executeWithTraceContext(lease.request(), context);
+            if (isTerminalRun(lease.runId())) {
+                deleteQueueEntryIfTerminal(lease.runId());
+                return;
             }
-            deleteQueueEntryIfTerminal(lease.runId());
+            heartbeat = startHeartbeat(lease, context, cancellationHandle);
+            cancellationHandle.throwIfCancellationRequested();
+            chatExecutionService.executeWithTraceContext(lease.request(), context, cancellationHandle);
+            if (!heartbeat.leaseLost()) {
+                heartbeat.close();
+                queueRepository.deleteQueueEntryIfOwned(lease);
+            }
+        } catch (ChatRunLeaseLostException exception) {
+            recordLeaseLost(context, lease, exception);
+        } catch (ChatRunCancelledException exception) {
+            if (heartbeat == null || !heartbeat.leaseLost()) {
+                deleteQueueEntryIfTerminal(lease.runId());
+            }
         } catch (RuntimeException exception) {
+            if (heartbeat != null && heartbeat.leaseLost()) {
+                logger.warn("Durable chat run stopped after lease loss: runId={}", lease.runId(), exception);
+                return;
+            }
             try {
                 boolean failed = chatRunTraceService.failRun(context, "EXECUTION", exception);
                 if (failed) {
-                    queueRepository.deleteQueueEntry(lease.runId());
+                    queueRepository.deleteQueueEntryIfOwned(lease);
                 } else {
                     deleteQueueEntryIfTerminal(lease.runId());
                 }
@@ -154,19 +189,96 @@ public class ChatRunExecutionService {
             }
             logger.warn("Durable chat run failed: runId={}", lease.runId(), exception);
         } finally {
-            runningThreads.remove(lease.runId(), currentThread);
+            if (heartbeat != null) {
+                heartbeat.close();
+            }
+            runningRuns.remove(lease.runId(), cancellationHandle);
         }
+    }
+
+    private LeaseHeartbeat startHeartbeat(
+        ChatRunQueueLease lease,
+        ChatRunTraceService.RunTraceContext context,
+        ChatCancellationHandle cancellationHandle
+    ) {
+        AtomicBoolean leaseLost = new AtomicBoolean(false);
+        long intervalMillis = properties.getHeartbeatIntervalMillis();
+        ScheduledFuture<?> future = leaseHeartbeatExecutor.scheduleWithFixedDelay(
+            () -> heartbeatLease(lease, context, cancellationHandle, leaseLost),
+            intervalMillis,
+            intervalMillis,
+            TimeUnit.MILLISECONDS
+        );
+        return new LeaseHeartbeat(future, leaseLost);
+    }
+
+    private void heartbeatLease(
+        ChatRunQueueLease lease,
+        ChatRunTraceService.RunTraceContext context,
+        ChatCancellationHandle cancellationHandle,
+        AtomicBoolean leaseLost
+    ) {
+        try {
+            Instant heartbeatAt = Instant.now();
+            Instant leaseExpiresAt = heartbeatAt.plusSeconds(Math.max(1, properties.getClaimLeaseSeconds()));
+            boolean extended = queueRepository.extendLease(lease, heartbeatAt, leaseExpiresAt);
+            if (!extended && leaseLost.compareAndSet(false, true)) {
+                cancellationHandle.requestCancellation();
+                chatRunTraceService.insertEvent(context, "LEASE_LOST", Map.of(
+                    "attemptCount",
+                    lease.attemptCount(),
+                    "leaseOwner",
+                    lease.leaseOwner()
+                ));
+            }
+        } catch (RuntimeException exception) {
+            if (leaseLost.compareAndSet(false, true)) {
+                cancellationHandle.requestCancellation();
+                chatRunTraceService.insertEvent(context, "LEASE_LOST", Map.of(
+                    "attemptCount",
+                    lease.attemptCount(),
+                    "leaseOwner",
+                    lease.leaseOwner(),
+                    "reason",
+                    exception.getClass().getSimpleName()
+                ));
+            }
+            logger.warn("Unable to heartbeat durable chat run lease: runId={}", lease.runId(), exception);
+        }
+    }
+
+    private void recordLeaseLost(
+        ChatRunTraceService.RunTraceContext context,
+        ChatRunQueueLease lease,
+        RuntimeException exception
+    ) {
+        chatRunTraceService.insertEvent(context, "LEASE_LOST", Map.of(
+            "attemptCount",
+            lease.attemptCount(),
+            "leaseOwner",
+            lease.leaseOwner()
+        ));
+        logger.warn("Durable chat run lease lost: runId={}", lease.runId(), exception);
     }
 
     private void deleteQueueEntryIfTerminal(String runId) {
         ChatRunTraceDetail trace = chatRunQueryService.getTrace(runId);
-        if (isTerminal(trace.status())) {
+        if (trace != null && isTerminal(trace.status())) {
             queueRepository.deleteQueueEntry(runId);
         }
     }
 
+    private boolean isTerminalRun(String runId) {
+        ChatRunTraceDetail trace = chatRunQueryService.getTrace(runId);
+        return trace != null && isTerminal(trace.status());
+    }
+
     private boolean isTerminal(String status) {
         return "FAILED".equals(status) || "COMPLETED".equals(status) || "CANCELLED".equals(status);
+    }
+
+    private String buildWorkerId() {
+        return ManagementFactory.getRuntimeMXBean().getName() + "-" + UUID.randomUUID();
     }
 
     private void validateRequest(ChatExecutionRequest request) {
@@ -176,6 +288,20 @@ public class ChatRunExecutionService {
                 "chat.invalid_request",
                 "Field 'prompt' is required"
             );
+        }
+    }
+
+    private record LeaseHeartbeat(ScheduledFuture<?> future, AtomicBoolean leaseLostFlag) implements AutoCloseable {
+
+        public boolean leaseLost() {
+            return leaseLostFlag.get();
+        }
+
+        @Override
+        public void close() {
+            if (future != null) {
+                future.cancel(false);
+            }
         }
     }
 }

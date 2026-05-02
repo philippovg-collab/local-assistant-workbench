@@ -2,6 +2,7 @@ package com.example.demo.service;
 
 import com.example.demo.service.material.LexicalProviderType;
 import com.example.demo.service.material.MaterialChunkSearchMatch;
+import com.example.demo.service.material.MaterialSearchScope;
 import com.example.demo.service.material.port.LexicalSearchProvider;
 
 import com.example.demo.config.RagProperties;
@@ -39,7 +40,28 @@ public class SampledLexicalShadowComparisonService implements LexicalShadowCompa
         List<MaterialChunkSearchMatch> productionMatches,
         int limit
     ) {
+        compareIfEligible(
+            query,
+            productionProviderType,
+            productionMatches,
+            limit,
+            MaterialSearchScope.unscoped()
+        );
+    }
+
+    @Override
+    public void compareIfEligible(
+        String query,
+        LexicalProviderType productionProviderType,
+        List<MaterialChunkSearchMatch> productionMatches,
+        int limit,
+        MaterialSearchScope scope
+    ) {
         if (!ragProperties.isShadowEnabled() || limit <= 0) {
+            return;
+        }
+        MaterialSearchScope safeScope = scope == null ? MaterialSearchScope.unscoped() : scope;
+        if (safeScope.isNoResults()) {
             return;
         }
 
@@ -55,7 +77,7 @@ public class SampledLexicalShadowComparisonService implements LexicalShadowCompa
         }
 
         try {
-            List<MaterialChunkSearchMatch> shadowMatches = shadowProvider.search(query, limit);
+            List<MaterialChunkSearchMatch> shadowMatches = shadowProvider.search(query, limit, safeScope);
             LexicalComparisonSummary summary = LexicalComparisonSummary.compare(
                 productionProviderType,
                 productionMatches,

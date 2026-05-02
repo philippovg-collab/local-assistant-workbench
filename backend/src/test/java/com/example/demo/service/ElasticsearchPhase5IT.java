@@ -13,7 +13,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import com.example.demo.embedding.EmbeddingClient;
-import com.example.demo.infrastructure.material.PostgresMaterialRepository;
+import com.example.demo.infrastructure.material.PostgresMaterialTestRepositoryBundle;
 import com.example.demo.llm.LlmClient;
 import com.example.demo.model.MaterialIndexingStatus;
 import com.example.demo.model.MaterialVersionState;
@@ -37,6 +37,7 @@ import org.springframework.context.annotation.Primary;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.testcontainers.elasticsearch.ElasticsearchContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.utility.DockerImageName;
@@ -63,8 +64,7 @@ class ElasticsearchPhase5IT extends PostgresIntegrationTestSupport {
         registry.add("spring.elasticsearch.uris", () -> "http://" + ELASTICSEARCH.getHttpHostAddress());
     }
 
-    @Autowired
-    private PostgresMaterialRepository repository;
+    private PostgresMaterialTestRepositoryBundle repository;
 
     @Autowired
     private MaterialSearchSyncLifecycleService lifecycleService;
@@ -87,8 +87,12 @@ class ElasticsearchPhase5IT extends PostgresIntegrationTestSupport {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
+    @Autowired
+    private PlatformTransactionManager transactionManager;
+
     @BeforeEach
     void resetState() throws Exception {
+        repository = new PostgresMaterialTestRepositoryBundle(jdbcTemplate, transactionManager);
         jdbcTemplate.execute("TRUNCATE TABLE material_search_sync_queue, material_chunks, materials CASCADE");
         indexAdminService.prepareConfiguredWriteIndex();
         elasticsearchClient.deleteByQuery(delete -> delete
@@ -214,7 +218,7 @@ class ElasticsearchPhase5IT extends PostgresIntegrationTestSupport {
         assertEquals(1, documentsFor(replacement.id()).size());
 
         StoredMaterialRecord reactivated = lifecycleService.reactivateVersion(
-            repository.findById(original.id()).orElseThrow(),
+            repository.catalog().findById(original.id()).orElseThrow(),
             "material.manual_rollback",
             Instant.parse("2026-04-17T10:15:00Z")
         );
@@ -223,8 +227,8 @@ class ElasticsearchPhase5IT extends PostgresIntegrationTestSupport {
         ProductionLexicalSearchRouter.LexicalRoutingDecision afterReactivate = productionLexicalSearchRouter.currentDecision();
         MaterialRetrievalResult reactivatedResult = materialRetrievalService.retrieveContext("sms hotline fallback");
 
-        assertEquals(MaterialVersionState.ACTIVE, repository.findById(reactivated.id()).orElseThrow().versionState());
-        assertEquals(MaterialVersionState.SUPERSEDED, repository.findById(replacement.id()).orElseThrow().versionState());
+        assertEquals(MaterialVersionState.ACTIVE, repository.catalog().findById(reactivated.id()).orElseThrow().versionState());
+        assertEquals(MaterialVersionState.SUPERSEDED, repository.catalog().findById(replacement.id()).orElseThrow().versionState());
         assertEquals("UP", afterReactivate.searchHealth().clusterStatus());
         assertEquals("elasticsearch", afterReactivate.effectiveProvider().propertyValue());
         assertFalse(afterReactivate.fallbackApplied());
@@ -272,7 +276,7 @@ class ElasticsearchPhase5IT extends PostgresIntegrationTestSupport {
             null,
             updatedAt
         );
-        return repository.findById(record.id()).orElseThrow();
+        return repository.catalog().findById(record.id()).orElseThrow();
     }
 
     private StoredMaterialRecord persistReadyMaterial(
@@ -283,7 +287,7 @@ class ElasticsearchPhase5IT extends PostgresIntegrationTestSupport {
         Instant updatedAt
     ) {
         StoredMaterialRecord record = materialRecord(title, content, sourceKey, versionState, updatedAt);
-        repository.save(record, List.of(new StoredMaterialChunk(0, content, List.of(), 1, "direct-text", false)));
+        repository.catalog().save(record, List.of(new StoredMaterialChunk(0, content, List.of(), 1, "direct-text", false)));
         lifecycleService.markIndexingReady(
             record.id(),
             List.of(new StoredEmbeddedMaterialChunk(
@@ -299,7 +303,7 @@ class ElasticsearchPhase5IT extends PostgresIntegrationTestSupport {
             null,
             updatedAt
         );
-        return repository.findById(record.id()).orElseThrow();
+        return repository.catalog().findById(record.id()).orElseThrow();
     }
 
     private StoredMaterialRecord materialRecord(

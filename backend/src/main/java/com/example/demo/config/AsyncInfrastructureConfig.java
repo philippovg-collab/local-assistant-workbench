@@ -3,6 +3,8 @@ package com.example.demo.config;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -34,16 +36,30 @@ public class AsyncInfrastructureConfig {
         );
     }
 
+    @Bean(name = "chatLeaseHeartbeatExecutor", destroyMethod = "shutdown")
+    ScheduledExecutorService chatLeaseHeartbeatExecutor() {
+        ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(
+            1,
+            namedThreadFactory("chat-lease-heartbeat")
+        );
+        executor.setRemoveOnCancelPolicy(true);
+        return executor;
+    }
+
     private ExecutorService boundedExecutor(String threadPrefix, int threads, int queueCapacity) {
-        AtomicInteger threadCounter = new AtomicInteger(0);
         return new ThreadPoolExecutor(
             threads,
             threads,
             0L,
             TimeUnit.MILLISECONDS,
             new LinkedBlockingQueue<>(queueCapacity),
-            runnable -> new Thread(runnable, threadPrefix + "-" + threadCounter.incrementAndGet()),
+            namedThreadFactory(threadPrefix),
             new ThreadPoolExecutor.AbortPolicy()
         );
+    }
+
+    private java.util.concurrent.ThreadFactory namedThreadFactory(String threadPrefix) {
+        AtomicInteger threadCounter = new AtomicInteger(0);
+        return runnable -> new Thread(runnable, threadPrefix + "-" + threadCounter.incrementAndGet());
     }
 }

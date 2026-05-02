@@ -18,7 +18,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import com.example.demo.embedding.EmbeddingClient;
 import com.example.demo.infrastructure.material.ElasticsearchLexicalSearchProvider;
-import com.example.demo.infrastructure.material.PostgresMaterialRepository;
+import com.example.demo.infrastructure.material.PostgresMaterialTestRepositoryBundle;
 import com.example.demo.llm.LlmClient;
 import com.example.demo.model.MaterialIndexingStatus;
 import com.example.demo.model.MaterialVersionState;
@@ -46,6 +46,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.testcontainers.elasticsearch.ElasticsearchContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.utility.DockerImageName;
@@ -77,8 +78,7 @@ class ElasticsearchPhase4IT extends PostgresIntegrationTestSupport {
     @Autowired
     private MockMvc mockMvc;
 
-    @Autowired
-    private PostgresMaterialRepository repository;
+    private PostgresMaterialTestRepositoryBundle repository;
 
     @Autowired
     private MaterialSearchSyncLifecycleService lifecycleService;
@@ -101,8 +101,12 @@ class ElasticsearchPhase4IT extends PostgresIntegrationTestSupport {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
+    @Autowired
+    private PlatformTransactionManager transactionManager;
+
     @BeforeEach
     void resetState() throws Exception {
+        repository = new PostgresMaterialTestRepositoryBundle(jdbcTemplate, transactionManager);
         jdbcTemplate.execute("TRUNCATE TABLE material_search_sync_queue, material_chunks, materials CASCADE");
         indexAdminService.prepareConfiguredWriteIndex();
         elasticsearchClient.deleteByQuery(delete -> delete
@@ -210,7 +214,7 @@ class ElasticsearchPhase4IT extends PostgresIntegrationTestSupport {
         boolean hasElasticWin = false;
 
         for (QualityScenario scenario : scenarios) {
-            List<MaterialChunkSearchMatch> postgresMatches = repository.search(scenario.query(), 5);
+            List<MaterialChunkSearchMatch> postgresMatches = repository.lexical().search(scenario.query(), 5);
             List<MaterialChunkSearchMatch> elasticsearchMatches = elasticsearchLexicalSearchProvider.search(scenario.query(), 5);
             boolean postgresHit = hitsExpectedMaterial(postgresMatches, scenario.expectedMaterialId());
             boolean elasticsearchHit = hitsExpectedMaterial(elasticsearchMatches, scenario.expectedMaterialId());
@@ -269,7 +273,7 @@ class ElasticsearchPhase4IT extends PostgresIntegrationTestSupport {
             updatedAt
         );
 
-        repository.save(record, List.of(new StoredMaterialChunk(0, content, List.of(), 1, "direct-text", false)));
+        repository.catalog().save(record, List.of(new StoredMaterialChunk(0, content, List.of(), 1, "direct-text", false)));
         lifecycleService.markIndexingReady(
             record.id(),
             List.of(new StoredEmbeddedMaterialChunk(

@@ -3,12 +3,25 @@ import { apiClient } from "@/api/client";
 import type { MaterialLineageResponse, MaterialUploadPolicy } from "@/types";
 import { translateMaterialError } from "@/utils/materialPresentation";
 
-export const useMaterialLineage = (uploadPolicy: MaterialUploadPolicy | null, workspaceKey?: string | null) => {
+type UseMaterialLineageOptions = {
+  enabled?: boolean;
+};
+
+export const useMaterialLineage = (
+  uploadPolicy: MaterialUploadPolicy | null,
+  workspaceKey?: string | null,
+  options: UseMaterialLineageOptions = {},
+) => {
+  const { enabled = true } = options;
   const [selectedLineage, setSelectedLineage] = useState<MaterialLineageResponse | null>(null);
   const [lineageError, setLineageError] = useState<string | null>(null);
   const [loadingLineageMaterialId, setLoadingLineageMaterialId] = useState<string | null>(null);
 
   const loadLineage = async (materialId: string, signal?: AbortSignal) => {
+    if (!enabled) {
+      return null;
+    }
+
     setLoadingLineageMaterialId(materialId);
     setLineageError(null);
 

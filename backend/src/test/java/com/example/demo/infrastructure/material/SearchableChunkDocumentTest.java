@@ -33,6 +33,7 @@ class SearchableChunkDocumentTest {
             "file",
             "pricing.txt",
             "text/plain",
+            Instant.parse("2026-04-17T09:30:00Z"),
             Instant.parse("2026-04-17T10:00:00Z"),
             MaterialMetadataSnapshot.fromInput(new MaterialMetadataInput(
                 DocumentType.CONTRACT,
@@ -97,6 +98,7 @@ class SearchableChunkDocumentTest {
         assertEquals(List.of("Grid operations", "Tariff matrix"), documents.get(0).headingTrail());
         assertEquals("table-1", documents.get(0).tableId());
         assertEquals("HIGH", documents.get(0).parserConfidence());
+        assertEquals("CONTRACTS", documents.get(0).knowledgeDocumentClass());
         assertEquals("CONTRACT", documents.get(0).documentType());
         assertEquals("ACTIVE", documents.get(0).documentStatus());
         assertEquals("KZ-2026-0415-ENERGY", documents.get(0).documentNumber());
@@ -105,12 +107,14 @@ class SearchableChunkDocumentTest {
         assertEquals(LocalDate.parse("2026-06-30"), documents.get(0).periodEnd());
         assertEquals("Grid operations", documents.get(0).department());
         assertEquals("North Upgrade", documents.get(0).project());
+        assertEquals(null, documents.get(0).projectKey());
         assertEquals("GridBuild LLP", documents.get(0).counterparty());
-        assertEquals("ACTIVE", documents.get(0).businessStatus());
+        assertEquals("APPROVED", documents.get(0).businessStatus());
         assertEquals("ru", documents.get(0).language());
         assertEquals(List.of("dispatch", "grid"), documents.get(0).tags());
         assertEquals("UNKNOWN", documents.get(0).sourceTrust());
         assertEquals("file", documents.get(0).sourceType());
+        assertEquals(snapshot.createdAt(), documents.get(0).createdAt());
         assertEquals(snapshot.updatedAt(), documents.get(0).updatedAt());
         assertEquals("material-123:1", documents.get(1).documentId());
         assertEquals("material-123:1", documents.get(1).chunkId());
@@ -138,6 +142,7 @@ class SearchableChunkDocumentTest {
             "slide-1",
             "HIGH",
             "legal-workspace",
+            "CONTRACTS",
             "CONTRACT",
             "ACTIVE",
             "north-upgrade",
@@ -154,6 +159,7 @@ class SearchableChunkDocumentTest {
             List.of("dispatch", "grid"),
             "HIGH",
             "file",
+            null,
             null
         );
 

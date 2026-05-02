@@ -1,6 +1,6 @@
 package com.example.demo.service;
 
-import com.example.demo.infrastructure.reference.PostgresReferenceDataRepository;
+import com.example.demo.service.reference.port.ReferenceDataRepository;
 import com.example.demo.model.RagProjectRequest;
 import com.example.demo.model.RagProjectSummary;
 import com.example.demo.model.ReferenceWorkspace;
@@ -13,11 +13,11 @@ import org.springframework.transaction.annotation.Transactional;
 public class RagProjectService {
 
     private final ReferenceDataService referenceDataService;
-    private final PostgresReferenceDataRepository repository;
+    private final ReferenceDataRepository repository;
 
     public RagProjectService(
         ReferenceDataService referenceDataService,
-        PostgresReferenceDataRepository repository
+        ReferenceDataRepository repository
     ) {
         this.referenceDataService = referenceDataService;
         this.repository = repository;

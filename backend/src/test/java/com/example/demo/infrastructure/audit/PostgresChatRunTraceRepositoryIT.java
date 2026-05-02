@@ -13,7 +13,9 @@ import com.example.demo.model.KnowledgeScopeResolved;
 import com.example.demo.model.LlmCallTrace;
 import com.example.demo.model.PromptPolicySnapshot;
 import com.example.demo.model.RetrievalTrace;
+import com.example.demo.service.audit.ChatRunLeaseToken;
 import com.example.demo.support.PostgresIntegrationTestSupport;
+import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -210,6 +212,111 @@ class PostgresChatRunTraceRepositoryIT extends PostgresIntegrationTestSupport {
         assertTrue(eventTypes(runId).isEmpty());
     }
 
+    @Test
+    void snapshotWritesDoNotMutateHeaderStatusImplicitly() {
+        String runId = runId();
+        Instant createdAt = Instant.parse("2026-04-19T00:00:00Z");
+        repository.insertHeader(runId, ChatMode.DIRECT, "qwen2.5:7b", AnswerMode.BRIEF, createdAt);
+
+        repository.savePromptSnapshot(runId, promptSnapshot());
+        repository.saveRetrievalSummary(runId, "DONE", new RetrievalTrace(0, 0, 0, 0, 0, 0, 0, 0, 0), null);
+        repository.insertLlmCall(runId, successfulLlmCall(createdAt.plusSeconds(1)));
+        repository.saveOutput(runId, new ChatRunOutputTrace("raw", "Answer", List.of(), null, false, false));
+
+        assertEquals("RECEIVED", stringValue("SELECT status FROM chat_run_headers WHERE id = ?::uuid", runId));
+    }
+
+    @Test
+    void explicitStageTransitionMutatesHeaderStatus() {
+        String runId = runId();
+        Instant createdAt = Instant.parse("2026-04-19T00:00:00Z");
+        repository.insertHeader(runId, ChatMode.DIRECT, "qwen2.5:7b", AnswerMode.BRIEF, createdAt);
+
+        assertTrue(repository.transitionStage(runId, "PROMPT_RESOLVED", null));
+
+        assertEquals("PROMPT_RESOLVED", stringValue("SELECT status FROM chat_run_headers WHERE id = ?::uuid", runId));
+    }
+
+    @Test
+    void completionWithWrongLeaseTokenReturnsFalseAndWritesNoResult() {
+        String runId = runId();
+        Instant createdAt = Instant.parse("2026-04-19T00:00:00Z");
+        repository.insertHeader(runId, ChatMode.DIRECT, "qwen2.5:7b", AnswerMode.BRIEF, createdAt);
+        insertQueueLease(runId, "worker-b", 2, createdAt.plusSeconds(10));
+
+        boolean completed = repository.completeRunWithResult(
+            runId,
+            "qwen2.5:7b",
+            AnswerMode.BRIEF,
+            "ready",
+            createdAt.plusSeconds(20),
+            20000,
+            response(runId, "Stale answer"),
+            new ChatRunLeaseToken(runId, "worker-a", 1)
+        );
+
+        assertFalse(completed);
+        assertEquals("RECEIVED", stringValue("SELECT status FROM chat_run_headers WHERE id = ?::uuid", runId));
+        assertEquals(0, intValue("SELECT COUNT(*) FROM chat_run_results WHERE run_id = ?::uuid", runId));
+    }
+
+    @Test
+    void cancelBeatsGuardedCompletion() {
+        String runId = runId();
+        Instant createdAt = Instant.parse("2026-04-19T00:00:00Z");
+        repository.insertHeader(runId, ChatMode.DIRECT, "qwen2.5:7b", AnswerMode.BRIEF, createdAt);
+        insertQueueLease(runId, "worker-a", 1, createdAt.plusSeconds(5));
+
+        assertTrue(repository.cancelRun(runId, createdAt.plusSeconds(10), 10000));
+        boolean completed = repository.completeRunWithResult(
+            runId,
+            "qwen2.5:7b",
+            AnswerMode.BRIEF,
+            "ready",
+            createdAt.plusSeconds(20),
+            20000,
+            response(runId, "Late answer"),
+            new ChatRunLeaseToken(runId, "worker-a", 1)
+        );
+
+        assertFalse(completed);
+        assertEquals("CANCELLED", stringValue("SELECT status FROM chat_run_headers WHERE id = ?::uuid", runId));
+        assertEquals(0, intValue("SELECT COUNT(*) FROM chat_run_results WHERE run_id = ?::uuid", runId));
+    }
+
+    @Test
+    void requeuedRunCanOnlyBeCompletedByCurrentLeaseOwner() {
+        String runId = runId();
+        Instant createdAt = Instant.parse("2026-04-19T00:00:00Z");
+        repository.insertHeader(runId, ChatMode.DIRECT, "qwen2.5:7b", AnswerMode.BRIEF, createdAt);
+        insertQueueLease(runId, "worker-b", 2, createdAt.plusSeconds(10));
+
+        boolean staleCompleted = repository.completeRunWithResult(
+            runId,
+            "qwen2.5:7b",
+            AnswerMode.BRIEF,
+            "ready",
+            createdAt.plusSeconds(20),
+            20000,
+            response(runId, "Worker A"),
+            new ChatRunLeaseToken(runId, "worker-a", 1)
+        );
+        boolean currentCompleted = repository.completeRunWithResult(
+            runId,
+            "qwen2.5:7b",
+            AnswerMode.BRIEF,
+            "ready",
+            createdAt.plusSeconds(21),
+            21000,
+            response(runId, "Worker B"),
+            new ChatRunLeaseToken(runId, "worker-b", 2)
+        );
+
+        assertFalse(staleCompleted);
+        assertTrue(currentCompleted);
+        assertEquals("Worker B", repository.findResult(runId).orElseThrow().answer());
+    }
+
     private ChatExecutionResponse response(String runId, String answer) {
         return new ChatExecutionResponse(
             ChatMode.DIRECT,
@@ -229,6 +336,72 @@ class PostgresChatRunTraceRepositoryIT extends PostgresIntegrationTestSupport {
             null,
             List.of(),
             runId
+        );
+    }
+
+    private PromptPolicySnapshot promptSnapshot() {
+        return new PromptPolicySnapshot(
+            null,
+            null,
+            null,
+            null,
+            "Prompt",
+            null,
+            null,
+            null,
+            "Resolved prompt",
+            List.of(),
+            "hash",
+            List.of(),
+            KnowledgeScopeResolved.empty(),
+            false
+        );
+    }
+
+    private LlmCallTrace successfulLlmCall(Instant createdAt) {
+        return new LlmCallTrace(
+            runId(),
+            "ollama",
+            "qwen2.5:7b",
+            List.of(),
+            "raw",
+            "parsed",
+            1,
+            2,
+            3,
+            10L,
+            0,
+            null,
+            "stop",
+            null,
+            null,
+            createdAt
+        );
+    }
+
+    private void insertQueueLease(String runId, String leaseOwner, int attemptCount, Instant claimedAt) {
+        jdbcTemplate.update(
+            """
+                INSERT INTO chat_run_queue (
+                    run_id,
+                    delivery_state,
+                    attempt_count,
+                    claimed_at,
+                    lease_owner,
+                    lease_expires_at,
+                    heartbeat_at,
+                    created_at,
+                    updated_at
+                ) VALUES (?::uuid, 'IN_PROGRESS', ?, ?, ?, ?, ?, ?, ?)
+                """,
+            runId,
+            attemptCount,
+            Timestamp.from(claimedAt),
+            leaseOwner,
+            Timestamp.from(claimedAt.plusSeconds(300)),
+            Timestamp.from(claimedAt),
+            Timestamp.from(claimedAt.minusSeconds(5)),
+            Timestamp.from(claimedAt)
         );
     }
 

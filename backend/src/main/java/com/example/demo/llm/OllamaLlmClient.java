@@ -3,6 +3,7 @@ package com.example.demo.llm;
 import com.example.demo.api.ApiException;
 import com.example.demo.config.LlmProperties;
 import com.example.demo.model.OllamaModelInfo;
+import com.example.demo.service.cancellation.ChatCancellationToken;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -64,6 +65,15 @@ public class OllamaLlmClient implements LlmClient {
 
     @Override
     public ChatResult chat(ChatRequest request) {
+        return chat(request, ChatCancellationToken.none());
+    }
+
+    @Override
+    public ChatResult chat(ChatRequest request, ChatCancellationToken cancellationToken) {
+        ChatCancellationToken effectiveToken = cancellationToken == null
+            ? ChatCancellationToken.none()
+            : cancellationToken;
+        effectiveToken.throwIfCancellationRequested();
         Instant startedAt = Instant.now();
         OpenAiChatCompletionRequest payload = new OpenAiChatCompletionRequest(
             request.model(),
@@ -81,6 +91,7 @@ public class OllamaLlmClient implements LlmClient {
                 chatTimeout(request),
                 payload,
                 OpenAiChatCompletionResponse.class,
+                effectiveToken,
                 "llm.provider_unavailable",
                 "Unable to reach the local LLM provider",
                 "llm.provider_bad_response",
@@ -92,6 +103,7 @@ public class OllamaLlmClient implements LlmClient {
                 "llm.invalid_configuration",
                 "Invalid LLM configuration"
             );
+            effectiveToken.throwIfCancellationRequested();
 
             if (completion.choices() == null || completion.choices().isEmpty()) {
                 throw new ApiException(

@@ -6,6 +6,9 @@ import com.fasterxml.jackson.databind.json.JsonMapper;
 import com.example.demo.api.ApiException;
 import com.example.demo.model.KnowledgeScope;
 import com.example.demo.model.SavedKnowledgeFilterKind;
+import com.example.demo.service.knowledge.port.KnowledgePresetRepository;
+import com.example.demo.service.knowledge.port.StoredKnowledgePresetRecord;
+import com.example.demo.service.knowledge.port.StoredKnowledgePresetRevisionRecord;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
@@ -18,7 +21,7 @@ import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
 
 @Repository
-public class PostgresKnowledgePresetRepository {
+public class PostgresKnowledgePresetRepository implements KnowledgePresetRepository {
 
     private static final ObjectMapper JSON_MAPPER = JsonMapper.builder().findAndAddModules().build();
 
@@ -55,6 +58,7 @@ public class PostgresKnowledgePresetRepository {
         this.jdbcTemplate = jdbcTemplate;
     }
 
+    @Override
     public List<StoredKnowledgePresetRecord> findAll() {
         try {
             return jdbcTemplate.query(
@@ -75,6 +79,7 @@ public class PostgresKnowledgePresetRepository {
         }
     }
 
+    @Override
     public List<StoredKnowledgePresetRecord> findAllByKind(SavedKnowledgeFilterKind kind) {
         try {
             return jdbcTemplate.query(
@@ -97,6 +102,7 @@ public class PostgresKnowledgePresetRepository {
         }
     }
 
+    @Override
     public Optional<StoredKnowledgePresetRecord> findById(String id) {
         try {
             List<StoredKnowledgePresetRecord> records = jdbcTemplate.query(
@@ -120,6 +126,7 @@ public class PostgresKnowledgePresetRepository {
         }
     }
 
+    @Override
     public void save(StoredKnowledgePresetRecord record) {
         try {
             jdbcTemplate.update(
@@ -167,6 +174,7 @@ public class PostgresKnowledgePresetRepository {
         }
     }
 
+    @Override
     public List<StoredKnowledgePresetRevisionRecord> findRevisions(String presetId) {
         try {
             return jdbcTemplate.query(
@@ -189,6 +197,7 @@ public class PostgresKnowledgePresetRepository {
         }
     }
 
+    @Override
     public Optional<StoredKnowledgePresetRevisionRecord> findRevision(String presetId, int revision) {
         try {
             List<StoredKnowledgePresetRevisionRecord> records = jdbcTemplate.query(
@@ -213,6 +222,7 @@ public class PostgresKnowledgePresetRepository {
         }
     }
 
+    @Override
     public void appendRevision(StoredKnowledgePresetRevisionRecord record) {
         try {
             jdbcTemplate.update(
@@ -253,6 +263,7 @@ public class PostgresKnowledgePresetRepository {
         }
     }
 
+    @Override
     public void delete(String presetId) {
         try {
             jdbcTemplate.update("DELETE FROM knowledge_presets WHERE id = ?", UUID.fromString(presetId));

@@ -1,6 +1,7 @@
 package com.example.demo.infrastructure.instruction;
 
 import com.example.demo.service.InstructionService;
+import com.example.demo.service.instruction.port.StoredInstructionRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.ApplicationArguments;

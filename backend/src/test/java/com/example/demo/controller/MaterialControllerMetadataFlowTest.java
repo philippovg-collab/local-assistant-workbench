@@ -305,7 +305,7 @@ class MaterialControllerMetadataFlowTest {
                 lifecycleService,
                 indexingService,
                 afterCommitExecutor,
-                new MaterialMetadataResolver()
+                new MaterialMetadataResolver(new com.example.demo.support.NoopReferenceDataRepository())
             ),
             new MaterialIngestionService(
                 repository,
@@ -313,7 +313,7 @@ class MaterialControllerMetadataFlowTest {
                 extractor,
                 properties,
                 contentSupport,
-                new MaterialMetadataResolver(),
+                new MaterialMetadataResolver(new com.example.demo.support.NoopReferenceDataRepository()),
                 lifecycleService,
                 indexingService,
                 afterCommitExecutor

@@ -20,6 +20,9 @@ import com.example.demo.model.PromptPolicySnapshot;
 import com.example.demo.model.RetrievalDebug;
 import com.example.demo.model.RetrievalSummaryTrace;
 import com.example.demo.model.RetrievalTrace;
+import com.example.demo.service.audit.ChatRunHeaderStatus;
+import com.example.demo.service.audit.ChatRunLeaseToken;
+import com.example.demo.service.audit.port.ChatRunTraceRepository;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import java.sql.Timestamp;
@@ -38,7 +41,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 @Repository
-public class PostgresChatRunTraceRepository {
+public class PostgresChatRunTraceRepository implements ChatRunTraceRepository {
 
     private static final ChatTraceJsonCodec JSON_CODEC = new ChatTraceJsonCodec();
     private static final TypeReference<List<ChatRunMessage>> MESSAGES_TYPE = new TypeReference<>() {
@@ -157,7 +160,7 @@ public class PostgresChatRunTraceRepository {
             ? new PromptPolicySnapshot(null, null, null, null, null, null, null, null, null, List.of(), null, List.of(), null, false)
             : snapshot;
         write(() -> {
-            int updated = jdbcTemplate.update(
+            jdbcTemplate.update(
                 """
                     WITH mutable_run AS (
                         SELECT id
@@ -221,9 +224,6 @@ public class PostgresChatRunTraceRepository {
                 writeJson(safeSnapshot.knowledgeScopeResolved()),
                 Timestamp.from(Instant.now())
             );
-            if (updated > 0) {
-                markStatus(runId, "PROMPT_RESOLVED");
-            }
         });
     }
 
@@ -256,7 +256,7 @@ public class PostgresChatRunTraceRepository {
         RetrievalDebug debug
     ) {
         write(() -> {
-            int updated = jdbcTemplate.update(
+            jdbcTemplate.update(
                 """
                     WITH mutable_run AS (
                         SELECT id
@@ -303,15 +303,12 @@ public class PostgresChatRunTraceRepository {
                 writeJson(debug == null ? null : debug.activeRolloutFlags()),
                 writeJson(debug == null ? List.of() : debug.appliedCapabilities())
             );
-            if (updated > 0) {
-                markStatus(runId, "RETRIEVAL_DONE");
-            }
         });
     }
 
     public void insertLlmCall(String runId, LlmCallTrace call) {
         write(() -> {
-            int inserted = jdbcTemplate.update(
+            jdbcTemplate.update(
                 """
                     WITH mutable_run AS (
                         SELECT id
@@ -362,9 +359,6 @@ public class PostgresChatRunTraceRepository {
                 call.errorMessage(),
                 Timestamp.from(call.createdAt())
             );
-            if (inserted > 0 && call.errorCode() == null) {
-                markStatus(runId, "LLM_DONE");
-            }
         });
     }
 
@@ -373,7 +367,7 @@ public class PostgresChatRunTraceRepository {
             ? new ChatRunOutputTrace(null, null, List.of(), null, null, null)
             : output;
         write(() -> {
-            int updated = jdbcTemplate.update(
+            jdbcTemplate.update(
                 """
                     WITH mutable_run AS (
                         SELECT id
@@ -411,10 +405,16 @@ public class PostgresChatRunTraceRepository {
                 safeOutput.abstained(),
                 safeOutput.strictSourcesBlockedAnswer()
             );
-            if (updated > 0) {
-                markStatus(runId, "POSTPROCESSED");
-            }
         });
+    }
+
+    public boolean transitionStage(String runId, String status, ChatRunLeaseToken leaseToken) {
+        if (!matchesRun(runId, leaseToken)) {
+            return false;
+        }
+        int[] updatedCount = {0};
+        write(() -> updatedCount[0] = updateHeaderStatus(runId, status, leaseToken));
+        return updatedCount[0] > 0;
     }
 
     public boolean completeRun(
@@ -425,27 +425,33 @@ public class PostgresChatRunTraceRepository {
         Instant completedAt,
         long latencyMsTotal
     ) {
+        return completeRun(runId, resolvedModel, appliedAnswerMode, contextStatus, completedAt, latencyMsTotal, null);
+    }
+
+    public boolean completeRun(
+        String runId,
+        String resolvedModel,
+        AnswerMode appliedAnswerMode,
+        String contextStatus,
+        Instant completedAt,
+        long latencyMsTotal,
+        ChatRunLeaseToken leaseToken
+    ) {
+        if (!matchesRun(runId, leaseToken)) {
+            return false;
+        }
         int[] updatedCount = {0};
         write(() -> updatedCount[0] = jdbcTemplate.update(
-            """
-                UPDATE chat_run_headers
-                SET status = 'COMPLETED',
-                    resolved_model = ?,
-                    applied_answer_mode = ?,
-                    context_status = ?,
-                    completed_at = ?,
-                    latency_ms_total = ?
-                WHERE id = ?
-                  AND status <> 'FAILED'
-                  AND status <> 'COMPLETED'
-                  AND status <> 'CANCELLED'
-                """,
-            resolvedModel,
-            appliedAnswerMode == null ? null : appliedAnswerMode.value(),
-            contextStatus,
-            Timestamp.from(completedAt),
-            latencyMsTotal,
-            UUID.fromString(runId)
+            completeRunSql(leaseToken),
+            completeRunArgs(
+                runId,
+                resolvedModel,
+                appliedAnswerMode,
+                contextStatus,
+                completedAt,
+                latencyMsTotal,
+                leaseToken
+            )
         ));
         return updatedCount[0] > 0;
     }
@@ -459,30 +465,46 @@ public class PostgresChatRunTraceRepository {
         long latencyMsTotal,
         ChatExecutionResponse response
     ) {
+        return completeRunWithResult(
+            runId,
+            resolvedModel,
+            appliedAnswerMode,
+            contextStatus,
+            completedAt,
+            latencyMsTotal,
+            response,
+            null
+        );
+    }
+
+    public boolean completeRunWithResult(
+        String runId,
+        String resolvedModel,
+        AnswerMode appliedAnswerMode,
+        String contextStatus,
+        Instant completedAt,
+        long latencyMsTotal,
+        ChatExecutionResponse response,
+        ChatRunLeaseToken leaseToken
+    ) {
+        if (!matchesRun(runId, leaseToken)) {
+            return false;
+        }
         Instant effectiveCompletedAt = completedAt == null ? Instant.now() : completedAt;
         int[] updatedCount = {0};
         writeTransaction(() -> {
             UUID runUuid = UUID.fromString(runId);
             updatedCount[0] = jdbcTemplate.update(
-                """
-                    UPDATE chat_run_headers
-                    SET status = 'COMPLETED',
-                        resolved_model = ?,
-                        applied_answer_mode = ?,
-                        context_status = ?,
-                        completed_at = ?,
-                        latency_ms_total = ?
-                    WHERE id = ?
-                      AND status <> 'FAILED'
-                      AND status <> 'COMPLETED'
-                      AND status <> 'CANCELLED'
-                    """,
-                resolvedModel,
-                appliedAnswerMode == null ? null : appliedAnswerMode.value(),
-                contextStatus,
-                Timestamp.from(effectiveCompletedAt),
-                latencyMsTotal,
-                runUuid
+                completeRunSql(leaseToken),
+                completeRunArgs(
+                    runId,
+                    resolvedModel,
+                    appliedAnswerMode,
+                    contextStatus,
+                    effectiveCompletedAt,
+                    latencyMsTotal,
+                    leaseToken
+                )
             );
             if (updatedCount[0] > 0) {
                 insertResultIfAbsent(runUuid, response, effectiveCompletedAt, "LIVE_EXECUTION");
@@ -554,27 +576,33 @@ public class PostgresChatRunTraceRepository {
         Instant failedAt,
         long latencyMsTotal
     ) {
+        return failRun(runId, failureStage, failureCode, failureMessage, failedAt, latencyMsTotal, null);
+    }
+
+    public boolean failRun(
+        String runId,
+        String failureStage,
+        String failureCode,
+        String failureMessage,
+        Instant failedAt,
+        long latencyMsTotal,
+        ChatRunLeaseToken leaseToken
+    ) {
+        if (!matchesRun(runId, leaseToken)) {
+            return false;
+        }
         int[] updatedCount = {0};
         write(() -> updatedCount[0] = jdbcTemplate.update(
-            """
-                UPDATE chat_run_headers
-                SET status = 'FAILED',
-                    failed_at = ?,
-                    latency_ms_total = ?,
-                    failure_stage = ?,
-                    failure_code = ?,
-                    failure_message = ?
-                WHERE id = ?
-                  AND status <> 'COMPLETED'
-                  AND status <> 'FAILED'
-                  AND status <> 'CANCELLED'
-                """,
-            Timestamp.from(failedAt),
-            latencyMsTotal,
-            failureStage,
-            failureCode,
-            failureMessage,
-            UUID.fromString(runId)
+            failRunSql(leaseToken),
+            failRunArgs(
+                runId,
+                failureStage,
+                failureCode,
+                failureMessage,
+                failedAt,
+                latencyMsTotal,
+                leaseToken
+            )
         ));
         return updatedCount[0] > 0;
     }
@@ -955,19 +983,204 @@ public class PostgresChatRunTraceRepository {
         ));
     }
 
-    private void markStatus(String runId, String status) {
-        write(() -> jdbcTemplate.update(
-            """
+    private int updateHeaderStatus(String runId, String status, ChatRunLeaseToken leaseToken) {
+        return jdbcTemplate.update(
+            stageSql(leaseToken),
+            stageArgs(runId, status, leaseToken)
+        );
+    }
+
+    private String stageSql(ChatRunLeaseToken leaseToken) {
+        if (leaseToken == null) {
+            return """
                 UPDATE chat_run_headers
                 SET status = ?
                 WHERE id = ?
                   AND status <> 'FAILED'
                   AND status <> 'COMPLETED'
                   AND status <> 'CANCELLED'
-                """,
+                """;
+        }
+        return """
+            UPDATE chat_run_headers
+            SET status = ?
+            WHERE id = ?
+              AND status <> 'FAILED'
+              AND status <> 'COMPLETED'
+              AND status <> 'CANCELLED'
+              AND EXISTS (
+                  SELECT 1
+                  FROM chat_run_queue q
+                  WHERE q.run_id = chat_run_headers.id
+                    AND q.delivery_state = 'IN_PROGRESS'
+                    AND q.lease_owner = ?
+                    AND q.attempt_count = ?
+              )
+            """;
+    }
+
+    private Object[] stageArgs(String runId, String status, ChatRunLeaseToken leaseToken) {
+        if (leaseToken == null) {
+            return new Object[] {status, UUID.fromString(runId)};
+        }
+        return new Object[] {
             status,
+            UUID.fromString(runId),
+            leaseToken.leaseOwner(),
+            leaseToken.attemptCount()
+        };
+    }
+
+    private String completeRunSql(ChatRunLeaseToken leaseToken) {
+        if (leaseToken == null) {
+            return """
+                UPDATE chat_run_headers
+                SET status = 'COMPLETED',
+                    resolved_model = ?,
+                    applied_answer_mode = ?,
+                    context_status = ?,
+                    completed_at = ?,
+                    latency_ms_total = ?
+                WHERE id = ?
+                  AND status <> 'FAILED'
+                  AND status <> 'COMPLETED'
+                  AND status <> 'CANCELLED'
+                """;
+        }
+        return """
+            UPDATE chat_run_headers
+            SET status = 'COMPLETED',
+                resolved_model = ?,
+                applied_answer_mode = ?,
+                context_status = ?,
+                completed_at = ?,
+                latency_ms_total = ?
+            WHERE id = ?
+              AND status <> 'FAILED'
+              AND status <> 'COMPLETED'
+              AND status <> 'CANCELLED'
+              AND EXISTS (
+                  SELECT 1
+                  FROM chat_run_queue q
+                  WHERE q.run_id = chat_run_headers.id
+                    AND q.delivery_state = 'IN_PROGRESS'
+                    AND q.lease_owner = ?
+                    AND q.attempt_count = ?
+              )
+            """;
+    }
+
+    private Object[] completeRunArgs(
+        String runId,
+        String resolvedModel,
+        AnswerMode appliedAnswerMode,
+        String contextStatus,
+        Instant completedAt,
+        long latencyMsTotal,
+        ChatRunLeaseToken leaseToken
+    ) {
+        Instant effectiveCompletedAt = completedAt == null ? Instant.now() : completedAt;
+        Object[] baseArgs = {
+            resolvedModel,
+            appliedAnswerMode == null ? null : appliedAnswerMode.value(),
+            contextStatus,
+            Timestamp.from(effectiveCompletedAt),
+            latencyMsTotal,
             UUID.fromString(runId)
-        ));
+        };
+        if (leaseToken == null) {
+            return baseArgs;
+        }
+        return new Object[] {
+            baseArgs[0],
+            baseArgs[1],
+            baseArgs[2],
+            baseArgs[3],
+            baseArgs[4],
+            baseArgs[5],
+            leaseToken.leaseOwner(),
+            leaseToken.attemptCount()
+        };
+    }
+
+    private String failRunSql(ChatRunLeaseToken leaseToken) {
+        if (leaseToken == null) {
+            return """
+                UPDATE chat_run_headers
+                SET status = 'FAILED',
+                    failed_at = ?,
+                    latency_ms_total = ?,
+                    failure_stage = ?,
+                    failure_code = ?,
+                    failure_message = ?
+                WHERE id = ?
+                  AND status <> 'COMPLETED'
+                  AND status <> 'FAILED'
+                  AND status <> 'CANCELLED'
+                """;
+        }
+        return """
+            UPDATE chat_run_headers
+            SET status = 'FAILED',
+                failed_at = ?,
+                latency_ms_total = ?,
+                failure_stage = ?,
+                failure_code = ?,
+                failure_message = ?
+            WHERE id = ?
+              AND status <> 'COMPLETED'
+              AND status <> 'FAILED'
+              AND status <> 'CANCELLED'
+              AND EXISTS (
+                  SELECT 1
+                  FROM chat_run_queue q
+                  WHERE q.run_id = chat_run_headers.id
+                    AND q.delivery_state = 'IN_PROGRESS'
+                    AND q.lease_owner = ?
+                    AND q.attempt_count = ?
+              )
+            """;
+    }
+
+    private Object[] failRunArgs(
+        String runId,
+        String failureStage,
+        String failureCode,
+        String failureMessage,
+        Instant failedAt,
+        long latencyMsTotal,
+        ChatRunLeaseToken leaseToken
+    ) {
+        Instant effectiveFailedAt = failedAt == null ? Instant.now() : failedAt;
+        Object[] baseArgs = {
+            Timestamp.from(effectiveFailedAt),
+            latencyMsTotal,
+            failureStage,
+            failureCode,
+            failureMessage,
+            UUID.fromString(runId)
+        };
+        if (leaseToken == null) {
+            return baseArgs;
+        }
+        return new Object[] {
+            baseArgs[0],
+            baseArgs[1],
+            baseArgs[2],
+            baseArgs[3],
+            baseArgs[4],
+            baseArgs[5],
+            leaseToken.leaseOwner(),
+            leaseToken.attemptCount()
+        };
+    }
+
+    private boolean matchesRun(String runId, ChatRunLeaseToken leaseToken) {
+        return leaseToken == null
+            || (runId != null
+                && runId.equals(leaseToken.runId())
+                && leaseToken.leaseOwner() != null
+                && !leaseToken.leaseOwner().isBlank());
     }
 
     private int insertResultIfAbsent(
@@ -1123,28 +1336,6 @@ public class PostgresChatRunTraceRepository {
             return null;
         }
         return workspaceKey.trim().toLowerCase(java.util.Locale.ROOT);
-    }
-
-    public record ChatRunHeaderStatus(
-        String id,
-        String status,
-        Instant createdAt,
-        Instant completedAt,
-        Instant failedAt,
-        Long latencyMsTotal,
-        String failureStage,
-        String failureCode,
-        String failureMessage
-    ) {
-        public ChatRunHeaderStatus(
-            String id,
-            String status,
-            Instant createdAt,
-            Instant completedAt,
-            String failureMessage
-        ) {
-            this(id, status, createdAt, completedAt, null, null, null, null, failureMessage);
-        }
     }
 
     private record HeaderRow(

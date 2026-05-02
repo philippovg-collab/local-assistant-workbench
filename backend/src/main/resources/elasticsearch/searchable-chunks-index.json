@@ -55,6 +55,7 @@
       "slideId": { "type": "keyword", "normalizer": "rag_keyword" },
       "parserConfidence": { "type": "keyword", "normalizer": "rag_keyword" },
       "workspaceKey": { "type": "keyword", "normalizer": "rag_keyword" },
+      "knowledgeDocumentClass": { "type": "keyword", "normalizer": "rag_keyword" },
       "documentType": { "type": "keyword", "normalizer": "rag_keyword" },
       "documentStatus": { "type": "keyword", "normalizer": "rag_keyword" },
       "projectKey": { "type": "keyword", "normalizer": "rag_keyword" },
@@ -71,6 +72,7 @@
       "tags": { "type": "keyword", "normalizer": "rag_keyword" },
       "sourceTrust": { "type": "keyword", "normalizer": "rag_keyword" },
       "sourceType": { "type": "keyword" },
+      "createdAt": { "type": "date" },
       "updatedAt": { "type": "date" }
     }
   }

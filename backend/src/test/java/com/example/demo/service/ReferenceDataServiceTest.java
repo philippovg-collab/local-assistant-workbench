@@ -9,9 +9,9 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.example.demo.api.ApiException;
-import com.example.demo.infrastructure.reference.PostgresReferenceDataRepository;
-import com.example.demo.infrastructure.reference.StoredReferenceProjectRecord;
-import com.example.demo.infrastructure.reference.StoredReferenceWorkspaceRecord;
+import com.example.demo.service.reference.port.ReferenceDataRepository;
+import com.example.demo.service.reference.StoredReferenceProjectRecord;
+import com.example.demo.service.reference.StoredReferenceWorkspaceRecord;
 import com.example.demo.model.ReferenceProjectRequest;
 import com.example.demo.model.ReferenceWorkspaceRequest;
 import java.time.Instant;
@@ -20,7 +20,7 @@ import org.junit.jupiter.api.Test;
 
 class ReferenceDataServiceTest {
 
-    private final PostgresReferenceDataRepository repository = mock(PostgresReferenceDataRepository.class);
+    private final ReferenceDataRepository repository = mock(ReferenceDataRepository.class);
     private final ReferenceDataService service = new ReferenceDataService(repository);
 
     @Test

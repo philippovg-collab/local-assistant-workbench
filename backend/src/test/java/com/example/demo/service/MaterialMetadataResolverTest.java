@@ -11,8 +11,8 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.example.demo.api.ApiException;
-import com.example.demo.infrastructure.reference.PostgresReferenceDataRepository;
-import com.example.demo.infrastructure.reference.StoredReferenceProjectRecord;
+import com.example.demo.service.reference.port.ReferenceDataRepository;
+import com.example.demo.service.reference.StoredReferenceProjectRecord;
 import com.example.demo.model.DocumentStatus;
 import com.example.demo.model.DocumentType;
 import com.example.demo.model.KnowledgeDocumentClass;
@@ -29,7 +29,7 @@ import org.junit.jupiter.api.Test;
 
 class MaterialMetadataResolverTest {
 
-    private final MaterialMetadataResolver resolver = new MaterialMetadataResolver();
+    private final MaterialMetadataResolver resolver = new MaterialMetadataResolver(new com.example.demo.support.NoopReferenceDataRepository());
 
     @Test
     void resolvesDefaultsWhenNoManualOrInferredMetadataExist() {
@@ -84,10 +84,10 @@ class MaterialMetadataResolverTest {
         assertEquals("Grid operations", metadata.department());
         assertEquals("v2", metadata.versionLabel());
         assertEquals("ru", metadata.language());
-        assertNull(metadata.project());
+        assertEquals("North Upgrade", metadata.project());
         assertEquals("general", metadata.workspaceKey());
         assertEquals("GridBuild LLP", metadata.counterparty());
-        assertEquals("ACTIVE", metadata.businessStatus());
+        assertEquals("APPROVED", metadata.businessStatus());
         assertEquals(DocumentStatus.ACTIVE, metadata.documentStatus());
         assertEquals(LocalDate.parse("2026-04-01"), metadata.periodStart());
         assertEquals(LocalDate.parse("2026-06-30"), metadata.periodEnd());
@@ -318,7 +318,7 @@ class MaterialMetadataResolverTest {
 
     @Test
     void validatesExplicitWorkspaceAndProjectKeysAgainstReferences() {
-        PostgresReferenceDataRepository referenceRepository = mock(PostgresReferenceDataRepository.class);
+        ReferenceDataRepository referenceRepository = mock(ReferenceDataRepository.class);
         when(referenceRepository.workspaceExists("north-upgrade")).thenReturn(true);
         when(referenceRepository.findProjectByKey("line-a")).thenReturn(Optional.of(new StoredReferenceProjectRecord(
             "line-a",
@@ -370,7 +370,7 @@ class MaterialMetadataResolverTest {
 
     @Test
     void rejectsUnknownCanonicalProjectKeyWhenReferencesAreAvailable() {
-        PostgresReferenceDataRepository referenceRepository = mock(PostgresReferenceDataRepository.class);
+        ReferenceDataRepository referenceRepository = mock(ReferenceDataRepository.class);
         when(referenceRepository.workspaceExists("general")).thenReturn(true);
         when(referenceRepository.findProjectByKey("missing-project")).thenReturn(Optional.empty());
         MaterialMetadataResolver resolverWithReferences = new MaterialMetadataResolver(referenceRepository);

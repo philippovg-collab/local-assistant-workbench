@@ -1,14 +1,13 @@
-package com.example.demo.infrastructure.reference;
+package com.example.demo.service.reference;
 
 import java.time.Instant;
 
-public record StoredReferenceWorkspaceRecord(
+public record StoredReferenceProjectRecord(
     String key,
+    String workspaceKey,
     String nameRu,
-    String description,
     boolean active,
     int sortOrder,
-    boolean isDefault,
     Instant createdAt,
     Instant updatedAt
 ) {

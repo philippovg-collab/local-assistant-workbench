@@ -15,14 +15,17 @@ import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.example.demo.service.LexicalSearchStrategy;
 import com.example.demo.support.IntegrationTestOverrides;
 import com.example.demo.support.PostgresIntegrationTestSupport;
+import java.util.Arrays;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Import;
 
 @SpringBootTest
@@ -57,13 +60,16 @@ class MaterialRuntimeTopologyIT extends PostgresIntegrationTestSupport {
     private LexicalSearchStrategy lexicalSearchStrategy;
 
     @Autowired
-    private ObjectProvider<PostgresMaterialRepository> legacyJdbcSupportProvider;
+    private ApplicationContext applicationContext;
 
     @Autowired
     private ObjectProvider<LegacyMaterialImporter> legacyMaterialImporterProvider;
 
     @Autowired
     private ObjectProvider<FileMaterialRepository> fileMaterialRepositoryProvider;
+
+    private static final String LEGACY_AGGREGATE_CLASS_NAME =
+        "com.example.demo.infrastructure.material.PostgresMaterialRepository";
 
     @Test
     void resolvesRuntimePortsToDedicatedPostgresAdapters() {
@@ -84,12 +90,19 @@ class MaterialRuntimeTopologyIT extends PostgresIntegrationTestSupport {
         assertNotSame(catalogRepository, searchableSnapshotRepository);
         assertNotSame(catalogRepository, lineageRepository);
         assertNotSame(catalogRepository, chunkingRepository);
-        assertNull(legacyJdbcSupportProvider.getIfAvailable());
+        assertTrue(noBeanUsesLegacyAggregateClass());
     }
 
     @Test
     void excludesLegacyRuntimePathWhenLegacyImportIsDisabled() {
         assertNull(legacyMaterialImporterProvider.getIfAvailable());
         assertNull(fileMaterialRepositoryProvider.getIfAvailable());
+    }
+
+    private boolean noBeanUsesLegacyAggregateClass() {
+        return Arrays.stream(applicationContext.getBeanDefinitionNames())
+            .map(applicationContext::getType)
+            .filter(type -> type != null)
+            .noneMatch(type -> LEGACY_AGGREGATE_CLASS_NAME.equals(type.getName()));
     }
 }

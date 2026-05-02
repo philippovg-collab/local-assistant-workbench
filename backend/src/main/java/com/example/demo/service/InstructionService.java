@@ -2,9 +2,6 @@ package com.example.demo.service;
 
 import com.example.demo.api.ApiException;
 import com.example.demo.api.InputLimits;
-import com.example.demo.infrastructure.instruction.InstructionRepository;
-import com.example.demo.infrastructure.instruction.StoredInstructionRecord;
-import com.example.demo.infrastructure.instruction.StoredInstructionRevisionRecord;
 import com.example.demo.model.ChatExecutionRequest;
 import com.example.demo.model.CreateInstructionRequest;
 import com.example.demo.model.InstructionTraceEntry;
@@ -15,6 +12,10 @@ import com.example.demo.model.InstructionRevisionDetail;
 import com.example.demo.model.InstructionScopeLevel;
 import com.example.demo.model.InstructionSummary;
 import com.example.demo.model.RevisionDiffEntry;
+import com.example.demo.service.instruction.port.InstructionRepository;
+import com.example.demo.service.instruction.port.InstructionScopeQuery;
+import com.example.demo.service.instruction.port.StoredInstructionRecord;
+import com.example.demo.service.instruction.port.StoredInstructionRevisionRecord;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -91,7 +92,7 @@ public class InstructionService {
         List<InstructionTraceEntry> trace = new ArrayList<>();
         String workspaceTarget = workspaceTargetOf(request);
 
-        List<InstructionDetail> assistantInstructions = repository.findByScope(new InstructionRepository.StoredInstructionRecordScope(
+        List<InstructionDetail> assistantInstructions = repository.findByScope(new InstructionScopeQuery(
                 InstructionScopeLevel.ASSISTANT_SYSTEM,
                 null,
                 true
@@ -101,7 +102,7 @@ public class InstructionService {
         runtimeInstructions.addAll(assistantInstructions);
         trace.addAll(assistantInstructions.stream().map(this::toTraceEntry).toList());
 
-        List<InstructionDetail> workspaceInstructions = repository.findByScope(new InstructionRepository.StoredInstructionRecordScope(
+        List<InstructionDetail> workspaceInstructions = repository.findByScope(new InstructionScopeQuery(
                 InstructionScopeLevel.WORKSPACE_PROJECT,
                 workspaceTarget,
                 true

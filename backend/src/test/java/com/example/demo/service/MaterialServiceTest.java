@@ -116,6 +116,26 @@ class MaterialServiceTest {
     }
 
     @Test
+    void savesTextWithFixedChunkProfileWhenStructuredRolloutIsDisabled() {
+        InMemoryMaterialRepository repository = new InMemoryMaterialRepository();
+        RolloutProperties rolloutProperties = RolloutProperties.enabledForTests();
+        rolloutProperties.setStructuredV1(false);
+        MaterialService service = createService(
+            new DeterministicEmbeddingClient(),
+            repository,
+            null,
+            rolloutProperties
+        );
+
+        MaterialSummary summary = service.saveText(
+            "Structured disabled",
+            "Alpha short sentence. Beta short sentence. Gamma short sentence."
+        );
+
+        assertEquals("fixed-v1", repository.findChunkProfile(summary.id()));
+    }
+
+    @Test
     void concurrentWritesPersistUniqueMaterials() throws Exception {
         MaterialService service = createService(new DeterministicEmbeddingClient());
         ExecutorService executor = Executors.newFixedThreadPool(6);
@@ -234,9 +254,9 @@ class MaterialServiceTest {
         assertEquals("v2", stored.metadata().versionLabel());
         assertEquals("ru", stored.metadata().language());
         assertEquals("general", stored.metadata().workspaceKey());
-        assertEquals(null, stored.metadata().project());
+        assertEquals("North Upgrade", stored.metadata().project());
         assertEquals("GridBuild LLP", stored.metadata().counterparty());
-        assertEquals("ACTIVE", stored.metadata().businessStatus());
+        assertEquals("APPROVED", stored.metadata().businessStatus());
         assertEquals(DocumentStatus.ACTIVE, stored.metadata().documentStatus());
         assertEquals(LocalDate.parse("2026-04-15"), stored.metadata().documentDate());
         assertEquals(LocalDate.parse("2026-04-01"), stored.metadata().periodStart());
@@ -1096,6 +1116,18 @@ class MaterialServiceTest {
         InMemoryMaterialRepository repository,
         MaterialAutoTaggingService autoTaggingService
     ) {
+        return createService(embeddingClient, repository, autoTaggingService, RolloutProperties.enabledForTests());
+    }
+
+    private MaterialService createService(
+        EmbeddingClient embeddingClient,
+        InMemoryMaterialRepository repository,
+        MaterialAutoTaggingService autoTaggingService,
+        RolloutProperties rolloutProperties
+    ) {
+        RolloutProperties effectiveRolloutProperties = rolloutProperties == null
+            ? RolloutProperties.enabledForTests()
+            : rolloutProperties;
         MaterialProperties properties = new MaterialProperties();
         MaterialFormatRegistry formatRegistry = new MaterialFormatRegistry();
         OcrProperties ocrProperties = new OcrProperties();
@@ -1150,7 +1182,8 @@ class MaterialServiceTest {
                 lifecycleService,
                 indexingService,
                 afterCommitExecutor,
-                new MaterialMetadataResolver()
+                effectiveRolloutProperties,
+                new MaterialMetadataResolver(new com.example.demo.support.NoopReferenceDataRepository())
             ),
             new MaterialIngestionService(
                 repository,
@@ -1158,11 +1191,11 @@ class MaterialServiceTest {
                 extractor,
                 properties,
                 contentSupport,
-                new MaterialMetadataResolver(),
+                new MaterialMetadataResolver(new com.example.demo.support.NoopReferenceDataRepository()),
                 lifecycleService,
                 indexingService,
                 afterCommitExecutor,
-                RolloutProperties.enabledForTests(),
+                effectiveRolloutProperties,
                 autoTaggingService
             ),
             TestMaterialServices.retrievalService(

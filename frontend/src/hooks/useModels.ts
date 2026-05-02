@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { apiClient } from "../api/client";
 import type { ModelInfo } from "../types";
 
@@ -7,11 +7,21 @@ const getErrorMessage = (error: unknown, fallback: string) =>
   error instanceof Error ? error.message : fallback;
 const isPageVisible = () => typeof document === "undefined" || document.visibilityState !== "hidden";
 
-export const useModels = () => {
+type UseModelsOptions = {
+  enabled?: boolean;
+};
+
+export const useModels = (options: UseModelsOptions = {}) => {
+  const { enabled = true } = options;
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const hasLoadedRef = useRef(false);
 
   useEffect(() => {
+    if (!enabled) {
+      return;
+    }
+
     let controller: AbortController | null = null;
 
     const load = async (signal?: AbortSignal) => {
@@ -19,6 +29,7 @@ export const useModels = () => {
         const payload = await apiClient.fetchModels(signal);
         setModels(payload);
         setError(null);
+        hasLoadedRef.current = true;
       } catch (loadError) {
         if (signal?.aborted) {
           return;
@@ -38,7 +49,9 @@ export const useModels = () => {
       void load(controller.signal);
     };
 
-    tick();
+    if (!hasLoadedRef.current) {
+      tick();
+    }
     const intervalId = window.setInterval(tick, POLL_INTERVAL_MS);
     const handleVisibilityChange = () => {
       if (isPageVisible()) {
@@ -52,7 +65,7 @@ export const useModels = () => {
       window.clearInterval(intervalId);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, []);
+  }, [enabled]);
 
   return { models, error };
 };

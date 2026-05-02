@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { apiClient } from "@/api/client";
 import {
   MATERIAL_POLICY_WARNING_MESSAGE,
@@ -9,9 +9,15 @@ import {
 } from "@/utils/materialUploadPolicy";
 import type { MaterialUploadPolicy } from "@/types";
 
-export const useMaterialUploadPolicy = () => {
+type UseMaterialUploadPolicyOptions = {
+  enabled?: boolean;
+};
+
+export const useMaterialUploadPolicy = (options: UseMaterialUploadPolicyOptions = {}) => {
+  const { enabled = true } = options;
   const [uploadPolicy, setUploadPolicy] = useState<MaterialUploadPolicy | null>(null);
   const [policyWarning, setPolicyWarning] = useState<string | null>(null);
+  const hasLoadedRef = useRef(false);
 
   const applyUploadPolicy = (payload: unknown) => {
     const normalized = normalizeMaterialUploadPolicy(payload);
@@ -31,7 +37,9 @@ export const useMaterialUploadPolicy = () => {
   const loadUploadPolicy = async (signal?: AbortSignal) => {
     try {
       const payload = await apiClient.fetchMaterialUploadPolicy(signal);
-      return applyUploadPolicy(payload);
+      const policy = applyUploadPolicy(payload);
+      hasLoadedRef.current = true;
+      return policy;
     } catch (policyError) {
       if (signal?.aborted) {
         return null;
@@ -40,6 +48,7 @@ export const useMaterialUploadPolicy = () => {
       const fallbackPolicy = buildFallbackMaterialUploadPolicy();
       setUploadPolicy(fallbackPolicy);
       setPolicyWarning(MATERIAL_POLICY_WARNING_MESSAGE);
+      hasLoadedRef.current = true;
       return fallbackPolicy;
     }
   };
@@ -61,10 +70,14 @@ export const useMaterialUploadPolicy = () => {
   };
 
   useEffect(() => {
+    if (!enabled || hasLoadedRef.current) {
+      return;
+    }
+
     const controller = new AbortController();
     void loadUploadPolicy(controller.signal);
     return () => controller.abort();
-  }, []);
+  }, [enabled]);
 
   return {
     uploadPolicy,

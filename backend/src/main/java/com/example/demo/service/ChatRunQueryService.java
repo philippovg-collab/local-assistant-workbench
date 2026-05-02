@@ -1,9 +1,9 @@
 package com.example.demo.service;
 
 import com.example.demo.api.ApiException;
-import com.example.demo.infrastructure.audit.PostgresChatAuditRepository;
-import com.example.demo.infrastructure.audit.PostgresChatRunTraceRepository;
-import com.example.demo.infrastructure.audit.PostgresChatRunTraceRepository.ChatRunHeaderStatus;
+import com.example.demo.service.audit.port.ChatAuditRepository;
+import com.example.demo.service.audit.port.ChatRunTraceRepository;
+import com.example.demo.service.audit.ChatRunHeaderStatus;
 import com.example.demo.model.ChatAuditRunDetail;
 import com.example.demo.model.ChatAuditRunSummary;
 import com.example.demo.model.ChatExecutionResponse;
@@ -33,12 +33,12 @@ public class ChatRunQueryService {
     private static final Logger logger = LoggerFactory.getLogger(ChatRunQueryService.class);
     private static final int DEFAULT_LIST_LIMIT = 20;
 
-    private final PostgresChatRunTraceRepository traceRepository;
-    private final PostgresChatAuditRepository legacyRepository;
+    private final ChatRunTraceRepository traceRepository;
+    private final ChatAuditRepository legacyRepository;
 
     public ChatRunQueryService(
-        PostgresChatRunTraceRepository traceRepository,
-        PostgresChatAuditRepository legacyRepository
+        ChatRunTraceRepository traceRepository,
+        ChatAuditRepository legacyRepository
     ) {
         this.traceRepository = traceRepository;
         this.legacyRepository = legacyRepository;

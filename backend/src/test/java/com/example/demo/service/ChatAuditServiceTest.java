@@ -14,9 +14,8 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.example.demo.api.ApiException;
-import com.example.demo.config.ChatAuditProperties;
-import com.example.demo.infrastructure.audit.PostgresChatAuditRepository;
-import com.example.demo.infrastructure.audit.StoredChatAuditRunRecord;
+import com.example.demo.service.audit.port.ChatAuditRepository;
+import com.example.demo.service.audit.StoredChatAuditRunRecord;
 import com.example.demo.model.AnswerMode;
 import com.example.demo.model.AppliedInstruction;
 import com.example.demo.model.ChatAuditRunDetail;
@@ -45,27 +44,15 @@ class ChatAuditServiceTest {
     private static final ObjectMapper JSON_MAPPER = JsonMapper.builder().findAndAddModules().build();
 
     @Test
-    void recordsAndReadsFullAuditSnapshot() throws Exception {
-        PostgresChatAuditRepository repository = mock(PostgresChatAuditRepository.class);
+    void recordsFullAuditSnapshot() throws Exception {
+        ChatAuditRepository repository = mock(ChatAuditRepository.class);
         AtomicReference<StoredChatAuditRunRecord> storedRecord = new AtomicReference<>();
         doAnswer(invocation -> {
             storedRecord.set(invocation.getArgument(0));
             return null;
         }).when(repository).save(any());
-        when(repository.findById(anyString())).thenAnswer(invocation -> {
-            String id = invocation.getArgument(0);
-            StoredChatAuditRunRecord record = storedRecord.get();
-            if (record == null || !record.id().equals(id)) {
-                return Optional.empty();
-            }
-            return Optional.of(record);
-        });
-        when(repository.findAll(anyInt())).thenAnswer(invocation -> {
-            StoredChatAuditRunRecord record = storedRecord.get();
-            return record == null ? List.of() : List.of(record);
-        });
 
-        ChatAuditService service = new ChatAuditService(repository);
+        ChatAuditService service = service(repository);
         ChatExecutionResponse response = responseFixture();
 
         String recordedId = service.record(response);
@@ -80,65 +67,73 @@ class ChatAuditServiceTest {
         assertTrue(auditJson.has("knowledgeScopeResolved"));
         assertTrue(auditJson.has("retrievalTrace"));
         assertTrue(auditJson.has("sources"));
-
-        ChatAuditRunDetail detail = service.getRun(recordedId);
-        assertEquals(recordedId, detail.id());
-        assertEquals(AnswerMode.WITH_QUOTES, detail.answerMode());
-        assertEquals(1, detail.instructionTrace().size());
-        assertEquals(2, detail.knowledgeScopeResolved().presets().getFirst().revision());
-        assertEquals("sufficient", detail.retrievalTrace().supportVerdict());
-        assertEquals("material-1:0", detail.sources().getFirst().chunkId());
-
-        ChatAuditRunSummary summary = service.listRuns().getFirst();
-        assertEquals(recordedId, summary.id());
-        assertEquals(ChatMode.RAG, summary.mode());
-        assertEquals("qwen2.5:7b", summary.model());
-        assertEquals(AnswerMode.WITH_QUOTES, summary.answerMode());
-        assertTrue(summary.promptPreview().endsWith("..."));
-        assertTrue(summary.answerPreview().endsWith("..."));
     }
 
     @Test
-    void rejectsInvalidAuditIdBeforeTouchingRepository() {
-        PostgresChatAuditRepository repository = mock(PostgresChatAuditRepository.class);
-        ChatAuditService service = new ChatAuditService(repository);
+    void delegatesAuditReadsToQueryService() {
+        ChatAuditRepository repository = mock(ChatAuditRepository.class);
+        ChatRunQueryService queryService = mock(ChatRunQueryService.class);
+        ChatAuditService service = new ChatAuditService(
+            repository,
+            queryService,
+            mockTraceService()
+        );
+        String runId = UUID.randomUUID().toString();
 
-        ApiException exception = assertThrows(ApiException.class, () -> service.getRun("not-a-uuid"));
+        service.getRun(runId);
+        service.listRuns();
+        service.getTrace(runId);
 
-        assertEquals("chat_audit.invalid_id", exception.getCode());
+        verify(queryService).getRun(runId);
+        verify(queryService).listRuns();
+        verify(queryService).getTrace(runId);
         verifyNoInteractions(repository);
     }
 
     @Test
-    void reportsMissingAuditRun() {
-        PostgresChatAuditRepository repository = mock(PostgresChatAuditRepository.class);
-        when(repository.findById(anyString())).thenReturn(Optional.empty());
-        ChatAuditService service = new ChatAuditService(repository);
-
-        ApiException exception = assertThrows(
-            ApiException.class,
-            () -> service.getRun(UUID.randomUUID().toString())
+    void currentHealthMirrorsTraceHealth() {
+        ChatRunTraceService traceService = mockTraceService();
+        when(traceService.currentHealth()).thenReturn(new ChatRunTraceService.TraceHealth(
+            "DOWN",
+            "chat_trace.storage_failed",
+            "trace unavailable",
+            2,
+            "2026-04-19T00:00:00Z"
+        ));
+        ChatAuditService service = new ChatAuditService(
+            mock(ChatAuditRepository.class),
+            mock(ChatRunQueryService.class),
+            traceService
         );
 
-        assertEquals("chat_audit.not_found", exception.getCode());
+        assertEquals("DOWN", service.currentHealth().status());
+        assertEquals("chat_trace.storage_failed", service.currentHealth().reasonCode());
+        assertEquals(2, service.currentHealth().consecutiveFailureCount());
     }
 
     @Test
-    void keepsAuditHealthUpUntilFailureThresholdIsReached() {
-        PostgresChatAuditRepository repository = mock(PostgresChatAuditRepository.class);
+    void recordPropagatesRepositoryFailures() {
+        ChatAuditRepository repository = mock(ChatAuditRepository.class);
         doAnswer(invocation -> {
             throw new IllegalStateException("audit table unavailable");
         }).when(repository).save(any());
-        ChatAuditProperties properties = new ChatAuditProperties();
-        properties.setHealthFailureThreshold(2);
-        ChatAuditService service = new ChatAuditService(repository, properties);
+        ChatAuditService service = service(repository);
 
         assertThrows(IllegalStateException.class, () -> service.record(responseFixture()));
-        assertEquals("UP", service.currentHealth().status());
+    }
 
-        assertThrows(IllegalStateException.class, () -> service.record(responseFixture()));
-        assertEquals("DOWN", service.currentHealth().status());
-        assertEquals(2, service.currentHealth().consecutiveFailureCount());
+    private ChatAuditService service(ChatAuditRepository repository) {
+        return new ChatAuditService(
+            repository,
+            mock(ChatRunQueryService.class),
+            mockTraceService()
+        );
+    }
+
+    private ChatRunTraceService mockTraceService() {
+        ChatRunTraceService traceService = mock(ChatRunTraceService.class);
+        when(traceService.currentHealth()).thenReturn(new ChatRunTraceService.TraceHealth("UP", null, null, 0, null));
+        return traceService;
     }
 
     private ChatExecutionResponse responseFixture() {

@@ -3,6 +3,7 @@ package com.example.demo.infrastructure.material;
 import com.example.demo.service.material.DocumentBlockType;
 import com.example.demo.service.material.LexicalProviderType;
 import com.example.demo.service.material.MaterialChunkSearchMatch;
+import com.example.demo.service.material.MaterialSearchScope;
 import com.example.demo.service.material.SearchableChunkDocument;
 import com.example.demo.service.material.port.LexicalSearchProvider;
 
@@ -11,15 +12,21 @@ import co.elastic.clients.elasticsearch._types.FieldValue;
 import co.elastic.clients.elasticsearch._types.query_dsl.Operator;
 import co.elastic.clients.elasticsearch._types.query_dsl.Query;
 import co.elastic.clients.elasticsearch.core.SearchResponse;
+import co.elastic.clients.elasticsearch.indices.GetMappingResponse;
+import co.elastic.clients.elasticsearch.indices.get_mapping.IndexMappingRecord;
 import com.example.demo.api.ApiException;
 import com.example.demo.config.SearchSyncProperties;
+import com.example.demo.model.KnowledgeScope;
 import com.example.demo.model.RetrievalFilters;
 import com.example.demo.model.SourceTrustLevel;
 import co.elastic.clients.json.JsonData;
 import java.io.IOException;
+import java.time.Instant;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Repository;
@@ -28,8 +35,30 @@ import org.springframework.stereotype.Repository;
 @ConditionalOnProperty(prefix = "app.search-sync", name = "enabled", havingValue = "true")
 public class ElasticsearchLexicalSearchProvider implements LexicalSearchProvider {
 
+    private static final Set<String> REQUIRED_SCOPE_MAPPING_FIELDS = Set.of(
+        "knowledgeDocumentClass",
+        "createdAt",
+        "workspaceKey",
+        "documentType",
+        "documentStatus",
+        "projectKey",
+        "documentNumber",
+        "documentDate",
+        "languageCode",
+        "tags",
+        "periodStart",
+        "periodEnd",
+        "department",
+        "project",
+        "counterparty",
+        "businessStatus",
+        "language",
+        "sourceTrust"
+    );
+
     private final ElasticsearchClient elasticsearchClient;
     private final SearchSyncProperties searchSyncProperties;
+    private volatile boolean readAliasScopeMappingSupported;
 
     public ElasticsearchLexicalSearchProvider(
         ElasticsearchClient elasticsearchClient,
@@ -46,27 +75,39 @@ public class ElasticsearchLexicalSearchProvider implements LexicalSearchProvider
 
     @Override
     public List<MaterialChunkSearchMatch> search(String query, int limit) {
-        return search(query, limit, null, RetrievalFilters.empty());
+        return search(query, limit, MaterialSearchScope.unscoped());
     }
 
+    @Deprecated
     @Override
-    public List<MaterialChunkSearchMatch> search(String query, int limit, java.util.Set<String> allowedMaterialIds) {
-        return search(query, limit, allowedMaterialIds, RetrievalFilters.empty());
+    public List<MaterialChunkSearchMatch> search(String query, int limit, Set<String> allowedMaterialIds) {
+        return search(query, limit, MaterialSearchScope.fromLegacyMaterialIds(allowedMaterialIds));
     }
 
+    @Deprecated
     @Override
     public List<MaterialChunkSearchMatch> search(
         String query,
         int limit,
-        java.util.Set<String> allowedMaterialIds,
+        Set<String> allowedMaterialIds,
         RetrievalFilters filters
     ) {
+        return search(query, limit, MaterialSearchScope.fromLegacyMaterialIds(allowedMaterialIds, filters));
+    }
+
+    @Override
+    public List<MaterialChunkSearchMatch> search(String query, int limit, MaterialSearchScope scope) {
         if (query == null || query.isBlank() || limit <= 0) {
+            return List.of();
+        }
+        MaterialSearchScope safeScope = scope == null ? MaterialSearchScope.unscoped() : scope;
+        if (safeScope.isNoResults()) {
             return List.of();
         }
 
         try {
-            Query queryDsl = buildQuery(query, allowedMaterialIds, filters);
+            assertScopeMappingSupported(safeScope);
+            Query queryDsl = buildQuery(query, safeScope);
             SearchResponse<SearchableChunkDocument> response = elasticsearchClient.search(search -> search
                     .index(searchSyncProperties.readAlias())
                     .size(limit)
@@ -78,6 +119,8 @@ public class ElasticsearchLexicalSearchProvider implements LexicalSearchProvider
                 .map(hit -> toMatch(hit.source(), hit.score()))
                 .filter(match -> match != null)
                 .toList();
+        } catch (ApiException exception) {
+            throw exception;
         } catch (IOException exception) {
             throw new ApiException(
                 HttpStatus.INTERNAL_SERVER_ERROR,
@@ -95,15 +138,74 @@ public class ElasticsearchLexicalSearchProvider implements LexicalSearchProvider
         }
     }
 
-    private Query buildQuery(String query, java.util.Set<String> allowedMaterialIds, RetrievalFilters filters) {
+    private Query buildQuery(String query, MaterialSearchScope scope) {
         List<Query> filterClauses = new ArrayList<>();
-        if (allowedMaterialIds != null && !allowedMaterialIds.isEmpty()) {
+        if (scope.isMaterialIds()) {
             filterClauses.add(Query.of(root -> root.terms(terms -> terms
                 .field("materialId")
-                .terms(values -> values.value(allowedMaterialIds.stream().map(FieldValue::of).toList()))
+                .terms(values -> values.value(scope.materialIds().stream().map(FieldValue::of).toList()))
             )));
         }
 
+        if (scope.isFiltered()) {
+            addKnowledgeScopeFilters(
+                filterClauses,
+                scope.knowledgeScope(),
+                scope.uploadedAfterInclusive(),
+                scope.uploadedBeforeExclusive()
+            );
+        }
+        addRetrievalFilterClauses(filterClauses, scope.retrievalFilters());
+
+        return Query.of(root -> root.bool(bool -> {
+            bool.should(strictClause(query));
+            bool.should(fuzzyClause(query));
+            bool.minimumShouldMatch("1");
+            filterClauses.forEach(bool::filter);
+            return bool;
+        }));
+    }
+
+    private void addKnowledgeScopeFilters(
+        List<Query> filterClauses,
+        KnowledgeScope scope,
+        Instant uploadedAfterInclusive,
+        Instant uploadedBeforeExclusive
+    ) {
+        KnowledgeScope safeScope = scope == null ? KnowledgeScope.empty() : scope;
+        if (!safeScope.documentClasses().isEmpty()) {
+            filterClauses.add(termsFilter(
+                "knowledgeDocumentClass",
+                safeScope.documentClasses().stream().map(Enum::name).toList()
+            ));
+        }
+        if (!safeScope.documentTypes().isEmpty()) {
+            filterClauses.add(termsFilter("documentType", safeScope.documentTypes().stream().map(Enum::name).toList()));
+        }
+        if (!safeScope.documentStatuses().isEmpty()) {
+            filterClauses.add(termsFilter("documentStatus", safeScope.documentStatuses().stream().map(Enum::name).toList()));
+        }
+        if (!safeScope.projectKeys().isEmpty()) {
+            filterClauses.add(termsFilter("projectKey", safeScope.projectKeys()));
+        }
+        if (safeScope.documentNumber() != null) {
+            filterClauses.add(exactFilter("documentNumber", safeScope.documentNumber()));
+        }
+        if (!safeScope.languageCodes().isEmpty()) {
+            filterClauses.add(termsFilter("languageCode", safeScope.languageCodes().stream().map(Enum::name).toList()));
+        }
+        if (!safeScope.tags().isEmpty()) {
+            filterClauses.add(termsFilter("tags", safeScope.tags()));
+        }
+        if (safeScope.workspaceKey() != null) {
+            filterClauses.add(exactFilter("workspaceKey", safeScope.workspaceKey()));
+        }
+        addDateRangeFilters(filterClauses, "periodStart", safeScope.periodStartFrom(), safeScope.periodStartTo());
+        addDateRangeFilters(filterClauses, "periodEnd", safeScope.periodEndFrom(), safeScope.periodEndTo());
+        addInstantRangeFilters(filterClauses, "createdAt", uploadedAfterInclusive, uploadedBeforeExclusive);
+    }
+
+    private void addRetrievalFilterClauses(List<Query> filterClauses, RetrievalFilters filters) {
         RetrievalFilters safeFilters = filters == null ? RetrievalFilters.empty() : filters;
         if (safeFilters.documentNumber() != null) {
             filterClauses.add(exactFilter("documentNumber", safeFilters.documentNumber()));
@@ -160,7 +262,7 @@ public class ElasticsearchLexicalSearchProvider implements LexicalSearchProvider
             filterClauses.add(exactFilter("department", safeFilters.department()));
         }
         if (safeFilters.project() != null) {
-            filterClauses.add(exactFilter("project", safeFilters.project()));
+            filterClauses.add(projectTextFilter(safeFilters.project()));
         }
         if (safeFilters.counterparty() != null) {
             filterClauses.add(exactFilter("counterparty", safeFilters.counterparty()));
@@ -180,14 +282,6 @@ public class ElasticsearchLexicalSearchProvider implements LexicalSearchProvider
         if (safeFilters.sourceTrustMin() != null) {
             filterClauses.add(sourceTrustThresholdFilter(safeFilters.sourceTrustMin()));
         }
-
-        return Query.of(root -> root.bool(bool -> {
-            bool.should(strictClause(query));
-            bool.should(fuzzyClause(query));
-            bool.minimumShouldMatch("1");
-            filterClauses.forEach(bool::filter);
-            return bool;
-        }));
     }
 
     private co.elastic.clients.elasticsearch._types.query_dsl.Query strictClause(String query) {
@@ -215,11 +309,53 @@ public class ElasticsearchLexicalSearchProvider implements LexicalSearchProvider
         ));
     }
 
+    private Query projectTextFilter(String value) {
+        return Query.of(root -> root.bool(bool -> bool
+            .should(exactFilter("project", value))
+            .should(exactFilter("projectKey", value))
+            .minimumShouldMatch("1")
+        ));
+    }
+
     private Query termsFilter(String field, List<String> values) {
         return Query.of(root -> root.terms(terms -> terms
             .field(field)
-            .terms(queryValues -> queryValues.value(values.stream().map(FieldValue::of).toList()))
+            .terms(queryValues -> queryValues.value(values.stream()
+                .filter(value -> value != null && !value.isBlank())
+                .map(value -> value.toLowerCase(Locale.ROOT))
+                .map(FieldValue::of)
+                .toList()))
         ));
+    }
+
+    private void addDateRangeFilters(List<Query> filterClauses, String field, LocalDate from, LocalDate to) {
+        if (from != null) {
+            filterClauses.add(Query.of(root -> root.range(range -> range
+                .field(field)
+                .gte(JsonData.of(from.toString()))
+            )));
+        }
+        if (to != null) {
+            filterClauses.add(Query.of(root -> root.range(range -> range
+                .field(field)
+                .lte(JsonData.of(to.toString()))
+            )));
+        }
+    }
+
+    private void addInstantRangeFilters(List<Query> filterClauses, String field, Instant from, Instant toExclusive) {
+        if (from != null) {
+            filterClauses.add(Query.of(root -> root.range(range -> range
+                .field(field)
+                .gte(JsonData.of(from.toString()))
+            )));
+        }
+        if (toExclusive != null) {
+            filterClauses.add(Query.of(root -> root.range(range -> range
+                .field(field)
+                .lt(JsonData.of(toExclusive.toString()))
+            )));
+        }
     }
 
     private Query sourceTrustThresholdFilter(SourceTrustLevel minimumLevel) {
@@ -237,6 +373,31 @@ public class ElasticsearchLexicalSearchProvider implements LexicalSearchProvider
         return java.util.Arrays.stream(SourceTrustLevel.values())
             .filter(level -> RetrievalFilters.trustRank(level) >= threshold)
             .toList();
+    }
+
+    private void assertScopeMappingSupported(MaterialSearchScope scope) throws IOException {
+        if (!scope.requiresCriteriaFiltering() || readAliasScopeMappingSupported) {
+            return;
+        }
+
+        GetMappingResponse response = elasticsearchClient.indices()
+            .getMapping(request -> request.index(searchSyncProperties.readAlias()));
+        boolean supported = !response.result().isEmpty()
+            && response.result().values().stream().allMatch(this::mappingHasRequiredScopeFields);
+        if (!supported) {
+            throw new ApiException(
+                HttpStatus.CONFLICT,
+                "material.elasticsearch_scope_mapping_unsupported",
+                "Elasticsearch read alias does not support scoped retrieval fields; rebuild and promote the v3 index or use PostgreSQL search."
+            );
+        }
+        readAliasScopeMappingSupported = true;
+    }
+
+    private boolean mappingHasRequiredScopeFields(IndexMappingRecord record) {
+        return record != null
+            && record.mappings() != null
+            && record.mappings().properties().keySet().containsAll(REQUIRED_SCOPE_MAPPING_FIELDS);
     }
 
     private MaterialChunkSearchMatch toMatch(SearchableChunkDocument document, Double score) {

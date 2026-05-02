@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT_DIR=$(cd "$(dirname "$0")/.." && pwd)
 RUN_CONTRACT=1
 RUN_SCAN=0
+RUN_INTEGRATION=0
 SONAR_ARGS=(--skip-scan)
 CONTRACT_ARGS=()
 
@@ -12,13 +13,14 @@ usage() {
 Usage: ./scripts/review-local.sh [options]
 
 Runs the local review workflow:
-  1. review contract diff scan
-  2. backend coverage via scripts/sonar-review.sh
-  3. frontend coverage via scripts/sonar-review.sh
-  4. frontend production build
+  1. Phase 5 static anti-regression gate
+  2. review contract diff scan
+  3. backend coverage via scripts/sonar-review.sh
+  4. frontend coverage via scripts/sonar-review.sh
+  5. frontend production build
 
 Options:
-  --integration       Run backend mvn -Pcoverage verify instead of test.
+  --integration       Require Docker/Testcontainers backend proof before frontend/Sonar checks.
   --full-sonar        Run Sonar Scanner and wait for Quality Gate.
   --base-ref REF      Base ref for local anti-sprawl diff scanning.
   --skip-contract     Skip the local review contract diff scan.
@@ -32,7 +34,7 @@ EOF
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --integration)
-      SONAR_ARGS+=(--integration)
+      RUN_INTEGRATION=1
       shift
       ;;
     --full-sonar)
@@ -66,9 +68,18 @@ done
 
 cd "$ROOT_DIR"
 
+echo "Running Phase 5 static anti-regression gate"
+python3 scripts/phase5-static-gate.py
+
 if [[ "$RUN_CONTRACT" -eq 1 ]]; then
   echo "Running local review contract diff scan"
   python3 scripts/review-contract.py --skip-body "${CONTRACT_ARGS[@]}"
+fi
+
+if [[ "$RUN_INTEGRATION" -eq 1 ]]; then
+  echo "Running Docker-backed backend integration proof"
+  "$ROOT_DIR/scripts/test-backend.sh" integration -Pcoverage
+  SONAR_ARGS+=(--skip-backend)
 fi
 
 if [[ "$RUN_SCAN" -eq 1 ]]; then

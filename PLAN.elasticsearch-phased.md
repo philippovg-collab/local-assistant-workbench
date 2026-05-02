@@ -6,6 +6,7 @@
 
 Фазовый план внедрения Elasticsearch в целом реализован как gated rollout:
 - Elasticsearch остаётся sidecar lexical read-model, PostgreSQL остаётся source of truth;
+- Elasticsearch lexical plane не является source of truth;
 - semantic search остаётся в PostgreSQL/pgvector;
 - runtime retrieval сохраняет текущий hybrid pipeline: `semantic + lexical -> RRF/rerank -> top-K`;
 - production defaults остаются безопасными: `app.search-sync.enabled=false`, `app.rag.lexical-provider=postgres`.
@@ -37,6 +38,7 @@
 
 ## Release Gates Before Enabling `auto`
 
+0. Проверить production defaults: `APP_SEARCH_SYNC_ENABLED=false`, `APP_RAG_LEXICAL_PROVIDER=postgres`.
 1. Из обычного shell/CI с рабочим Docker/Testcontainers прогнать:
    `./scripts/test-backend.sh integration -Dit.test=ElasticsearchIndexSyncIT,ElasticsearchPhase4IT,ElasticsearchPhase5IT,ElasticsearchPhase5DownIT`
 2. Подготовить новый write index:
@@ -50,6 +52,8 @@
    - `searchSyncBacklog.failedCount=0`
 5. После smoke search и quality check выполнить read alias promotion:
    `./scripts/search-promote-read-alias.sh v3`
+6. Включать `APP_RAG_LEXICAL_PROVIDER=auto` только после успешного read alias promotion.
+7. Rollback: вернуть `APP_RAG_LEXICAL_PROVIDER=postgres` или вручную продвинуть read alias на предыдущий проверенный target.
 
 ## Rollback Rules
 

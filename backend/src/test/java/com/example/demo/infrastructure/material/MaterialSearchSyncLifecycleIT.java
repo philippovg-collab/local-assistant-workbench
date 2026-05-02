@@ -24,14 +24,14 @@ import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabas
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.PlatformTransactionManager;
 
 @SpringBootTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @Import(IntegrationTestOverrides.class)
 class MaterialSearchSyncLifecycleIT extends PostgresIntegrationTestSupport {
 
-    @Autowired
-    private PostgresMaterialRepository repository;
+    private PostgresMaterialTestRepositoryBundle repository;
 
     @Autowired
     private MaterialSearchSyncLifecycleService lifecycleService;
@@ -42,8 +42,12 @@ class MaterialSearchSyncLifecycleIT extends PostgresIntegrationTestSupport {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
+    @Autowired
+    private PlatformTransactionManager transactionManager;
+
     @BeforeEach
     void resetTables() {
+        repository = new PostgresMaterialTestRepositoryBundle(jdbcTemplate, transactionManager);
         jdbcTemplate.execute("TRUNCATE TABLE material_search_sync_queue, material_chunks, materials CASCADE");
     }
 
@@ -68,11 +72,11 @@ class MaterialSearchSyncLifecycleIT extends PostgresIntegrationTestSupport {
 
         lifecycleService.delete(active.id(), Instant.parse("2026-04-17T10:10:00Z"));
 
-        assertTrue(repository.findById(active.id()).isEmpty());
-        assertEquals(MaterialVersionState.ACTIVE, repository.findById(promoted.id()).orElseThrow().versionState());
+        assertTrue(repository.catalog().findById(active.id()).isEmpty());
+        assertEquals(MaterialVersionState.ACTIVE, repository.catalog().findById(promoted.id()).orElseThrow().versionState());
         assertEquals(
             sortedIds(active.id(), promoted.id()),
-            queuedMaterialIds(repository.findAllSearchSyncEntries())
+            queuedMaterialIds(repository.searchSyncQueue().findAllSearchSyncEntries())
         );
     }
 
@@ -96,16 +100,16 @@ class MaterialSearchSyncLifecycleIT extends PostgresIntegrationTestSupport {
         );
 
         lifecycleService.reactivateVersion(
-            repository.findById(original.id()).orElseThrow(),
+            repository.catalog().findById(original.id()).orElseThrow(),
             "material.manual_rollback",
             Instant.parse("2026-04-17T10:10:00Z")
         );
 
-        assertEquals(MaterialVersionState.ACTIVE, repository.findById(original.id()).orElseThrow().versionState());
-        assertEquals(MaterialVersionState.SUPERSEDED, repository.findById(active.id()).orElseThrow().versionState());
+        assertEquals(MaterialVersionState.ACTIVE, repository.catalog().findById(original.id()).orElseThrow().versionState());
+        assertEquals(MaterialVersionState.SUPERSEDED, repository.catalog().findById(active.id()).orElseThrow().versionState());
         assertEquals(
             sortedIds(active.id(), original.id()),
-            queuedMaterialIds(repository.findAllSearchSyncEntries())
+            queuedMaterialIds(repository.searchSyncQueue().findAllSearchSyncEntries())
         );
     }
 
@@ -119,7 +123,7 @@ class MaterialSearchSyncLifecycleIT extends PostgresIntegrationTestSupport {
             MaterialIndexingStatus.PENDING,
             Instant.parse("2026-04-17T10:00:00Z")
         );
-        repository.claimNextIndexing(Instant.parse("2026-04-17T10:01:00Z")).orElseThrow();
+        repository.indexingQueue().claimNextIndexing(Instant.parse("2026-04-17T10:01:00Z")).orElseThrow();
 
         lifecycleService.delete(pending.id(), Instant.parse("2026-04-17T10:02:00Z"));
         lifecycleService.markIndexingReady(
@@ -138,12 +142,12 @@ class MaterialSearchSyncLifecycleIT extends PostgresIntegrationTestSupport {
             Instant.parse("2026-04-17T10:03:00Z")
         );
 
-        assertTrue(repository.findById(pending.id()).isEmpty());
-        assertEquals(List.of(pending.id()), queuedMaterialIds(repository.findAllSearchSyncEntries()));
+        assertTrue(repository.catalog().findById(pending.id()).isEmpty());
+        assertEquals(List.of(pending.id()), queuedMaterialIds(repository.searchSyncQueue().findAllSearchSyncEntries()));
     }
 
     @Test
-    void lateCompletionAfterSupersedeKeepsOldAndReplacementMaterialQueuedForReconcile() {
+    void lateCompletionAfterSupersedeKeepsOldMaterialQueuedForReconcile() {
         StoredMaterialRecord original = saveMaterial(
             "Pricing FAQ",
             "Старая версия ещё индексируется.",
@@ -152,7 +156,7 @@ class MaterialSearchSyncLifecycleIT extends PostgresIntegrationTestSupport {
             MaterialIndexingStatus.PENDING,
             Instant.parse("2026-04-17T10:00:00Z")
         );
-        repository.claimNextIndexing(Instant.parse("2026-04-17T10:01:00Z")).orElseThrow();
+        repository.indexingQueue().claimNextIndexing(Instant.parse("2026-04-17T10:01:00Z")).orElseThrow();
 
         StoredMaterialRecord replacement = materialRecord(
             "Pricing FAQ",
@@ -184,11 +188,11 @@ class MaterialSearchSyncLifecycleIT extends PostgresIntegrationTestSupport {
             Instant.parse("2026-04-17T10:03:00Z")
         );
 
-        StoredMaterialRecord storedOriginal = repository.findById(original.id()).orElseThrow();
+        StoredMaterialRecord storedOriginal = repository.catalog().findById(original.id()).orElseThrow();
         assertEquals(MaterialVersionState.SUPERSEDED, storedOriginal.versionState());
         assertEquals(
-            sortedIds(original.id(), replacement.id()),
-            queuedMaterialIds(repository.findAllSearchSyncEntries())
+            List.of(original.id()),
+            queuedMaterialIds(repository.searchSyncQueue().findAllSearchSyncEntries())
         );
     }
 
@@ -201,9 +205,9 @@ class MaterialSearchSyncLifecycleIT extends PostgresIntegrationTestSupport {
         Instant timestamp
     ) {
         StoredMaterialRecord record = materialRecord(title, content, sourceKey, versionState, status, timestamp);
-        repository.save(record, record.chunks());
+        repository.catalog().save(record, record.chunks());
         if (status == MaterialIndexingStatus.READY || status == MaterialIndexingStatus.PARTIAL_READY) {
-            repository.markIndexingReady(
+            repository.indexingQueue().markIndexingReady(
                 record.id(),
                 List.of(new StoredEmbeddedMaterialChunk(
                     0,

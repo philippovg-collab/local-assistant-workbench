@@ -12,6 +12,7 @@ public record SearchableMaterialSnapshot(
     String sourceType,
     String originalFileName,
     String mediaType,
+    Instant createdAt,
     Instant updatedAt,
     MaterialMetadataSnapshot metadata,
     List<SearchableMaterialChunkSnapshot> chunks
@@ -31,6 +32,7 @@ public record SearchableMaterialSnapshot(
             null,
             null,
             null,
+            null,
             MaterialMetadataSnapshot.empty(),
             List.of()
         );
@@ -44,6 +46,7 @@ public record SearchableMaterialSnapshot(
         String sourceType,
         String originalFileName,
         String mediaType,
+        Instant createdAt,
         Instant updatedAt,
         List<SearchableMaterialChunkSnapshot> chunks
     ) {
@@ -55,6 +58,7 @@ public record SearchableMaterialSnapshot(
             sourceType,
             originalFileName,
             mediaType,
+            createdAt,
             updatedAt,
             MaterialMetadataSnapshot.empty(),
             chunks

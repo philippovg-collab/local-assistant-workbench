@@ -162,6 +162,36 @@ describe("useReferenceData", () => {
     expect(apiClient.fetchReferenceProjects).not.toHaveBeenCalled();
   });
 
+  it("retains cached reference data while disabled and reloads when params change", async () => {
+    vi.mocked(apiClient.fetchReferenceWorkspaces)
+      .mockResolvedValueOnce([buildWorkspace()])
+      .mockResolvedValueOnce([buildWorkspace({ key: "active-only" })]);
+    vi.mocked(apiClient.fetchReferenceProjects).mockResolvedValue([]);
+
+    const { rerender } = render(<ReferenceDataHookHarness enabled={false} />);
+
+    expect(apiClient.fetchReferenceWorkspaces).not.toHaveBeenCalled();
+
+    rerender(<ReferenceDataHookHarness enabled />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("workspace-count").textContent).toBe("1");
+    });
+    expect(apiClient.fetchReferenceWorkspaces).toHaveBeenCalledTimes(1);
+
+    rerender(<ReferenceDataHookHarness enabled={false} />);
+    expect(screen.getByTestId("workspace-count").textContent).toBe("1");
+
+    rerender(<ReferenceDataHookHarness enabled />);
+    expect(apiClient.fetchReferenceWorkspaces).toHaveBeenCalledTimes(1);
+
+    rerender(<ReferenceDataHookHarness enabled activeOnly />);
+    await waitFor(() => {
+      expect(apiClient.fetchReferenceWorkspaces).toHaveBeenCalledTimes(2);
+    });
+    expect(apiClient.fetchReferenceWorkspaces).toHaveBeenLastCalledWith({ activeOnly: true }, expect.any(AbortSignal));
+  });
+
   it("passes activeOnly option to list requests", async () => {
     vi.mocked(apiClient.fetchReferenceWorkspaces).mockResolvedValue([buildWorkspace()]);
     vi.mocked(apiClient.fetchReferenceProjects).mockResolvedValue([]);

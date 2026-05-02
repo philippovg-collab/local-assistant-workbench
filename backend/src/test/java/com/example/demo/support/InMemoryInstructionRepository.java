@@ -1,8 +1,9 @@
 package com.example.demo.support;
 
-import com.example.demo.infrastructure.instruction.InstructionRepository;
-import com.example.demo.infrastructure.instruction.StoredInstructionRecord;
-import com.example.demo.infrastructure.instruction.StoredInstructionRevisionRecord;
+import com.example.demo.service.instruction.port.InstructionRepository;
+import com.example.demo.service.instruction.port.InstructionScopeQuery;
+import com.example.demo.service.instruction.port.StoredInstructionRecord;
+import com.example.demo.service.instruction.port.StoredInstructionRevisionRecord;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -37,7 +38,7 @@ public class InMemoryInstructionRepository implements InstructionRepository {
     }
 
     @Override
-    public synchronized List<StoredInstructionRecord> findByScope(StoredInstructionRecordScope scope) {
+    public synchronized List<StoredInstructionRecord> findByScope(InstructionScopeQuery scope) {
         if (scope == null) {
             return findAll();
         }

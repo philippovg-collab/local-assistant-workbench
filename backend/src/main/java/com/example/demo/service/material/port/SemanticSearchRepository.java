@@ -1,6 +1,7 @@
 package com.example.demo.service.material.port;
 
 import com.example.demo.service.material.MaterialChunkSearchMatch;
+import com.example.demo.service.material.MaterialSearchScope;
 
 import java.util.List;
 import java.util.Set;
@@ -13,24 +14,47 @@ public interface SemanticSearchRepository {
     default List<MaterialChunkSearchMatch> searchSemantic(
         float[] queryEmbedding,
         int limit,
-        Set<String> allowedMaterialIds
+        MaterialSearchScope scope
     ) {
-        if (allowedMaterialIds == null || allowedMaterialIds.isEmpty()) {
+        MaterialSearchScope safeScope = scope == null ? MaterialSearchScope.unscoped() : scope;
+        if (safeScope.isNoResults()) {
             return List.of();
         }
-
-        return searchSemantic(queryEmbedding, limit).stream()
-            .filter(match -> allowedMaterialIds.contains(match.materialId()))
-            .limit(limit)
-            .toList();
+        if (safeScope.isUnscoped()) {
+            return searchSemantic(queryEmbedding, limit);
+        }
+        if (safeScope.isMaterialIds()) {
+            if (!safeScope.retrievalFilters().isEmpty()) {
+                throw new UnsupportedOperationException("Semantic search provider does not support filtered material ids");
+            }
+            return searchSemantic(queryEmbedding, limit).stream()
+                .filter(match -> safeScope.materialIds().contains(match.materialId()))
+                .limit(limit)
+                .toList();
+        }
+        throw new UnsupportedOperationException("Semantic search provider does not support filtered material scope");
     }
 
+    @Deprecated
+    default List<MaterialChunkSearchMatch> searchSemantic(
+        float[] queryEmbedding,
+        int limit,
+        Set<String> allowedMaterialIds
+    ) {
+        return searchSemantic(queryEmbedding, limit, MaterialSearchScope.fromLegacyMaterialIds(allowedMaterialIds));
+    }
+
+    @Deprecated
     default List<MaterialChunkSearchMatch> searchSemantic(
         float[] queryEmbedding,
         int limit,
         Set<String> allowedMaterialIds,
         RetrievalFilters filters
     ) {
-        return searchSemantic(queryEmbedding, limit, allowedMaterialIds);
+        return searchSemantic(
+            queryEmbedding,
+            limit,
+            MaterialSearchScope.fromLegacyMaterialIds(allowedMaterialIds, filters)
+        );
     }
 }

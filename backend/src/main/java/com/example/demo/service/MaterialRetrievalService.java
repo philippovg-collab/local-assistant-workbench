@@ -5,9 +5,9 @@ import com.example.demo.service.material.LexicalProviderMode;
 import com.example.demo.service.material.LexicalProviderType;
 import com.example.demo.service.material.MaterialChunkSearchMatch;
 import com.example.demo.service.material.MaterialRetrievalScopeSnapshot;
+import com.example.demo.service.material.MaterialSearchScope;
 import com.example.demo.service.material.StoredMaterialChunk;
 import com.example.demo.service.material.StoredMaterialRecord;
-import com.example.demo.service.material.StoredMaterialSegment;
 import com.example.demo.service.material.port.MaterialCatalogRepository;
 import com.example.demo.service.material.port.MaterialChunkingRepository;
 import com.example.demo.service.material.port.SemanticSearchRepository;
@@ -130,92 +130,6 @@ public class MaterialRetrievalService {
             new RetrievalQueryHintExtractor(),
             lexicalShadowComparisonService,
             answerModePostProcessor,
-            RolloutProperties.enabledForTests(),
-            QualityLayerHealthService.noop(RolloutProperties.enabledForTests())
-        );
-    }
-
-    public MaterialRetrievalService(
-        MaterialCatalogRepository catalogRepository,
-        SemanticSearchRepository semanticSearchRepository,
-        ProductionLexicalSearchRouter productionLexicalSearchRouter,
-        EmbeddingClient embeddingClient,
-        RagProperties ragProperties,
-        HybridChunkRanker hybridChunkRanker,
-        MaterialContentSupport contentSupport,
-        LexicalShadowComparisonService lexicalShadowComparisonService,
-        AnswerModePostProcessor answerModePostProcessor
-    ) {
-        this(
-            catalogRepository,
-            resolveChunkingRepository(catalogRepository),
-            semanticSearchRepository,
-            productionLexicalSearchRouter,
-            embeddingClient,
-            ragProperties,
-            hybridChunkRanker,
-            new ChunkReranker(contentSupport),
-            contentSupport,
-            new RetrievalQueryHintExtractor(),
-            lexicalShadowComparisonService,
-            answerModePostProcessor,
-            RolloutProperties.enabledForTests(),
-            QualityLayerHealthService.noop(RolloutProperties.enabledForTests())
-        );
-    }
-
-    public MaterialRetrievalService(
-        MaterialCatalogRepository catalogRepository,
-        MaterialChunkingRepository chunkingRepository,
-        ProductionLexicalSearchRouter productionLexicalSearchRouter,
-        EmbeddingClient embeddingClient,
-        RagProperties ragProperties,
-        HybridChunkRanker hybridChunkRanker,
-        MaterialContentSupport contentSupport,
-        LexicalShadowComparisonService lexicalShadowComparisonService,
-        AnswerModePostProcessor answerModePostProcessor
-    ) {
-        this(
-            catalogRepository,
-            chunkingRepository,
-            resolveSemanticSearchRepository(catalogRepository),
-            productionLexicalSearchRouter,
-            embeddingClient,
-            ragProperties,
-            hybridChunkRanker,
-            new ChunkReranker(contentSupport),
-            contentSupport,
-            new RetrievalQueryHintExtractor(),
-            lexicalShadowComparisonService,
-            answerModePostProcessor,
-            RolloutProperties.enabledForTests(),
-            QualityLayerHealthService.noop(RolloutProperties.enabledForTests())
-        );
-    }
-
-    public MaterialRetrievalService(
-        MaterialCatalogRepository catalogRepository,
-        MaterialChunkingRepository chunkingRepository,
-        ProductionLexicalSearchRouter productionLexicalSearchRouter,
-        EmbeddingClient embeddingClient,
-        RagProperties ragProperties,
-        HybridChunkRanker hybridChunkRanker,
-        MaterialContentSupport contentSupport
-    ) {
-        this(
-            catalogRepository,
-            chunkingRepository,
-            resolveSemanticSearchRepository(catalogRepository),
-            productionLexicalSearchRouter,
-            embeddingClient,
-            ragProperties,
-            hybridChunkRanker,
-            new ChunkReranker(contentSupport),
-            contentSupport,
-            new RetrievalQueryHintExtractor(),
-            (query, productionProvider, productionMatches, limit) -> {
-            },
-            new AnswerModePostProcessor(contentSupport),
             RolloutProperties.enabledForTests(),
             QualityLayerHealthService.noop(RolloutProperties.enabledForTests())
         );
@@ -381,7 +295,12 @@ public class MaterialRetrievalService {
         int scopedMaterialCount = scopeSnapshot.scopedMaterialCount();
         int scopedActiveMaterialCount = scopeSnapshot.scopedActiveMaterialCount();
         int scopedReadyMaterialCount = scopeSnapshot.scopedReadyMaterialCount();
-        Set<String> scopedReadyMaterialIds = scopeSnapshot.scopedReadyMaterialIds();
+        MaterialSearchScope searchScope = MaterialSearchScope.fromRetrievalCriteria(
+            effectiveScope,
+            effectiveFilters,
+            uploadedAfterInclusive,
+            uploadedBeforeExclusive
+        );
 
         if (materialCount == 0 || activeMaterialCount == 0 || readyMaterialCount == 0
             || scopedMaterialCount == 0 || scopedActiveMaterialCount == 0 || scopedReadyMaterialCount == 0) {
@@ -442,21 +361,20 @@ public class MaterialRetrievalService {
         List<MaterialChunkSearchMatch> semanticMatches = semanticSearchRepository.searchSemantic(
             embeddingClient.embed(prompt.trim()),
             ragProperties.getSemanticCandidateLimit(),
-            scopedReadyMaterialIds,
-            effectiveFilters
+            searchScope
         );
         ProductionLexicalSearchRouter.LexicalSearchResult lexicalSearchResult = productionLexicalSearchRouter.search(
             prompt,
             ragProperties.getLexicalCandidateLimit(),
-            scopedReadyMaterialIds,
-            effectiveFilters
+            searchScope
         );
         List<MaterialChunkSearchMatch> lexicalMatches = lexicalSearchResult.matches();
         lexicalShadowComparisonService.compareIfEligible(
             prompt,
             lexicalSearchResult.effectiveProvider(),
             lexicalMatches,
-            ragProperties.getLexicalCandidateLimit()
+            ragProperties.getLexicalCandidateLimit(),
+            searchScope
         );
         int rerankPoolLimit = relevanceProfile == RelevanceProfile.HYBRID_RERANK_V1
             ? Math.max(finalLimit, ragProperties.getRerankCandidateLimit())
@@ -943,50 +861,6 @@ public class MaterialRetrievalService {
                 retrievalDebug
             );
         }
-    }
-
-    private static MaterialChunkingRepository resolveChunkingRepository(MaterialCatalogRepository catalogRepository) {
-        if (catalogRepository instanceof MaterialChunkingRepository chunkingRepository) {
-            return chunkingRepository;
-        }
-        return new MaterialChunkingRepository() {
-            @Override
-            public List<StoredMaterialChunk> findChunks(String materialId) {
-                return List.of();
-            }
-
-            @Override
-            public List<StoredMaterialSegment> findSegments(String materialId) {
-                return List.of();
-            }
-
-            @Override
-            public String findChunkProfile(String materialId) {
-                return "fixed-v1";
-            }
-
-            @Override
-            public void replaceChunking(
-                String materialId,
-                String chunkProfile,
-                List<StoredMaterialChunk> chunks,
-                List<StoredMaterialSegment> segments,
-                Instant updatedAt
-            ) {
-            }
-        };
-    }
-
-    private static SemanticSearchRepository resolveSemanticSearchRepository(MaterialCatalogRepository catalogRepository) {
-        if (catalogRepository instanceof SemanticSearchRepository semanticSearchRepository) {
-            return semanticSearchRepository;
-        }
-        return new SemanticSearchRepository() {
-            @Override
-            public List<MaterialChunkSearchMatch> searchSemantic(float[] queryEmbedding, int limit) {
-                return List.of();
-            }
-        };
     }
 
 }

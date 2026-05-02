@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { apiClient } from "@/api/client";
 import type { MaterialListResponse, MaterialSummary, MaterialUploadPolicy } from "@/types";
 import { hasActiveIndexing } from "@/utils/readiness";
@@ -36,23 +36,42 @@ const mergeMaterialPages = (current: MaterialSummary[], next: MaterialSummary[])
   return Array.from(byId.values());
 };
 
-export const useMaterialCatalog = (uploadPolicy: MaterialUploadPolicy | null, workspaceKey?: string | null) => {
+type UseMaterialCatalogOptions = {
+  enabled?: boolean;
+};
+
+export const useMaterialCatalog = (
+  uploadPolicy: MaterialUploadPolicy | null,
+  workspaceKey?: string | null,
+  options: UseMaterialCatalogOptions = {},
+) => {
+  const { enabled = true } = options;
   const [materials, setMaterials] = useState<MaterialSummary[]>([]);
   const [materialTotal, setMaterialTotal] = useState(0);
   const [materialPageLimit, setMaterialPageLimit] = useState(MATERIAL_PAGE_LIMIT);
   const [hasMoreMaterials, setHasMoreMaterials] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(enabled);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const loadedParamsRef = useRef<string | null>(null);
+  const paramsKey = workspaceKey?.trim() ?? "";
 
   const loadMaterials = async (
     signal?: AbortSignal,
-    options: { offset?: number; append?: boolean } = {},
+    options: { offset?: number; append?: boolean; force?: boolean } = {},
   ) => {
+    if (!enabled && !options.force) {
+      setIsLoading(false);
+      setIsLoadingMore(false);
+      return null;
+    }
+
     const offset = options.offset ?? 0;
     const append = options.append ?? false;
     if (append) {
       setIsLoadingMore(true);
+    } else {
+      setIsLoading(true);
     }
 
     try {
@@ -64,6 +83,9 @@ export const useMaterialCatalog = (uploadPolicy: MaterialUploadPolicy | null, wo
       setMaterialPageLimit(payload.limit);
       setHasMoreMaterials(payload.hasMore);
       setError(null);
+      if (!append) {
+        loadedParamsRef.current = paramsKey;
+      }
       return payload;
     } catch (loadError) {
       if (signal?.aborted) {
@@ -80,13 +102,21 @@ export const useMaterialCatalog = (uploadPolicy: MaterialUploadPolicy | null, wo
   };
 
   useEffect(() => {
+    if (!enabled) {
+      setIsLoading(false);
+      return;
+    }
+    if (loadedParamsRef.current === paramsKey) {
+      return;
+    }
+
     const controller = new AbortController();
     void loadMaterials(controller.signal);
     return () => controller.abort();
-  }, [workspaceKey]);
+  }, [enabled, paramsKey, workspaceKey]);
 
   useEffect(() => {
-    if (!hasActiveIndexing(materials)) {
+    if (!enabled || !hasActiveIndexing(materials)) {
       return;
     }
 
@@ -114,10 +144,10 @@ export const useMaterialCatalog = (uploadPolicy: MaterialUploadPolicy | null, wo
       window.clearInterval(intervalId);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [materials, uploadPolicy, workspaceKey]);
+  }, [enabled, materials, uploadPolicy, workspaceKey]);
 
   const loadMoreMaterials = async () => {
-    if (isLoadingMore || !hasMoreMaterials) {
+    if (!enabled || isLoadingMore || !hasMoreMaterials) {
       return null;
     }
 

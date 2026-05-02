@@ -1,4 +1,4 @@
-package com.example.demo.infrastructure.instruction;
+package com.example.demo.service.instruction.port;
 
 import java.util.List;
 import java.util.Optional;
@@ -11,7 +11,7 @@ public interface InstructionRepository {
 
     List<StoredInstructionRecord> findAllByIds(List<String> ids);
 
-    List<StoredInstructionRecord> findByScope(StoredInstructionRecordScope scope);
+    List<StoredInstructionRecord> findByScope(InstructionScopeQuery scope);
 
     List<StoredInstructionRevisionRecord> findRevisions(String instructionId);
 
@@ -22,11 +22,4 @@ public interface InstructionRepository {
     void appendRevision(StoredInstructionRevisionRecord record);
 
     void delete(String id);
-
-    record StoredInstructionRecordScope(
-        com.example.demo.model.InstructionScopeLevel scopeLevel,
-        String scopeTargetId,
-        boolean activeOnly
-    ) {
-    }
 }

@@ -49,9 +49,9 @@ import org.junit.jupiter.api.Test;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 
-class PostgresMaterialRepositoryIT extends PostgresIntegrationTestSupport {
+class PostgresMaterialAdaptersIT extends PostgresIntegrationTestSupport {
 
-    private PostgresMaterialRepository repository;
+    private PostgresMaterialTestRepositoryBundle repository;
     private JdbcTemplate jdbcTemplate;
     private final DeterministicEmbeddingClient embeddingClient = new DeterministicEmbeddingClient();
     private final MaterialContentSupport contentSupport = new MaterialContentSupport(new MaterialProperties());
@@ -59,7 +59,7 @@ class PostgresMaterialRepositoryIT extends PostgresIntegrationTestSupport {
     @BeforeEach
     void setUp() {
         TestDatabase database = resetDatabase();
-        repository = new PostgresMaterialRepository(database.jdbcTemplate(), database.transactionManager());
+        repository = new PostgresMaterialTestRepositoryBundle(database.jdbcTemplate(), database.transactionManager());
         jdbcTemplate = database.jdbcTemplate();
     }
 
@@ -73,21 +73,21 @@ class PostgresMaterialRepositoryIT extends PostgresIntegrationTestSupport {
             MaterialIndexingStatus.PENDING
         );
 
-        repository.save(record, List.of(rawChunk(0, "Premium support plan costs 12000 tenge.", 1)));
+        repository.catalog().save(record, List.of(rawChunk(0, "Premium support plan costs 12000 tenge.", 1)));
 
-        assertEquals(1, repository.countMaterials());
-        assertEquals(0, repository.countReadyMaterials());
-        assertEquals(record.id(), repository.findById(record.id()).orElseThrow().id());
+        assertEquals(1, repository.catalog().countMaterials());
+        assertEquals(0, repository.catalog().countReadyMaterials());
+        assertEquals(record.id(), repository.catalog().findById(record.id()).orElseThrow().id());
         assertEquals(
             record.id(),
-            repository.findBySourceKeyAndContentHash(record.sourceKey(), record.contentHash()).orElseThrow().id()
+            repository.catalog().findBySourceKeyAndContentHash(record.sourceKey(), record.contentHash()).orElseThrow().id()
         );
-        assertEquals(1, repository.findChunks(record.id()).size());
+        assertEquals(1, repository.chunking().findChunks(record.id()).size());
 
-        repository.delete(record.id());
+        repository.catalog().delete(record.id());
 
-        assertTrue(repository.findById(record.id()).isEmpty());
-        assertEquals(0, repository.countMaterials());
+        assertTrue(repository.catalog().findById(record.id()).isEmpty());
+        assertEquals(0, repository.catalog().countMaterials());
         Integer chunkCount = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM material_chunks", Integer.class);
         assertEquals(0, chunkCount);
     }
@@ -112,20 +112,20 @@ class PostgresMaterialRepositoryIT extends PostgresIntegrationTestSupport {
             Instant.parse("2026-04-17T09:56:00Z")
         );
 
-        repository.save(first, List.of(rawChunk(0, "Premium support plan costs 12000 tenge.", 1)));
-        StoredMaterialRecord persisted = repository.save(
+        repository.catalog().save(first, List.of(rawChunk(0, "Premium support plan costs 12000 tenge.", 1)));
+        StoredMaterialRecord persisted = repository.catalog().save(
             duplicate,
             List.of(rawChunk(0, "Premium support plan costs 12000 tenge.", 1))
         );
 
         assertEquals(duplicate.id(), persisted.id());
-        assertEquals(2, repository.countMaterials());
-        assertTrue(repository.findById(first.id()).isPresent());
-        assertTrue(repository.findById(duplicate.id()).isPresent());
+        assertEquals(2, repository.catalog().countMaterials());
+        assertTrue(repository.catalog().findById(first.id()).isPresent());
+        assertTrue(repository.catalog().findById(duplicate.id()).isPresent());
     }
 
     @Test
-    void deduplicatesIdenticalContentWithinSameLineage() {
+    void allowsIdenticalContentAcrossHistoricalLineageVersions() {
         StoredMaterialRecord first = materialRecord(
             UUID.randomUUID().toString(),
             "Pricing FAQ",
@@ -138,17 +138,20 @@ class PostgresMaterialRepositoryIT extends PostgresIntegrationTestSupport {
             "Pricing FAQ Copy",
             "Premium support plan costs 12000 tenge.",
             "hash-dedup",
-            MaterialIndexingStatus.PENDING
+            first.sourceKey(),
+            MaterialIndexingStatus.PENDING,
+            MaterialVersionState.SUPERSEDED,
+            first.createdAt().plusSeconds(60)
         );
 
-        repository.save(first, List.of(rawChunk(0, "Premium support plan costs 12000 tenge.", 1)));
-        StoredMaterialRecord persisted = repository.save(
+        repository.catalog().save(first, List.of(rawChunk(0, "Premium support plan costs 12000 tenge.", 1)));
+        StoredMaterialRecord persisted = repository.catalog().save(
             duplicate,
             List.of(rawChunk(0, "Premium support plan costs 12000 tenge.", 1))
         );
 
-        assertEquals(first.id(), persisted.id());
-        assertEquals(1, repository.countMaterials());
+        assertEquals(duplicate.id(), persisted.id());
+        assertEquals(2, repository.catalog().countMaterials());
     }
 
     @Test
@@ -166,8 +169,8 @@ class PostgresMaterialRepositoryIT extends PostgresIntegrationTestSupport {
             "Вторая редакция тарифа 12000 тенге."
         );
 
-        String firstSourceKey = repository.resolveSourceKey(firstIdentity);
-        String secondSourceKey = repository.resolveSourceKey(secondIdentity);
+        String firstSourceKey = repository.lineage().resolveSourceKey(firstIdentity);
+        String secondSourceKey = repository.lineage().resolveSourceKey(secondIdentity);
 
         assertEquals(firstSourceKey, secondSourceKey);
         assertEquals(1, jdbcTemplate.queryForObject("SELECT COUNT(*) FROM material_lineage_identities", Integer.class));
@@ -194,9 +197,9 @@ class PostgresMaterialRepositoryIT extends PostgresIntegrationTestSupport {
             "Регламент закупки трансформаторов и кабеля на четвертый квартал."
         );
 
-        String firstSourceKey = repository.resolveSourceKey(firstIdentity);
-        String sameLineageSourceKey = repository.resolveSourceKey(sameLineageIdentity);
-        String differentSourceKey = repository.resolveSourceKey(differentIdentity);
+        String firstSourceKey = repository.lineage().resolveSourceKey(firstIdentity);
+        String sameLineageSourceKey = repository.lineage().resolveSourceKey(sameLineageIdentity);
+        String differentSourceKey = repository.lineage().resolveSourceKey(differentIdentity);
 
         assertEquals(firstSourceKey, sameLineageSourceKey);
         assertNotEquals(firstSourceKey, differentSourceKey);
@@ -212,18 +215,18 @@ class PostgresMaterialRepositoryIT extends PostgresIntegrationTestSupport {
             "hash-queue",
             MaterialIndexingStatus.PENDING
         );
-        repository.save(record, List.of(rawChunk(0, "Queue lifecycle proof content.", 1)));
+        repository.catalog().save(record, List.of(rawChunk(0, "Queue lifecycle proof content.", 1)));
 
         Instant firstClaimAt = Instant.parse("2026-04-17T10:00:00Z");
-        assertTrue(repository.hasPendingIndexing(firstClaimAt));
+        assertTrue(repository.indexingQueue().hasPendingIndexing(firstClaimAt));
 
-        MaterialIndexingLease firstLease = repository.claimNextIndexing(firstClaimAt).orElseThrow();
+        MaterialIndexingLease firstLease = repository.indexingQueue().claimNextIndexing(firstClaimAt).orElseThrow();
         assertEquals(record.id(), firstLease.record().id());
         assertEquals(1, firstLease.attemptNumber());
-        assertFalse(repository.hasPendingIndexing(firstClaimAt));
+        assertFalse(repository.indexingQueue().hasPendingIndexing(firstClaimAt));
 
         Instant nextRetryAt = firstClaimAt.plusSeconds(120);
-        repository.rescheduleIndexing(
+        repository.indexingQueue().rescheduleIndexing(
             record.id(),
             "embedding.provider_unavailable",
             "Retry later",
@@ -231,18 +234,18 @@ class PostgresMaterialRepositoryIT extends PostgresIntegrationTestSupport {
             nextRetryAt
         );
 
-        assertFalse(repository.hasPendingIndexing(nextRetryAt.minusSeconds(1)));
-        assertTrue(repository.hasPendingIndexing(nextRetryAt));
+        assertFalse(repository.indexingQueue().hasPendingIndexing(nextRetryAt.minusSeconds(1)));
+        assertTrue(repository.indexingQueue().hasPendingIndexing(nextRetryAt));
 
-        MaterialIndexingLease secondLease = repository.claimNextIndexing(nextRetryAt).orElseThrow();
+        MaterialIndexingLease secondLease = repository.indexingQueue().claimNextIndexing(nextRetryAt).orElseThrow();
         assertEquals(2, secondLease.attemptNumber());
 
         Instant recoveredAt = nextRetryAt.plusSeconds(60);
-        repository.resetExpiredIndexingClaims(nextRetryAt.plusSeconds(30), recoveredAt);
+        repository.indexingQueue().resetExpiredIndexingClaims(nextRetryAt.plusSeconds(30), recoveredAt);
 
-        StoredMaterialRecord recoveredRecord = repository.findById(record.id()).orElseThrow();
+        StoredMaterialRecord recoveredRecord = repository.catalog().findById(record.id()).orElseThrow();
         assertEquals(MaterialIndexingStatus.PENDING, recoveredRecord.status());
-        assertTrue(repository.hasPendingIndexing(recoveredAt));
+        assertTrue(repository.indexingQueue().hasPendingIndexing(recoveredAt));
     }
 
     @Test
@@ -254,9 +257,9 @@ class PostgresMaterialRepositoryIT extends PostgresIntegrationTestSupport {
             "hash-search",
             MaterialIndexingStatus.PENDING
         );
-        repository.save(record, List.of(rawChunk(0, "Premium support plan costs 12000 tenge.", 1)));
+        repository.catalog().save(record, List.of(rawChunk(0, "Premium support plan costs 12000 tenge.", 1)));
 
-        repository.markIndexingReady(
+        repository.indexingQueue().markIndexingReady(
             record.id(),
             List.of(new StoredEmbeddedMaterialChunk(
                 0,
@@ -272,18 +275,18 @@ class PostgresMaterialRepositoryIT extends PostgresIntegrationTestSupport {
             Instant.parse("2026-04-17T10:05:00Z")
         );
 
-        StoredMaterialRecord reloaded = repository.findById(record.id()).orElseThrow();
+        StoredMaterialRecord reloaded = repository.catalog().findById(record.id()).orElseThrow();
         assertEquals(MaterialIndexingStatus.PARTIAL_READY, reloaded.status());
         assertEquals("material.partial_ocr", reloaded.statusReasonCode());
-        assertEquals(1, repository.countReadyMaterials());
-        assertEquals(1, repository.findChunks(record.id()).size());
+        assertEquals(1, repository.catalog().countReadyMaterials());
+        assertEquals(1, repository.chunking().findChunks(record.id()).size());
 
-        List<MaterialChunkSearchMatch> lexicalMatches = repository.search("premium support", 5);
+        List<MaterialChunkSearchMatch> lexicalMatches = repository.lexical().search("premium support", 5);
         assertFalse(lexicalMatches.isEmpty());
         assertEquals(record.id(), lexicalMatches.getFirst().materialId());
         assertNotNull(lexicalMatches.getFirst().lexicalScore());
 
-        List<MaterialChunkSearchMatch> semanticMatches = repository.searchSemantic(
+        List<MaterialChunkSearchMatch> semanticMatches = repository.semantic().searchSemantic(
             embeddingClient.embed("premium support"),
             5
         );
@@ -369,18 +372,18 @@ class PostgresMaterialRepositoryIT extends PostgresIntegrationTestSupport {
         List.of(eligible, draft, archived, revoked, expired, future, superseded)
             .forEach(record -> saveReadyMaterial(record, record.content()));
 
-        assertEquals(6, repository.countActiveMaterials());
-        assertEquals(1, repository.countReadyMaterials());
+        assertEquals(6, repository.catalog().countActiveMaterials());
+        assertEquals(1, repository.catalog().countReadyMaterials());
 
-        List<String> lexicalIds = repository.search("phase seven retrieval token", 20)
+        List<String> lexicalIds = repository.lexical().search("phase seven retrieval token", 20)
             .stream()
             .map(MaterialChunkSearchMatch::materialId)
             .toList();
-        List<String> semanticIds = repository.searchSemantic(embeddingClient.embed("phase seven retrieval token"), 20)
+        List<String> semanticIds = repository.semantic().searchSemantic(embeddingClient.embed("phase seven retrieval token"), 20)
             .stream()
             .map(MaterialChunkSearchMatch::materialId)
             .toList();
-        MaterialRetrievalScopeSnapshot scope = repository.describeRetrievalScope(
+        MaterialRetrievalScopeSnapshot scope = repository.catalog().describeRetrievalScope(
             KnowledgeScope.empty(),
             RetrievalFilters.empty(),
             null,
@@ -389,8 +392,8 @@ class PostgresMaterialRepositoryIT extends PostgresIntegrationTestSupport {
 
         assertEquals(List.of(eligible.id()), lexicalIds);
         assertEquals(List.of(eligible.id()), semanticIds);
-        assertEquals(List.of(eligible.id()), scope.scopedReadyMaterialIds().stream().toList());
-        assertEquals(List.of(eligible.id()), repository.findAllSearchableMaterialIds());
+        assertEquals(1, scope.scopedReadyMaterialCount());
+        assertEquals(List.of(eligible.id()), repository.searchableSnapshot().findAllSearchableMaterialIds());
     }
 
     @Test
@@ -420,11 +423,11 @@ class PostgresMaterialRepositoryIT extends PostgresIntegrationTestSupport {
             Instant.parse("2026-04-17T10:00:00Z")
         ).withMetadata(retrievalMetadata(DocumentStatus.ACTIVE, null, null));
 
-        repository.save(covered, List.of(rawChunk(0, covered.content(), 1)));
-        repository.save(uncovered, List.of(rawChunk(0, uncovered.content(), 1)));
-        repository.save(historicalCovered, List.of(rawChunk(0, historicalCovered.content(), 1)));
+        repository.catalog().save(covered, List.of(rawChunk(0, covered.content(), 1)));
+        repository.catalog().save(uncovered, List.of(rawChunk(0, uncovered.content(), 1)));
+        repository.catalog().save(historicalCovered, List.of(rawChunk(0, historicalCovered.content(), 1)));
 
-        QualityLayerCoverageSnapshot snapshot = repository.qualityLayerCoverageSnapshot();
+        QualityLayerCoverageSnapshot snapshot = repository.qualityMetrics().qualityLayerCoverageSnapshot();
 
         assertEquals(2, snapshot.activeTotal());
         assertEquals(1, snapshot.activeWithEffectiveMetadata());
@@ -456,9 +459,9 @@ class PostgresMaterialRepositoryIT extends PostgresIntegrationTestSupport {
             null,
             null,
             null,
-            null,
+            "Line A Display",
             "KazEnergy Service",
-            null
+            "APPROVED"
         )).withTagLayers(List.of("contract", "energy"), List.of("auto-grid", "energy"));
         StoredMaterialRecord record = new StoredMaterialRecord(
             UUID.randomUUID().toString(),
@@ -487,16 +490,16 @@ class PostgresMaterialRepositoryIT extends PostgresIntegrationTestSupport {
             metadata
         );
 
-        repository.save(record, List.of(rawChunk(0, record.content(), 1)));
+        repository.catalog().save(record, List.of(rawChunk(0, record.content(), 1)));
 
-        StoredMaterialRecord reloaded = repository.findById(record.id()).orElseThrow();
+        StoredMaterialRecord reloaded = repository.catalog().findById(record.id()).orElseThrow();
         assertEquals(DocumentType.CONTRACT, reloaded.metadata().documentType());
         assertEquals("KZ-2026-0415-ENERGY", reloaded.metadata().documentNumber());
         assertEquals("north-upgrade", reloaded.metadata().workspaceKey());
         assertEquals("line-a", reloaded.metadata().projectKey());
-        assertEquals("line-a", reloaded.metadata().project());
+        assertEquals("Line A Display", reloaded.metadata().project());
         assertEquals(DocumentStatus.DRAFT, reloaded.metadata().documentStatus());
-        assertEquals("DRAFT", reloaded.metadata().businessStatus());
+        assertEquals("APPROVED", reloaded.metadata().businessStatus());
         assertEquals(MaterialLanguageCode.RU, reloaded.metadata().languageCode());
         assertEquals("ru", reloaded.metadata().language());
         assertEquals(List.of("contract", "energy"), reloaded.metadata().manualTags());
@@ -511,7 +514,7 @@ class PostgresMaterialRepositoryIT extends PostgresIntegrationTestSupport {
             jdbcTemplate.queryForObject("SELECT project_key FROM materials WHERE id = ?", String.class, UUID.fromString(record.id()))
         );
         assertEquals(
-            "line-a",
+            "Line A Display",
             jdbcTemplate.queryForObject("SELECT project_name FROM materials WHERE id = ?", String.class, UUID.fromString(record.id()))
         );
         assertEquals(
@@ -519,7 +522,7 @@ class PostgresMaterialRepositoryIT extends PostgresIntegrationTestSupport {
             jdbcTemplate.queryForObject("SELECT document_status FROM materials WHERE id = ?", String.class, UUID.fromString(record.id()))
         );
         assertEquals(
-            "DRAFT",
+            "APPROVED",
             jdbcTemplate.queryForObject("SELECT business_status FROM materials WHERE id = ?", String.class, UUID.fromString(record.id()))
         );
         assertEquals(
@@ -536,7 +539,7 @@ class PostgresMaterialRepositoryIT extends PostgresIntegrationTestSupport {
         );
         assertEquals(
             1,
-            repository.describeRetrievalScope(
+            repository.catalog().describeRetrievalScope(
                 KnowledgeScope.empty(),
                 new RetrievalFilters(null, null, null, null, null, null, null, null, List.of("auto-grid"), null),
                 null,
@@ -555,7 +558,7 @@ class PostgresMaterialRepositoryIT extends PostgresIntegrationTestSupport {
             MaterialIndexingStatus.READY
         );
 
-        repository.save(record, List.of(rawChunk(0, record.content(), 1)));
+        repository.catalog().save(record, List.of(rawChunk(0, record.content(), 1)));
         jdbcTemplate.update(
             "INSERT INTO material_tags (material_id, tag_order, tag_value) VALUES (?, ?, ?)",
             UUID.fromString(record.id()),
@@ -634,19 +637,19 @@ class PostgresMaterialRepositoryIT extends PostgresIntegrationTestSupport {
             jdbcTemplate.queryForObject("SELECT workspace_key FROM materials WHERE id = ?", String.class, UUID.fromString(record.id()))
         );
 
-        MaterialRetrievalScopeSnapshot matchingScope = repository.describeRetrievalScope(
+        MaterialRetrievalScopeSnapshot matchingScope = repository.catalog().describeRetrievalScope(
             new KnowledgeScope(List.of(), List.of(KnowledgeDocumentClass.REGULATIONS), List.of(), "north-upgrade", false),
             RetrievalFilters.empty(),
             null,
             null
         );
-        MaterialRetrievalScopeSnapshot wrongClassScope = repository.describeRetrievalScope(
+        MaterialRetrievalScopeSnapshot wrongClassScope = repository.catalog().describeRetrievalScope(
             new KnowledgeScope(List.of(), List.of(KnowledgeDocumentClass.CONTRACTS), List.of(), "north-upgrade", false),
             RetrievalFilters.empty(),
             null,
             null
         );
-        MaterialRetrievalScopeSnapshot wrongWorkspaceScope = repository.describeRetrievalScope(
+        MaterialRetrievalScopeSnapshot wrongWorkspaceScope = repository.catalog().describeRetrievalScope(
             new KnowledgeScope(List.of(), List.of(KnowledgeDocumentClass.REGULATIONS), List.of(), "south-upgrade", false),
             RetrievalFilters.empty(),
             null,
@@ -654,7 +657,6 @@ class PostgresMaterialRepositoryIT extends PostgresIntegrationTestSupport {
         );
 
         assertEquals(1, matchingScope.scopedReadyMaterialCount());
-        assertEquals(List.of(record.id()), matchingScope.scopedReadyMaterialIds().stream().toList());
         assertEquals(0, wrongClassScope.scopedReadyMaterialCount());
         assertEquals(0, wrongWorkspaceScope.scopedReadyMaterialCount());
     }
@@ -683,15 +685,15 @@ class PostgresMaterialRepositoryIT extends PostgresIntegrationTestSupport {
             DocumentBlockConfidence.HIGH
         );
 
-        repository.save(record, List.of(rawChunk));
+        repository.catalog().save(record, List.of(rawChunk));
 
-        StoredMaterialChunk reloadedRawChunk = repository.findChunks(record.id()).getFirst();
+        StoredMaterialChunk reloadedRawChunk = repository.chunking().findChunks(record.id()).getFirst();
         assertEquals(DocumentBlockType.NARRATIVE, reloadedRawChunk.chunkType());
         assertEquals(List.of("dispatch-approval"), reloadedRawChunk.sectionPath());
         assertEquals(List.of("2. Dispatch approval"), reloadedRawChunk.headingTrail());
         assertEquals(DocumentBlockConfidence.HIGH, reloadedRawChunk.parserConfidence());
 
-        repository.markIndexingReady(
+        repository.indexingQueue().markIndexingReady(
             record.id(),
             List.of(new StoredEmbeddedMaterialChunk(
                 0,
@@ -713,7 +715,7 @@ class PostgresMaterialRepositoryIT extends PostgresIntegrationTestSupport {
             Instant.parse("2026-04-17T10:05:00Z")
         );
 
-        SearchableMaterialSnapshot snapshot = repository.resolveSearchableSnapshot(record.id());
+        SearchableMaterialSnapshot snapshot = repository.searchableSnapshot().resolveSearchableSnapshot(record.id());
         assertEquals(1, snapshot.chunks().size());
         assertEquals(DocumentBlockType.NARRATIVE, snapshot.chunks().getFirst().chunkType());
         assertEquals(List.of("dispatch-approval"), snapshot.chunks().getFirst().sectionPath());
@@ -745,25 +747,18 @@ class PostgresMaterialRepositoryIT extends PostgresIntegrationTestSupport {
             1,
             List.of(),
             MaterialIndexingStatus.READY,
-            MaterialVersionState.ACTIVE,
+            MaterialVersionState.SUPERSEDED,
             null,
             null,
             first.createdAt().plusSeconds(60),
             first.updatedAt().plusSeconds(60)
         );
 
-        repository.save(first, List.of(rawChunk(0, "Старая цена 9000 тенге.", 1)));
-        repository.save(second, List.of(rawChunk(0, "Новая цена 12000 тенге.", 1)));
-        repository.supersedeActiveVersions(
-            first.sourceKey(),
-            second.id(),
-            second.id(),
-            "material.superseded_by_new_active_version",
-            Instant.parse("2026-04-17T10:10:00Z")
-        );
+        repository.catalog().save(first, List.of(rawChunk(0, "Старая цена 9000 тенге.", 1)));
+        repository.catalog().save(second, List.of(rawChunk(0, "Новая цена 12000 тенге.", 1)));
 
-        assertEquals(1, repository.countActiveMaterials());
-        assertEquals(first.id(), repository.findLatestBySourceKeyAndVersionState(
+        assertEquals(1, repository.catalog().countActiveMaterials());
+        assertEquals(second.id(), repository.catalog().findLatestBySourceKeyAndVersionState(
             first.sourceKey(),
             MaterialVersionState.SUPERSEDED
         ).orElseThrow().id());
@@ -793,7 +788,7 @@ class PostgresMaterialRepositoryIT extends PostgresIntegrationTestSupport {
             baseTime.plusSeconds(60)
         );
 
-        repository.save(first, List.of(rawChunk(0, "Первая активная версия", 1)));
+        repository.catalog().save(first, List.of(rawChunk(0, "Первая активная версия", 1)));
 
         assertThrows(
             DataAccessException.class,
@@ -884,9 +879,9 @@ class PostgresMaterialRepositoryIT extends PostgresIntegrationTestSupport {
             baseTime.plusSeconds(120)
         );
 
-        repository.save(olderSuperseded, List.of(rawChunk(0, "Первая версия", 1)));
-        repository.save(newerSuperseded, List.of(rawChunk(0, "Вторая версия", 1)));
-        repository.save(active, List.of(rawChunk(0, "Текущая версия", 1)));
+        repository.catalog().save(olderSuperseded, List.of(rawChunk(0, "Первая версия", 1)));
+        repository.catalog().save(newerSuperseded, List.of(rawChunk(0, "Вторая версия", 1)));
+        repository.catalog().save(active, List.of(rawChunk(0, "Текущая версия", 1)));
 
         jdbcTemplate.update(
             "UPDATE materials SET updated_at = ? WHERE id = ?",
@@ -896,7 +891,7 @@ class PostgresMaterialRepositoryIT extends PostgresIntegrationTestSupport {
 
         assertEquals(
             newerSuperseded.id(),
-            repository.findLatestBySourceKeyAndVersionState("pricing-lineage", MaterialVersionState.SUPERSEDED)
+            repository.catalog().findLatestBySourceKeyAndVersionState("pricing-lineage", MaterialVersionState.SUPERSEDED)
                 .orElseThrow()
                 .id()
         );
@@ -922,7 +917,7 @@ class PostgresMaterialRepositoryIT extends PostgresIntegrationTestSupport {
             "hash-lineage-return-second",
             "pricing-lineage",
             MaterialIndexingStatus.PENDING,
-            MaterialVersionState.ACTIVE,
+            MaterialVersionState.SUPERSEDED,
             baseTime.plusSeconds(30)
         );
         StoredMaterialRecord excluded = materialRecord(
@@ -932,15 +927,15 @@ class PostgresMaterialRepositoryIT extends PostgresIntegrationTestSupport {
             "hash-lineage-return-third",
             "pricing-lineage",
             MaterialIndexingStatus.READY,
-            MaterialVersionState.ACTIVE,
+            MaterialVersionState.SUPERSEDED,
             baseTime.plusSeconds(60)
         );
 
-        repository.save(first, List.of(rawChunk(0, "Первая версия", 1)));
-        repository.save(second, List.of(rawChunk(0, "Вторая версия", 1)));
-        repository.save(excluded, List.of(rawChunk(0, "Третья версия", 1)));
+        repository.catalog().save(first, List.of(rawChunk(0, "Первая версия", 1)));
+        repository.catalog().save(second, List.of(rawChunk(0, "Вторая версия", 1)));
+        repository.catalog().save(excluded, List.of(rawChunk(0, "Третья версия", 1)));
 
-        List<StoredMaterialRecord> affectedRecords = repository.supersedeActiveVersions(
+        List<StoredMaterialRecord> affectedRecords = repository.catalog().supersedeActiveVersions(
             "pricing-lineage",
             excluded.id(),
             excluded.id(),
@@ -948,10 +943,10 @@ class PostgresMaterialRepositoryIT extends PostgresIntegrationTestSupport {
             baseTime.plusSeconds(90)
         );
 
-        assertEquals(List.of(first.id(), second.id()), affectedRecords.stream().map(StoredMaterialRecord::id).toList());
-        assertEquals(MaterialVersionState.SUPERSEDED, repository.findById(first.id()).orElseThrow().versionState());
-        assertEquals(MaterialVersionState.SUPERSEDED, repository.findById(second.id()).orElseThrow().versionState());
-        assertEquals(MaterialVersionState.ACTIVE, repository.findById(excluded.id()).orElseThrow().versionState());
+        assertEquals(List.of(first.id()), affectedRecords.stream().map(StoredMaterialRecord::id).toList());
+        assertEquals(MaterialVersionState.SUPERSEDED, repository.catalog().findById(first.id()).orElseThrow().versionState());
+        assertEquals(MaterialVersionState.SUPERSEDED, repository.catalog().findById(second.id()).orElseThrow().versionState());
+        assertEquals(MaterialVersionState.SUPERSEDED, repository.catalog().findById(excluded.id()).orElseThrow().versionState());
     }
 
     @Test
@@ -998,13 +993,13 @@ class PostgresMaterialRepositoryIT extends PostgresIntegrationTestSupport {
             sharedCreatedAt.plusSeconds(120)
         );
 
-        repository.save(first, List.of(rawChunk(0, "Первая версия", 1)));
-        repository.save(second, List.of(rawChunk(0, "Вторая версия", 1)));
-        repository.save(third, List.of(rawChunk(0, "Третья версия", 1)));
-        repository.save(superseded, List.of(rawChunk(0, "Историческая версия", 1)));
+        repository.catalog().save(first, List.of(rawChunk(0, "Первая версия", 1)));
+        repository.catalog().save(second, List.of(rawChunk(0, "Вторая версия", 1)));
+        repository.catalog().save(third, List.of(rawChunk(0, "Третья версия", 1)));
+        repository.catalog().save(superseded, List.of(rawChunk(0, "Историческая версия", 1)));
 
-        List<StoredMaterialRecord> firstPage = repository.findActivePageAfter(null, null, 2);
-        List<StoredMaterialRecord> secondPage = repository.findActivePageAfter(
+        List<StoredMaterialRecord> firstPage = repository.catalog().findActivePageAfter(null, null, 2);
+        List<StoredMaterialRecord> secondPage = repository.catalog().findActivePageAfter(
             firstPage.getLast().createdAt(),
             firstPage.getLast().id(),
             2
@@ -1026,9 +1021,9 @@ class PostgresMaterialRepositoryIT extends PostgresIntegrationTestSupport {
         saveReadyMaterial(record, "Premium support plan costs 12000 tenge.");
         Instant createdAt = Instant.parse("2026-04-17T10:00:00Z");
 
-        repository.enqueueMaterialsForSync(List.of(record.id()), createdAt);
+        repository.searchSyncQueue().enqueueMaterialsForSync(List.of(record.id()), createdAt);
 
-        List<MaterialSearchSyncQueueEntry> entries = repository.findAllSearchSyncEntries();
+        List<MaterialSearchSyncQueueEntry> entries = repository.searchSyncQueue().findAllSearchSyncEntries();
 
         assertEquals(1, entries.size());
         assertEquals(record.id(), entries.getFirst().materialId());
@@ -1056,29 +1051,29 @@ class PostgresMaterialRepositoryIT extends PostgresIntegrationTestSupport {
         saveReadyMaterial(secondRecord, "Premium support plan costs 12000 tenge copy.");
 
         Instant createdAt = Instant.parse("2026-04-17T10:00:00Z");
-        repository.enqueueMaterialsForSync(List.of(firstRecord.id(), secondRecord.id()), createdAt);
+        repository.searchSyncQueue().enqueueMaterialsForSync(List.of(firstRecord.id(), secondRecord.id()), createdAt);
 
-        MaterialSearchSyncQueueRepository.SearchSyncQueueSnapshot initialSnapshot = repository.getSearchSyncQueueSnapshot();
+        MaterialSearchSyncQueueRepository.SearchSyncQueueSnapshot initialSnapshot = repository.searchSyncQueue().getSearchSyncQueueSnapshot();
         assertEquals(2, initialSnapshot.pendingCount());
         assertEquals(0, initialSnapshot.inProgressCount());
         assertEquals(0, initialSnapshot.failedCount());
 
         Instant firstClaimAt = createdAt.plusSeconds(10);
-        List<MaterialSearchSyncQueueEntry> claimed = repository.claimNextSearchSyncBatch(firstClaimAt, 2);
+        List<MaterialSearchSyncQueueEntry> claimed = repository.searchSyncQueue().claimNextSearchSyncBatch(firstClaimAt, 2);
         assertEquals(sortedIds(firstRecord.id(), secondRecord.id()), sortedEntryMaterialIds(claimed));
         assertEquals(List.of(1, 1), claimed.stream().map(MaterialSearchSyncQueueEntry::attemptCount).sorted().toList());
 
-        MaterialSearchSyncQueueRepository.SearchSyncQueueSnapshot claimedSnapshot = repository.getSearchSyncQueueSnapshot();
+        MaterialSearchSyncQueueRepository.SearchSyncQueueSnapshot claimedSnapshot = repository.searchSyncQueue().getSearchSyncQueueSnapshot();
         assertEquals(0, claimedSnapshot.pendingCount());
         assertEquals(2, claimedSnapshot.inProgressCount());
         assertEquals(0, claimedSnapshot.failedCount());
 
         Instant recoveredAt = firstClaimAt.plusSeconds(30);
-        repository.resetExpiredSearchSyncClaims(firstClaimAt.plusSeconds(1), recoveredAt);
-        assertTrue(repository.hasPendingSearchSyncEvents(recoveredAt));
+        repository.searchSyncQueue().resetExpiredSearchSyncClaims(firstClaimAt.plusSeconds(1), recoveredAt);
+        assertTrue(repository.searchSyncQueue().hasPendingSearchSyncEvents(recoveredAt));
 
         Instant retryAt = recoveredAt.plusSeconds(90);
-        List<MaterialSearchSyncQueueEntry> reclaimed = repository.claimNextSearchSyncBatch(recoveredAt, 2);
+        List<MaterialSearchSyncQueueEntry> reclaimed = repository.searchSyncQueue().claimNextSearchSyncBatch(recoveredAt, 2);
         assertEquals(List.of(2, 2), reclaimed.stream().map(MaterialSearchSyncQueueEntry::attemptCount).sorted().toList());
 
         MaterialSearchSyncQueueEntry retryEntry = reclaimed.stream()
@@ -1090,7 +1085,7 @@ class PostgresMaterialRepositoryIT extends PostgresIntegrationTestSupport {
             .findFirst()
             .orElseThrow();
 
-        repository.markSearchSyncEntryForRetry(
+        repository.searchSyncQueue().markSearchSyncEntryForRetry(
             retryEntry.materialId(),
             retryEntry.claimedAt(),
             "search.sync_failed",
@@ -1098,7 +1093,7 @@ class PostgresMaterialRepositoryIT extends PostgresIntegrationTestSupport {
             recoveredAt.plusSeconds(1),
             retryAt
         );
-        repository.markSearchSyncEntryFailed(
+        repository.searchSyncQueue().markSearchSyncEntryFailed(
             failedEntry.materialId(),
             failedEntry.claimedAt(),
             "search.sync_failed",
@@ -1106,25 +1101,25 @@ class PostgresMaterialRepositoryIT extends PostgresIntegrationTestSupport {
             recoveredAt.plusSeconds(1)
         );
 
-        MaterialSearchSyncQueueRepository.SearchSyncQueueSnapshot retrySnapshot = repository.getSearchSyncQueueSnapshot();
+        MaterialSearchSyncQueueRepository.SearchSyncQueueSnapshot retrySnapshot = repository.searchSyncQueue().getSearchSyncQueueSnapshot();
         assertEquals(1, retrySnapshot.pendingCount());
         assertEquals(0, retrySnapshot.inProgressCount());
         assertEquals(1, retrySnapshot.failedCount());
         assertEquals(retryAt, retrySnapshot.nextRetryAt());
-        assertFalse(repository.hasPendingSearchSyncEvents(retryAt.minusSeconds(1)));
-        assertTrue(repository.hasPendingSearchSyncEvents(retryAt));
+        assertFalse(repository.searchSyncQueue().hasPendingSearchSyncEvents(retryAt.minusSeconds(1)));
+        assertTrue(repository.searchSyncQueue().hasPendingSearchSyncEvents(retryAt));
 
-        List<MaterialSearchSyncQueueEntry> retryClaim = repository.claimNextSearchSyncBatch(retryAt, 1);
+        List<MaterialSearchSyncQueueEntry> retryClaim = repository.searchSyncQueue().claimNextSearchSyncBatch(retryAt, 1);
         assertEquals(firstRecord.id(), retryClaim.getFirst().materialId());
         assertEquals(3, retryClaim.getFirst().attemptCount());
 
-        repository.completeSearchSyncEntry(
+        repository.searchSyncQueue().completeSearchSyncEntry(
             retryClaim.getFirst().materialId(),
             retryClaim.getFirst().claimedAt(),
             retryAt.plusSeconds(1)
         );
 
-        MaterialSearchSyncQueueRepository.SearchSyncQueueSnapshot deliveredSnapshot = repository.getSearchSyncQueueSnapshot();
+        MaterialSearchSyncQueueRepository.SearchSyncQueueSnapshot deliveredSnapshot = repository.searchSyncQueue().getSearchSyncQueueSnapshot();
         assertEquals(0, deliveredSnapshot.pendingCount());
         assertEquals(0, deliveredSnapshot.inProgressCount());
         assertEquals(1, deliveredSnapshot.failedCount());
@@ -1142,14 +1137,14 @@ class PostgresMaterialRepositoryIT extends PostgresIntegrationTestSupport {
         saveReadyMaterial(record, "Queue wake-up is preserved during in-flight claim.");
 
         Instant createdAt = Instant.parse("2026-04-17T11:00:00Z");
-        repository.enqueueMaterialsForSync(List.of(record.id()), createdAt);
-        MaterialSearchSyncQueueEntry claimedEntry = repository.claimNextSearchSyncBatch(createdAt.plusSeconds(5), 1).getFirst();
+        repository.searchSyncQueue().enqueueMaterialsForSync(List.of(record.id()), createdAt);
+        MaterialSearchSyncQueueEntry claimedEntry = repository.searchSyncQueue().claimNextSearchSyncBatch(createdAt.plusSeconds(5), 1).getFirst();
 
         Instant reenqueueAt = createdAt.plusSeconds(20);
-        repository.enqueueMaterialsForSync(List.of(record.id()), reenqueueAt);
-        repository.completeSearchSyncEntry(record.id(), claimedEntry.claimedAt(), reenqueueAt.plusSeconds(1));
+        repository.searchSyncQueue().enqueueMaterialsForSync(List.of(record.id()), reenqueueAt);
+        repository.searchSyncQueue().completeSearchSyncEntry(record.id(), claimedEntry.claimedAt(), reenqueueAt.plusSeconds(1));
 
-        MaterialSearchSyncQueueEntry requeuedEntry = repository.findAllSearchSyncEntries().getFirst();
+        MaterialSearchSyncQueueEntry requeuedEntry = repository.searchSyncQueue().findAllSearchSyncEntries().getFirst();
         assertEquals(SearchSyncDeliveryState.PENDING, requeuedEntry.deliveryState());
         assertEquals(0, requeuedEntry.attemptCount());
         assertEquals(reenqueueAt, requeuedEntry.requestedAt());
@@ -1157,21 +1152,21 @@ class PostgresMaterialRepositoryIT extends PostgresIntegrationTestSupport {
         assertEquals(null, requeuedEntry.claimedAt());
         assertEquals(null, requeuedEntry.lastErrorCode());
         assertEquals(null, requeuedEntry.lastErrorMessage());
-        assertTrue(repository.hasPendingSearchSyncEvents(reenqueueAt.plusSeconds(1)));
+        assertTrue(repository.searchSyncQueue().hasPendingSearchSyncEvents(reenqueueAt.plusSeconds(1)));
     }
 
     @Test
     void deleteIntentDuringInProgressUpsertIsPreservedAfterOldClaimCompletes() {
         StoredMaterialRecord record = searchSyncReadyRecord("Delete After Upsert", "hash-search-sync-delete-after-upsert");
         Instant createdAt = Instant.parse("2026-04-17T11:05:00Z");
-        repository.enqueueMaterialsForSync(List.of(record.id()), SearchSyncOperationType.UPSERT, createdAt);
-        MaterialSearchSyncQueueEntry claimedEntry = repository.claimNextSearchSyncBatch(createdAt.plusSeconds(5), 1).getFirst();
+        repository.searchSyncQueue().enqueueMaterialsForSync(List.of(record.id()), SearchSyncOperationType.UPSERT, createdAt);
+        MaterialSearchSyncQueueEntry claimedEntry = repository.searchSyncQueue().claimNextSearchSyncBatch(createdAt.plusSeconds(5), 1).getFirst();
 
         Instant deleteRequestedAt = createdAt.plusSeconds(20);
-        repository.enqueueMaterialsForSync(List.of(record.id()), SearchSyncOperationType.DELETE, deleteRequestedAt);
-        repository.completeSearchSyncEntry(record.id(), claimedEntry.claimedAt(), deleteRequestedAt.plusSeconds(1));
+        repository.searchSyncQueue().enqueueMaterialsForSync(List.of(record.id()), SearchSyncOperationType.DELETE, deleteRequestedAt);
+        repository.searchSyncQueue().completeSearchSyncEntry(record.id(), claimedEntry.claimedAt(), deleteRequestedAt.plusSeconds(1));
 
-        MaterialSearchSyncQueueEntry requeuedEntry = repository.findAllSearchSyncEntries().getFirst();
+        MaterialSearchSyncQueueEntry requeuedEntry = repository.searchSyncQueue().findAllSearchSyncEntries().getFirst();
         assertEquals(SearchSyncOperationType.DELETE, requeuedEntry.operationType());
         assertEquals(SearchSyncDeliveryState.PENDING, requeuedEntry.deliveryState());
         assertEquals(0, requeuedEntry.attemptCount());
@@ -1186,14 +1181,14 @@ class PostgresMaterialRepositoryIT extends PostgresIntegrationTestSupport {
     void upsertIntentDuringInProgressDeleteIsPreservedAfterOldClaimCompletes() {
         StoredMaterialRecord record = searchSyncReadyRecord("Upsert After Delete", "hash-search-sync-upsert-after-delete");
         Instant createdAt = Instant.parse("2026-04-17T11:06:00Z");
-        repository.enqueueMaterialsForSync(List.of(record.id()), SearchSyncOperationType.DELETE, createdAt);
-        MaterialSearchSyncQueueEntry claimedEntry = repository.claimNextSearchSyncBatch(createdAt.plusSeconds(5), 1).getFirst();
+        repository.searchSyncQueue().enqueueMaterialsForSync(List.of(record.id()), SearchSyncOperationType.DELETE, createdAt);
+        MaterialSearchSyncQueueEntry claimedEntry = repository.searchSyncQueue().claimNextSearchSyncBatch(createdAt.plusSeconds(5), 1).getFirst();
 
         Instant upsertRequestedAt = createdAt.plusSeconds(20);
-        repository.enqueueMaterialsForSync(List.of(record.id()), SearchSyncOperationType.UPSERT, upsertRequestedAt);
-        repository.completeSearchSyncEntry(record.id(), claimedEntry.claimedAt(), upsertRequestedAt.plusSeconds(1));
+        repository.searchSyncQueue().enqueueMaterialsForSync(List.of(record.id()), SearchSyncOperationType.UPSERT, upsertRequestedAt);
+        repository.searchSyncQueue().completeSearchSyncEntry(record.id(), claimedEntry.claimedAt(), upsertRequestedAt.plusSeconds(1));
 
-        MaterialSearchSyncQueueEntry requeuedEntry = repository.findAllSearchSyncEntries().getFirst();
+        MaterialSearchSyncQueueEntry requeuedEntry = repository.searchSyncQueue().findAllSearchSyncEntries().getFirst();
         assertEquals(SearchSyncOperationType.UPSERT, requeuedEntry.operationType());
         assertEquals(SearchSyncDeliveryState.PENDING, requeuedEntry.deliveryState());
         assertEquals(0, requeuedEntry.attemptCount());
@@ -1207,13 +1202,13 @@ class PostgresMaterialRepositoryIT extends PostgresIntegrationTestSupport {
         StoredMaterialRecord record = searchSyncReadyRecord("Equal Timestamp", "hash-search-sync-equal-timestamp");
         Instant createdAt = Instant.parse("2026-04-17T11:07:00Z");
         Instant claimAt = createdAt.plusSeconds(5);
-        repository.enqueueMaterialsForSync(List.of(record.id()), SearchSyncOperationType.UPSERT, createdAt);
-        MaterialSearchSyncQueueEntry claimedEntry = repository.claimNextSearchSyncBatch(claimAt, 1).getFirst();
+        repository.searchSyncQueue().enqueueMaterialsForSync(List.of(record.id()), SearchSyncOperationType.UPSERT, createdAt);
+        MaterialSearchSyncQueueEntry claimedEntry = repository.searchSyncQueue().claimNextSearchSyncBatch(claimAt, 1).getFirst();
 
-        repository.enqueueMaterialsForSync(List.of(record.id()), SearchSyncOperationType.DELETE, claimAt);
-        repository.completeSearchSyncEntry(record.id(), claimedEntry.claimedAt(), claimAt.plusSeconds(1));
+        repository.searchSyncQueue().enqueueMaterialsForSync(List.of(record.id()), SearchSyncOperationType.DELETE, claimAt);
+        repository.searchSyncQueue().completeSearchSyncEntry(record.id(), claimedEntry.claimedAt(), claimAt.plusSeconds(1));
 
-        MaterialSearchSyncQueueEntry requeuedEntry = repository.findAllSearchSyncEntries().getFirst();
+        MaterialSearchSyncQueueEntry requeuedEntry = repository.searchSyncQueue().findAllSearchSyncEntries().getFirst();
         assertEquals(SearchSyncOperationType.DELETE, requeuedEntry.operationType());
         assertEquals(SearchSyncDeliveryState.PENDING, requeuedEntry.deliveryState());
         assertEquals(0, requeuedEntry.attemptCount());
@@ -1224,14 +1219,14 @@ class PostgresMaterialRepositoryIT extends PostgresIntegrationTestSupport {
     void multipleIntentsDuringInProgressClaimKeepLatestOperation() {
         StoredMaterialRecord record = searchSyncReadyRecord("Latest Intent", "hash-search-sync-latest-intent");
         Instant createdAt = Instant.parse("2026-04-17T11:08:00Z");
-        repository.enqueueMaterialsForSync(List.of(record.id()), SearchSyncOperationType.UPSERT, createdAt);
-        MaterialSearchSyncQueueEntry claimedEntry = repository.claimNextSearchSyncBatch(createdAt.plusSeconds(5), 1).getFirst();
+        repository.searchSyncQueue().enqueueMaterialsForSync(List.of(record.id()), SearchSyncOperationType.UPSERT, createdAt);
+        MaterialSearchSyncQueueEntry claimedEntry = repository.searchSyncQueue().claimNextSearchSyncBatch(createdAt.plusSeconds(5), 1).getFirst();
 
-        repository.enqueueMaterialsForSync(List.of(record.id()), SearchSyncOperationType.DELETE, createdAt.plusSeconds(20));
-        repository.enqueueMaterialsForSync(List.of(record.id()), SearchSyncOperationType.UPSERT, createdAt.plusSeconds(21));
-        repository.completeSearchSyncEntry(record.id(), claimedEntry.claimedAt(), createdAt.plusSeconds(22));
+        repository.searchSyncQueue().enqueueMaterialsForSync(List.of(record.id()), SearchSyncOperationType.DELETE, createdAt.plusSeconds(20));
+        repository.searchSyncQueue().enqueueMaterialsForSync(List.of(record.id()), SearchSyncOperationType.UPSERT, createdAt.plusSeconds(21));
+        repository.searchSyncQueue().completeSearchSyncEntry(record.id(), claimedEntry.claimedAt(), createdAt.plusSeconds(22));
 
-        MaterialSearchSyncQueueEntry requeuedEntry = repository.findAllSearchSyncEntries().getFirst();
+        MaterialSearchSyncQueueEntry requeuedEntry = repository.searchSyncQueue().findAllSearchSyncEntries().getFirst();
         assertEquals(SearchSyncOperationType.UPSERT, requeuedEntry.operationType());
         assertEquals(SearchSyncDeliveryState.PENDING, requeuedEntry.deliveryState());
         assertEquals(0, requeuedEntry.attemptCount());
@@ -1242,12 +1237,12 @@ class PostgresMaterialRepositoryIT extends PostgresIntegrationTestSupport {
     void failedOldClaimDoesNotFailNewerIntent() {
         StoredMaterialRecord record = searchSyncReadyRecord("Fail Old Claim", "hash-search-sync-fail-old-claim");
         Instant createdAt = Instant.parse("2026-04-17T11:09:00Z");
-        repository.enqueueMaterialsForSync(List.of(record.id()), SearchSyncOperationType.UPSERT, createdAt);
-        MaterialSearchSyncQueueEntry claimedEntry = repository.claimNextSearchSyncBatch(createdAt.plusSeconds(5), 1).getFirst();
+        repository.searchSyncQueue().enqueueMaterialsForSync(List.of(record.id()), SearchSyncOperationType.UPSERT, createdAt);
+        MaterialSearchSyncQueueEntry claimedEntry = repository.searchSyncQueue().claimNextSearchSyncBatch(createdAt.plusSeconds(5), 1).getFirst();
 
         Instant deleteRequestedAt = createdAt.plusSeconds(20);
-        repository.enqueueMaterialsForSync(List.of(record.id()), SearchSyncOperationType.DELETE, deleteRequestedAt);
-        repository.markSearchSyncEntryFailed(
+        repository.searchSyncQueue().enqueueMaterialsForSync(List.of(record.id()), SearchSyncOperationType.DELETE, deleteRequestedAt);
+        repository.searchSyncQueue().markSearchSyncEntryFailed(
             record.id(),
             claimedEntry.claimedAt(),
             "search.sync_failed",
@@ -1255,7 +1250,7 @@ class PostgresMaterialRepositoryIT extends PostgresIntegrationTestSupport {
             deleteRequestedAt.plusSeconds(1)
         );
 
-        MaterialSearchSyncQueueEntry requeuedEntry = repository.findAllSearchSyncEntries().getFirst();
+        MaterialSearchSyncQueueEntry requeuedEntry = repository.searchSyncQueue().findAllSearchSyncEntries().getFirst();
         assertEquals(SearchSyncOperationType.DELETE, requeuedEntry.operationType());
         assertEquals(SearchSyncDeliveryState.PENDING, requeuedEntry.deliveryState());
         assertEquals(0, requeuedEntry.attemptCount());
@@ -1269,12 +1264,12 @@ class PostgresMaterialRepositoryIT extends PostgresIntegrationTestSupport {
     void retryOldClaimDoesNotBackoffNewerIntent() {
         StoredMaterialRecord record = searchSyncReadyRecord("Retry Old Claim", "hash-search-sync-retry-old-claim");
         Instant createdAt = Instant.parse("2026-04-17T11:10:00Z");
-        repository.enqueueMaterialsForSync(List.of(record.id()), SearchSyncOperationType.UPSERT, createdAt);
-        MaterialSearchSyncQueueEntry claimedEntry = repository.claimNextSearchSyncBatch(createdAt.plusSeconds(5), 1).getFirst();
+        repository.searchSyncQueue().enqueueMaterialsForSync(List.of(record.id()), SearchSyncOperationType.UPSERT, createdAt);
+        MaterialSearchSyncQueueEntry claimedEntry = repository.searchSyncQueue().claimNextSearchSyncBatch(createdAt.plusSeconds(5), 1).getFirst();
 
         Instant deleteRequestedAt = createdAt.plusSeconds(20);
-        repository.enqueueMaterialsForSync(List.of(record.id()), SearchSyncOperationType.DELETE, deleteRequestedAt);
-        repository.markSearchSyncEntryForRetry(
+        repository.searchSyncQueue().enqueueMaterialsForSync(List.of(record.id()), SearchSyncOperationType.DELETE, deleteRequestedAt);
+        repository.searchSyncQueue().markSearchSyncEntryForRetry(
             record.id(),
             claimedEntry.claimedAt(),
             "search.sync_failed",
@@ -1283,27 +1278,27 @@ class PostgresMaterialRepositoryIT extends PostgresIntegrationTestSupport {
             deleteRequestedAt.plusSeconds(120)
         );
 
-        MaterialSearchSyncQueueEntry requeuedEntry = repository.findAllSearchSyncEntries().getFirst();
+        MaterialSearchSyncQueueEntry requeuedEntry = repository.searchSyncQueue().findAllSearchSyncEntries().getFirst();
         assertEquals(SearchSyncOperationType.DELETE, requeuedEntry.operationType());
         assertEquals(SearchSyncDeliveryState.PENDING, requeuedEntry.deliveryState());
         assertEquals(0, requeuedEntry.attemptCount());
         assertEquals(null, requeuedEntry.nextAttemptAt());
         assertEquals(null, requeuedEntry.claimedAt());
-        assertTrue(repository.hasPendingSearchSyncEvents(deleteRequestedAt.plusSeconds(1)));
+        assertTrue(repository.searchSyncQueue().hasPendingSearchSyncEvents(deleteRequestedAt.plusSeconds(1)));
     }
 
     @Test
     void staleOldClaimCleanlyRequeuesNewerIntent() {
         StoredMaterialRecord record = searchSyncReadyRecord("Stale Old Claim", "hash-search-sync-stale-old-claim");
         Instant createdAt = Instant.parse("2026-04-17T11:11:00Z");
-        repository.enqueueMaterialsForSync(List.of(record.id()), SearchSyncOperationType.UPSERT, createdAt);
-        MaterialSearchSyncQueueEntry claimedEntry = repository.claimNextSearchSyncBatch(createdAt.plusSeconds(5), 1).getFirst();
+        repository.searchSyncQueue().enqueueMaterialsForSync(List.of(record.id()), SearchSyncOperationType.UPSERT, createdAt);
+        MaterialSearchSyncQueueEntry claimedEntry = repository.searchSyncQueue().claimNextSearchSyncBatch(createdAt.plusSeconds(5), 1).getFirst();
 
         Instant deleteRequestedAt = createdAt.plusSeconds(20);
-        repository.enqueueMaterialsForSync(List.of(record.id()), SearchSyncOperationType.DELETE, deleteRequestedAt);
-        repository.resetExpiredSearchSyncClaims(claimedEntry.claimedAt().plusSeconds(1), deleteRequestedAt.plusSeconds(1));
+        repository.searchSyncQueue().enqueueMaterialsForSync(List.of(record.id()), SearchSyncOperationType.DELETE, deleteRequestedAt);
+        repository.searchSyncQueue().resetExpiredSearchSyncClaims(claimedEntry.claimedAt().plusSeconds(1), deleteRequestedAt.plusSeconds(1));
 
-        MaterialSearchSyncQueueEntry requeuedEntry = repository.findAllSearchSyncEntries().getFirst();
+        MaterialSearchSyncQueueEntry requeuedEntry = repository.searchSyncQueue().findAllSearchSyncEntries().getFirst();
         assertEquals(SearchSyncOperationType.DELETE, requeuedEntry.operationType());
         assertEquals(SearchSyncDeliveryState.PENDING, requeuedEntry.deliveryState());
         assertEquals(0, requeuedEntry.attemptCount());
@@ -1325,9 +1320,9 @@ class PostgresMaterialRepositoryIT extends PostgresIntegrationTestSupport {
         saveReadyMaterial(record, "Terminally failed sync entry.");
 
         Instant createdAt = Instant.parse("2026-04-17T11:30:00Z");
-        repository.enqueueMaterialsForSync(List.of(record.id()), createdAt);
-        MaterialSearchSyncQueueEntry claimedEntry = repository.claimNextSearchSyncBatch(createdAt.plusSeconds(5), 1).getFirst();
-        repository.markSearchSyncEntryFailed(
+        repository.searchSyncQueue().enqueueMaterialsForSync(List.of(record.id()), createdAt);
+        MaterialSearchSyncQueueEntry claimedEntry = repository.searchSyncQueue().claimNextSearchSyncBatch(createdAt.plusSeconds(5), 1).getFirst();
+        repository.searchSyncQueue().markSearchSyncEntryFailed(
             claimedEntry.materialId(),
             claimedEntry.claimedAt(),
             "search.sync_failed",
@@ -1335,17 +1330,17 @@ class PostgresMaterialRepositoryIT extends PostgresIntegrationTestSupport {
             createdAt.plusSeconds(10)
         );
 
-        int requeued = repository.requeueFailedSearchSyncEntries(createdAt.plusSeconds(20));
+        int requeued = repository.searchSyncQueue().requeueFailedSearchSyncEntries(createdAt.plusSeconds(20));
 
         assertEquals(1, requeued);
-        MaterialSearchSyncQueueEntry requeuedEntry = repository.findAllSearchSyncEntries().getFirst();
+        MaterialSearchSyncQueueEntry requeuedEntry = repository.searchSyncQueue().findAllSearchSyncEntries().getFirst();
         assertEquals(SearchSyncDeliveryState.PENDING, requeuedEntry.deliveryState());
         assertEquals(0, requeuedEntry.attemptCount());
         assertEquals(null, requeuedEntry.nextAttemptAt());
         assertEquals(null, requeuedEntry.claimedAt());
         assertEquals(null, requeuedEntry.lastErrorCode());
         assertEquals(null, requeuedEntry.lastErrorMessage());
-        assertTrue(repository.hasPendingSearchSyncEvents(createdAt.plusSeconds(20)));
+        assertTrue(repository.searchSyncQueue().hasPendingSearchSyncEvents(createdAt.plusSeconds(20)));
     }
 
     @Test
@@ -1405,14 +1400,14 @@ class PostgresMaterialRepositoryIT extends PostgresIntegrationTestSupport {
         saveReadyMaterial(ready, "Готовая версия");
         saveReadyMaterial(partialReady, "Частично готовая версия");
         saveReadyMaterial(supersededReady, "Историческая версия");
-        repository.save(pending, List.of(rawChunk(0, "Индекс в очереди", 1)));
-        repository.save(failed, List.of(rawChunk(0, "Индекс упал", 1)));
+        repository.catalog().save(pending, List.of(rawChunk(0, "Индекс в очереди", 1)));
+        repository.catalog().save(failed, List.of(rawChunk(0, "Индекс упал", 1)));
 
-        SearchableMaterialSnapshot readySnapshot = repository.resolveSearchableSnapshot(ready.id());
-        SearchableMaterialSnapshot partialSnapshot = repository.resolveSearchableSnapshot(partialReady.id());
-        SearchableMaterialSnapshot supersededSnapshot = repository.resolveSearchableSnapshot(supersededReady.id());
-        SearchableMaterialSnapshot pendingSnapshot = repository.resolveSearchableSnapshot(pending.id());
-        SearchableMaterialSnapshot failedSnapshot = repository.resolveSearchableSnapshot(failed.id());
+        SearchableMaterialSnapshot readySnapshot = repository.searchableSnapshot().resolveSearchableSnapshot(ready.id());
+        SearchableMaterialSnapshot partialSnapshot = repository.searchableSnapshot().resolveSearchableSnapshot(partialReady.id());
+        SearchableMaterialSnapshot supersededSnapshot = repository.searchableSnapshot().resolveSearchableSnapshot(supersededReady.id());
+        SearchableMaterialSnapshot pendingSnapshot = repository.searchableSnapshot().resolveSearchableSnapshot(pending.id());
+        SearchableMaterialSnapshot failedSnapshot = repository.searchableSnapshot().resolveSearchableSnapshot(failed.id());
 
         assertTrue(readySnapshot.searchable());
         assertEquals("Ready FAQ", readySnapshot.title());
@@ -1424,7 +1419,7 @@ class PostgresMaterialRepositoryIT extends PostgresIntegrationTestSupport {
         assertFalse(failedSnapshot.searchable());
         assertEquals(
             List.of(ready.id(), partialReady.id()),
-            repository.findAllSearchableMaterialIds()
+            repository.searchableSnapshot().findAllSearchableMaterialIds()
         );
     }
 
@@ -1453,13 +1448,13 @@ class PostgresMaterialRepositoryIT extends PostgresIntegrationTestSupport {
         );
 
         saveReadyMaterial(supersededReady, "legacybeta support plan costs 9000 tenge.");
-        repository.save(activePending, List.of(rawChunk(0, "currentgamma support plan is being reindexed.", 1)));
+        repository.catalog().save(activePending, List.of(rawChunk(0, "currentgamma support plan is being reindexed.", 1)));
 
-        assertEquals(2, repository.countMaterials());
-        assertEquals(1, repository.countActiveMaterials());
-        assertEquals(0, repository.countReadyMaterials());
-        assertTrue(repository.search("legacybeta", 5).isEmpty());
-        assertTrue(repository.searchSemantic(embeddingClient.embed("legacybeta"), 5).isEmpty());
+        assertEquals(2, repository.catalog().countMaterials());
+        assertEquals(1, repository.catalog().countActiveMaterials());
+        assertEquals(0, repository.catalog().countReadyMaterials());
+        assertTrue(repository.lexical().search("legacybeta", 5).isEmpty());
+        assertTrue(repository.semantic().searchSemantic(embeddingClient.embed("legacybeta"), 5).isEmpty());
     }
 
     @Test
@@ -1489,10 +1484,10 @@ class PostgresMaterialRepositoryIT extends PostgresIntegrationTestSupport {
         saveReadyMaterial(supersededReady, "legacybeta support plan costs 9000 tenge.");
         saveReadyMaterial(activeReady, "currentgamma support plan costs 12000 tenge.");
 
-        List<MaterialChunkSearchMatch> lexicalMatches = repository.search("legacybeta", 5);
+        List<MaterialChunkSearchMatch> lexicalMatches = repository.lexical().search("legacybeta", 5);
         assertTrue(lexicalMatches.isEmpty());
 
-        List<MaterialChunkSearchMatch> semanticMatches = repository.searchSemantic(
+        List<MaterialChunkSearchMatch> semanticMatches = repository.semantic().searchSemantic(
             embeddingClient.embed("legacybeta"),
             5
         );
@@ -1521,7 +1516,7 @@ class PostgresMaterialRepositoryIT extends PostgresIntegrationTestSupport {
             "hash-lineage-v2",
             sourceKey,
             MaterialIndexingStatus.READY,
-            MaterialVersionState.ACTIVE,
+            MaterialVersionState.SUPERSEDED,
             baseTime.plusSeconds(60)
         );
         StoredMaterialRecord v3 = materialRecord(
@@ -1531,47 +1526,49 @@ class PostgresMaterialRepositoryIT extends PostgresIntegrationTestSupport {
             "hash-lineage-v3",
             sourceKey,
             MaterialIndexingStatus.READY,
-            MaterialVersionState.ACTIVE,
+            MaterialVersionState.SUPERSEDED,
             baseTime.plusSeconds(120)
         );
 
         saveReadyMaterial(v1, "lineage-alpha support plan costs 9000 tenge.");
         saveReadyMaterial(v2, "lineage-beta support plan costs 12000 tenge.");
-        repository.supersedeActiveVersions(
+        repository.catalog().supersedeActiveVersions(
             sourceKey,
             v2.id(),
             v2.id(),
             "material.superseded_by_new_active_version",
             baseTime.plusSeconds(90)
         );
+        repository.catalog().updateVersionState(v2.id(), MaterialVersionState.ACTIVE, null, null, baseTime.plusSeconds(91));
 
         saveReadyMaterial(v3, "lineage-gamma support plan costs 15000 tenge.");
-        repository.supersedeActiveVersions(
+        repository.catalog().supersedeActiveVersions(
             sourceKey,
             v3.id(),
             v3.id(),
             "material.superseded_by_new_active_version",
             baseTime.plusSeconds(150)
         );
+        repository.catalog().updateVersionState(v3.id(), MaterialVersionState.ACTIVE, null, null, baseTime.plusSeconds(151));
 
-        assertEquals(3, repository.countMaterials());
-        assertEquals(1, repository.countActiveMaterials());
-        assertEquals(1, repository.countReadyMaterials());
+        assertEquals(3, repository.catalog().countMaterials());
+        assertEquals(1, repository.catalog().countActiveMaterials());
+        assertEquals(1, repository.catalog().countReadyMaterials());
         assertEquals(
             v2.id(),
-            repository.findLatestBySourceKeyAndVersionState(sourceKey, MaterialVersionState.SUPERSEDED).orElseThrow().id()
+            repository.catalog().findLatestBySourceKeyAndVersionState(sourceKey, MaterialVersionState.SUPERSEDED).orElseThrow().id()
         );
-        assertTrue(repository.search("lineage-beta", 5).isEmpty());
-        assertEquals(v3.id(), repository.searchSemantic(embeddingClient.embed("lineage-beta"), 5).getFirst().materialId());
+        assertTrue(repository.lexical().search("lineage-beta", 5).isEmpty());
+        assertEquals(v3.id(), repository.semantic().searchSemantic(embeddingClient.embed("lineage-beta"), 5).getFirst().materialId());
 
-        repository.updateVersionState(v3.id(), MaterialVersionState.SUPERSEDED, v2.id(), "material.manual_promotion", baseTime.plusSeconds(180));
-        repository.updateVersionState(v2.id(), MaterialVersionState.ACTIVE, null, null, baseTime.plusSeconds(181));
+        repository.catalog().updateVersionState(v3.id(), MaterialVersionState.SUPERSEDED, v2.id(), "material.manual_promotion", baseTime.plusSeconds(180));
+        repository.catalog().updateVersionState(v2.id(), MaterialVersionState.ACTIVE, null, null, baseTime.plusSeconds(181));
 
-        assertEquals(1, repository.countActiveMaterials());
-        assertEquals(1, repository.countReadyMaterials());
-        assertTrue(repository.search("lineage-gamma", 5).isEmpty());
-        assertEquals(v2.id(), repository.search("lineage-beta", 5).getFirst().materialId());
-        assertEquals(v2.id(), repository.searchSemantic(embeddingClient.embed("lineage-beta"), 5).getFirst().materialId());
+        assertEquals(1, repository.catalog().countActiveMaterials());
+        assertEquals(1, repository.catalog().countReadyMaterials());
+        assertTrue(repository.lexical().search("lineage-gamma", 5).isEmpty());
+        assertEquals(v2.id(), repository.lexical().search("lineage-beta", 5).getFirst().materialId());
+        assertEquals(v2.id(), repository.semantic().searchSemantic(embeddingClient.embed("lineage-beta"), 5).getFirst().materialId());
     }
 
     private StoredMaterialRecord materialRecord(
@@ -1721,8 +1718,8 @@ class PostgresMaterialRepositoryIT extends PostgresIntegrationTestSupport {
     }
 
     private void saveReadyMaterial(StoredMaterialRecord record, String embeddedText) {
-        repository.save(record, List.of(rawChunk(0, embeddedText, 1)));
-        repository.markIndexingReady(
+        repository.catalog().save(record, List.of(rawChunk(0, embeddedText, 1)));
+        repository.indexingQueue().markIndexingReady(
             record.id(),
             List.of(new StoredEmbeddedMaterialChunk(
                 0,

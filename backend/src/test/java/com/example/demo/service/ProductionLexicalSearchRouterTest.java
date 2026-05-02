@@ -2,6 +2,7 @@ package com.example.demo.service;
 
 import com.example.demo.service.material.LexicalProviderType;
 import com.example.demo.service.material.MaterialChunkSearchMatch;
+import com.example.demo.service.material.MaterialSearchScope;
 import com.example.demo.service.material.port.LexicalSearchProvider;
 import com.example.demo.service.material.port.MaterialSearchSyncQueueRepository;
 
@@ -69,6 +70,49 @@ class ProductionLexicalSearchRouterTest {
         assertEquals("search.runtime_failure", result.fallbackReasonCode());
         assertEquals(1, postgres.searchCalls);
         assertEquals(1, elasticsearch.searchCalls);
+    }
+
+    @Test
+    void runtimeFallbackPreservesMaterialSearchScope() {
+        StubLexicalSearchProvider postgres = new StubLexicalSearchProvider(LexicalProviderType.POSTGRES);
+        StubLexicalSearchProvider elasticsearch = new StubLexicalSearchProvider(LexicalProviderType.ELASTICSEARCH);
+        elasticsearch.exceptionToThrow = new IllegalStateException("mapping missing scope fields");
+        ProductionLexicalSearchRouter router = router("auto", postgres, elasticsearch);
+        MaterialSearchScope scope = MaterialSearchScope.filtered(
+            new com.example.demo.model.KnowledgeScope(
+                List.of(),
+                List.of(com.example.demo.model.KnowledgeDocumentClass.CONTRACTS),
+                List.of(),
+                "north-upgrade",
+                false
+            ),
+            com.example.demo.model.RetrievalFilters.empty(),
+            null,
+            null
+        );
+
+        ProductionLexicalSearchRouter.LexicalSearchResult result = router.search("pricing", 5, scope);
+
+        assertEquals(LexicalProviderType.POSTGRES, result.effectiveProvider());
+        assertEquals(scope, elasticsearch.lastScope);
+        assertEquals(scope, postgres.lastScope);
+    }
+
+    @Test
+    void noResultsScopeDoesNotCallProviders() {
+        StubLexicalSearchProvider postgres = new StubLexicalSearchProvider(LexicalProviderType.POSTGRES);
+        StubLexicalSearchProvider elasticsearch = new StubLexicalSearchProvider(LexicalProviderType.ELASTICSEARCH);
+        ProductionLexicalSearchRouter router = router("auto", postgres, elasticsearch);
+
+        ProductionLexicalSearchRouter.LexicalSearchResult result = router.search(
+            "pricing",
+            5,
+            MaterialSearchScope.noResults()
+        );
+
+        assertTrue(result.matches().isEmpty());
+        assertEquals(0, postgres.searchCalls);
+        assertEquals(0, elasticsearch.searchCalls);
     }
 
     @Test
@@ -223,6 +267,7 @@ class ProductionLexicalSearchRouterTest {
         private final LexicalProviderType providerType;
         private RuntimeException exceptionToThrow;
         private int searchCalls;
+        private MaterialSearchScope lastScope;
 
         private StubLexicalSearchProvider(LexicalProviderType providerType) {
             this.providerType = providerType;
@@ -235,7 +280,13 @@ class ProductionLexicalSearchRouterTest {
 
         @Override
         public List<MaterialChunkSearchMatch> search(String query, int limit) {
+            return search(query, limit, MaterialSearchScope.unscoped());
+        }
+
+        @Override
+        public List<MaterialChunkSearchMatch> search(String query, int limit, MaterialSearchScope scope) {
             searchCalls++;
+            lastScope = scope;
             if (exceptionToThrow != null) {
                 throw exceptionToThrow;
             }

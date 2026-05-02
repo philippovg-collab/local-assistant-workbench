@@ -14,6 +14,9 @@ import com.example.demo.model.InstructionDetail;
 import com.example.demo.model.InstructionTraceEntry;
 import com.example.demo.model.KnowledgeScopeResolved;
 import com.example.demo.model.RetrievalTrace;
+import com.example.demo.service.cancellation.ChatCancellationToken;
+import com.example.demo.service.cancellation.ChatRunCancelledException;
+import com.example.demo.service.cancellation.ChatRunLeaseLostException;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.json.JsonMapper;
@@ -41,11 +44,11 @@ public class ChatExecutionService {
     private final MaterialService materialService;
     private final InstructionService instructionService;
     private final KnowledgePresetService knowledgePresetService;
-    private final ChatAuditService chatAuditService;
     private final ChatRunTraceService chatRunTraceService;
     private final ChatAuditProperties chatAuditProperties;
     private final PromptPolicyResolver promptPolicyResolver;
     private final AnswerModePostProcessor answerModePostProcessor;
+    private final boolean exposeStartedTraceIds;
 
     @Autowired
     public ChatExecutionService(
@@ -65,11 +68,11 @@ public class ChatExecutionService {
         this.materialService = materialService;
         this.instructionService = instructionService;
         this.knowledgePresetService = knowledgePresetService;
-        this.chatAuditService = chatAuditService;
-        this.chatRunTraceService = chatRunTraceService;
+        this.chatRunTraceService = chatRunTraceService == null ? ChatRunTraceService.noop() : chatRunTraceService;
         this.chatAuditProperties = chatAuditProperties;
         this.promptPolicyResolver = promptPolicyResolver;
         this.answerModePostProcessor = answerModePostProcessor;
+        this.exposeStartedTraceIds = chatRunTraceService != null;
     }
 
     public ChatExecutionService(
@@ -97,104 +100,112 @@ public class ChatExecutionService {
     }
 
     public ChatExecutionResponse execute(ChatExecutionRequest request) {
-        if (chatRunTraceService == null) {
-            return executeLegacy(request);
-        }
-        return executeWithTrace(request);
-    }
-
-    private ChatExecutionResponse executeWithTrace(ChatExecutionRequest request) {
         validateRequest(request);
         ChatMode mode = request.mode() == null ? ChatMode.DIRECT : request.mode();
-        ChatRunTraceService.RunTraceContext traceContext = startTraceOrNull(request, mode);
-        return executeWithTraceContext(request, traceContext);
+        ChatExecutionContext context = startTraceContext(
+            request,
+            mode,
+            ChatCancellationToken.none(),
+            exposeStartedTraceIds
+        );
+        return executeWithContext(request, mode, context);
     }
 
     public ChatExecutionResponse executeWithTraceContext(
         ChatExecutionRequest request,
         ChatRunTraceService.RunTraceContext traceContext
     ) {
-        validateRequest(request);
-        ChatMode mode = request.mode() == null ? ChatMode.DIRECT : request.mode();
-        return executeWithTraceContext(request, mode, traceContext);
+        return executeWithTraceContext(request, traceContext, ChatCancellationToken.none());
     }
 
-    private ChatExecutionResponse executeWithTraceContext(
+    public ChatExecutionResponse executeWithTraceContext(
+        ChatExecutionRequest request,
+        ChatRunTraceService.RunTraceContext traceContext,
+        ChatCancellationToken cancellationToken
+    ) {
+        validateRequest(request);
+        ChatMode mode = request.mode() == null ? ChatMode.DIRECT : request.mode();
+        ChatRunTraceService effectiveTraceService = traceContext == null
+            ? ChatRunTraceService.noop()
+            : chatRunTraceService;
+        ChatRunTraceService.RunTraceContext effectiveTraceContext = traceContext == null
+            ? effectiveTraceService.startRun(request, mode)
+            : traceContext;
+        return executeWithContext(
+            request,
+            mode,
+            new ChatExecutionContext(
+                effectiveTraceService,
+                effectiveTraceContext,
+                cancellationToken == null ? ChatCancellationToken.none() : cancellationToken,
+                traceContext != null
+            )
+        );
+    }
+
+    private ChatExecutionResponse executeWithContext(
         ChatExecutionRequest request,
         ChatMode mode,
-        ChatRunTraceService.RunTraceContext traceContext
+        ChatExecutionContext context
     ) {
-        if (traceContext == null) {
-            return executeLegacy(request);
-        }
-        
         KnowledgePresetService.ResolvedKnowledgeScopeContext scopeContext;
         ChatExecutionRequest requestWithResolvedScope;
         InstructionService.ResolvedInstructionContext instructionContext;
         PromptPolicyResolver.ResolvedPromptPolicy promptPolicy;
         ChatExecutionRequest normalizedRequest;
         try {
+            context.throwIfCancellationRequested();
             scopeContext = knowledgePresetService.resolveScope(request.knowledgeScope());
             requestWithResolvedScope = withKnowledgeScope(request, scopeContext.effectiveScope());
             normalizedRequest = normalizedRequest(mode, requestWithResolvedScope);
-            traceStage(traceContext, () -> chatRunTraceService.saveRequestSnapshot(
-                traceContext,
+            traceStage(context, () -> context.traceService().saveRequestSnapshot(
+                context.traceContext(),
                 request,
                 normalizedRequest
             ));
+            context.throwIfCancellationRequested();
             instructionContext = instructionService.resolveRuntimeInstructions(requestWithResolvedScope);
             promptPolicy = promptPolicyResolver.resolve(
                 normalizedRequest,
                 instructionContext.instructions(),
                 instructionContext.temporaryInstruction()
             );
-            traceStage(traceContext, () -> chatRunTraceService.savePromptSnapshot(
-                traceContext,
+            traceStage(context, () -> context.traceService().savePromptSnapshot(
+                context.traceContext(),
                 promptPolicy.snapshot(),
                 instructionContext.trace(),
                 scopeContext.resolvedScope()
             ));
+            transitionTraceStage(context, "PROMPT_RESOLVED");
+            context.throwIfCancellationRequested();
+        } catch (ChatRunCancelledException | ChatRunLeaseLostException exception) {
+            throw exception;
         } catch (RuntimeException exception) {
-            failTrace(traceContext, "PROMPT", exception);
+            failTrace(context, "PROMPT", exception);
             throw exception;
         }
 
         if (mode == ChatMode.RAG) {
-            return executeRag(requestWithResolvedScope, promptPolicy, instructionContext.trace(), scopeContext, traceContext);
+            return executeRag(requestWithResolvedScope, promptPolicy, instructionContext.trace(), scopeContext, context);
         }
 
-        return executeDirect(requestWithResolvedScope, promptPolicy, instructionContext.trace(), scopeContext.resolvedScope(), traceContext);
+        return executeDirect(requestWithResolvedScope, promptPolicy, instructionContext.trace(), scopeContext.resolvedScope(), context);
     }
 
     private void validateRequest(ChatExecutionRequest request) {
         InputLimits.validateChatRequest(request);
     }
 
-    private ChatExecutionResponse executeLegacy(ChatExecutionRequest request) {
-        validateRequest(request);
-
-        ChatMode mode = request.mode() == null ? ChatMode.DIRECT : request.mode();
-        KnowledgePresetService.ResolvedKnowledgeScopeContext scopeContext = knowledgePresetService.resolveScope(request.knowledgeScope());
-        ChatExecutionRequest requestWithResolvedScope = withKnowledgeScope(request, scopeContext.effectiveScope());
-        InstructionService.ResolvedInstructionContext instructionContext =
-            instructionService.resolveRuntimeInstructions(requestWithResolvedScope);
-        PromptPolicyResolver.ResolvedPromptPolicy promptPolicy = promptPolicyResolver.resolve(
-            normalizedRequest(mode, requestWithResolvedScope),
-            instructionContext.instructions(),
-            instructionContext.temporaryInstruction()
-        );
-
-        if (mode == ChatMode.RAG) {
-            return executeRag(requestWithResolvedScope, promptPolicy, instructionContext.trace(), scopeContext, null);
-        }
-
-        return executeDirect(requestWithResolvedScope, promptPolicy, instructionContext.trace(), scopeContext.resolvedScope(), null);
-    }
-
     public ChatExecutionResponse execute(ChatExecutionRequest request, List<InstructionDetail> instructions) {
         validateRequest(request);
 
         ChatMode mode = request.mode() == null ? ChatMode.DIRECT : request.mode();
+        ChatExecutionContext context = startTraceContext(
+            request,
+            mode,
+            ChatCancellationToken.none(),
+            exposeStartedTraceIds
+        );
         String temporaryInstruction = firstNonBlank(request.temporaryInstruction(), request.systemPrompt());
         PromptPolicyResolver.ResolvedPromptPolicy promptPolicy = promptPolicyResolver.resolve(
             normalizedRequest(mode, request),
@@ -223,7 +234,7 @@ public class ChatExecutionService {
                 promptPolicy,
                 trace,
                 knowledgePresetService.resolveScope(request.knowledgeScope()),
-                null
+                context
             );
         }
 
@@ -232,7 +243,7 @@ public class ChatExecutionService {
             promptPolicy,
             trace,
             knowledgePresetService.resolveScope(request.knowledgeScope()).resolvedScope(),
-            null
+            context
         );
     }
 
@@ -241,27 +252,33 @@ public class ChatExecutionService {
         PromptPolicyResolver.ResolvedPromptPolicy promptPolicy,
         List<InstructionTraceEntry> instructionTrace,
         KnowledgePresetService.ResolvedKnowledgeScopeContext scopeContext,
-        ChatRunTraceService.RunTraceContext traceContext
+        ChatExecutionContext context
     ) {
         MaterialRetrievalResult retrievalResult;
         try {
+            context.throwIfCancellationRequested();
             retrievalResult = materialService.retrieveContext(
                 request.prompt(),
                 scopeContext.effectiveScope(),
                 request.retrievalFilters(),
                 request.dismissedRetrievalHintKeys()
             );
-            traceStage(traceContext, () -> chatRunTraceService.saveRetrievalSummary(
-                traceContext,
+            context.throwIfCancellationRequested();
+            traceStage(context, () -> context.traceService().saveRetrievalSummary(
+                context.traceContext(),
                 "DONE",
                 retrievalResult.retrievalTrace(),
                 retrievalResult.retrievalDebug()
             ));
+            transitionTraceStage(context, "RETRIEVAL_DONE");
+        } catch (ChatRunCancelledException | ChatRunLeaseLostException exception) {
+            throw exception;
         } catch (RuntimeException exception) {
-            traceStage(traceContext, () -> chatRunTraceService.saveRetrievalSummary(traceContext, "FAILED", null, null));
-            failTrace(traceContext, "RETRIEVAL", exception);
+            traceStage(context, () -> context.traceService().saveRetrievalSummary(context.traceContext(), "FAILED", null, null));
+            failTrace(context, "RETRIEVAL", exception);
             throw exception;
         }
+        context.throwIfCancellationRequested();
         AnswerMode answerMode = promptPolicy.answerMode();
 
         if (retrievalResult.materialCount() == 0) {
@@ -275,7 +292,7 @@ public class ChatExecutionService {
                 request.prompt(),
                 "Сначала добавьте материалы. Без локального контекста RAG-режим не сможет ответить.",
                 List.of(),
-                traceContext,
+                context,
                 null,
                 false
             );
@@ -292,7 +309,7 @@ public class ChatExecutionService {
                 request.prompt(),
                 "В базе знаний остались только архивные версии материалов. Добавьте новую активную версию или восстановите предыдущую.",
                 List.of(),
-                traceContext,
+                context,
                 null,
                 false
             );
@@ -309,7 +326,7 @@ public class ChatExecutionService {
                 request.prompt(),
                 "В выбранном наборе знаний нет материалов. Измени пресет или загрузи документы в этот корпус.",
                 List.of(),
-                traceContext,
+                context,
                 null,
                 false
             );
@@ -326,7 +343,7 @@ public class ChatExecutionService {
                 request.prompt(),
                 "В выбранном корпусе есть материалы, но индекс ещё не готов. Дождитесь завершения индексации и повторите запрос.",
                 List.of(),
-                traceContext,
+                context,
                 null,
                 false
             );
@@ -345,7 +362,7 @@ public class ChatExecutionService {
                     ? "Не найдено в источниках."
                     : "Не нашёл релевантных фрагментов в загруженных материалах. Уточните запрос или обновите материалы.",
                 List.of(),
-                traceContext,
+                context,
                 null,
                 answerMode == AnswerMode.STRICT_SOURCES_ONLY
             );
@@ -363,7 +380,7 @@ public class ChatExecutionService {
                 request.prompt(),
                 "Не найдено в источниках.",
                 retrievalResult.sources(),
-                traceContext,
+                context,
                 null,
                 true
             );
@@ -376,19 +393,25 @@ public class ChatExecutionService {
             promptPolicy.contextInstructions(),
             promptPolicy.userInstructions()
         );
-        traceStage(traceContext, () -> chatRunTraceService.savePromptMessages(traceContext, messages));
+        traceStage(context, () -> context.traceService().savePromptMessages(context.traceContext(), messages));
         LlmClient.ChatRequest chatRequest = new LlmClient.ChatRequest(promptPolicy.model(), messages);
         Instant llmStartedAt = Instant.now();
         LlmClient.ChatResult result;
         try {
-            result = chatWithActiveClient(chatRequest);
-            traceStage(traceContext, () -> chatRunTraceService.saveLlmSuccess(traceContext, chatRequest, result, null));
+            context.throwIfCancellationRequested();
+            result = chatWithActiveClient(chatRequest, context.cancellationToken());
+            context.throwIfCancellationRequested();
+            traceStage(context, () -> context.traceService().saveLlmSuccess(context.traceContext(), chatRequest, result, null));
+            transitionTraceStage(context, "LLM_DONE");
+        } catch (ChatRunCancelledException | ChatRunLeaseLostException exception) {
+            throw exception;
         } catch (RuntimeException exception) {
             long latencyMs = Duration.between(llmStartedAt, Instant.now()).toMillis();
-            traceStage(traceContext, () -> chatRunTraceService.saveLlmFailure(traceContext, chatRequest, exception, latencyMs, null));
-            failTrace(traceContext, "LLM", exception);
+            traceStage(context, () -> context.traceService().saveLlmFailure(context.traceContext(), chatRequest, exception, latencyMs, null));
+            failTrace(context, "LLM", exception);
             throw exception;
         }
+        context.throwIfCancellationRequested();
         String processedAnswer = answerModePostProcessor.apply(answerMode, result.answer(), retrievalResult);
 
         ChatExecutionResponse response = new ChatExecutionResponse(
@@ -412,7 +435,7 @@ public class ChatExecutionService {
         );
         return completeWithTrace(
             response,
-            traceContext,
+            context,
             result.answer(),
             processedAnswer,
             retrievalResult.sources(),
@@ -427,33 +450,41 @@ public class ChatExecutionService {
         PromptPolicyResolver.ResolvedPromptPolicy promptPolicy,
         List<InstructionTraceEntry> instructionTrace,
         KnowledgeScopeResolved knowledgeScopeResolved,
-        ChatRunTraceService.RunTraceContext traceContext
+        ChatExecutionContext context
     ) {
-        traceStage(traceContext, () -> chatRunTraceService.saveRetrievalSummary(
-            traceContext,
+        context.throwIfCancellationRequested();
+        traceStage(context, () -> context.traceService().saveRetrievalSummary(
+            context.traceContext(),
             "NOT_APPLICABLE",
             new RetrievalTrace(0, 0, 0, 0, 0, 0, 0, 0, 0),
             null
         ));
+        transitionTraceStage(context, "RETRIEVAL_DONE");
         List<LlmClient.Message> messages = buildDirectMessages(
             promptPolicy.systemPrompt(),
             request.prompt(),
             promptPolicy.contextInstructions(),
             promptPolicy.userInstructions()
         );
-        traceStage(traceContext, () -> chatRunTraceService.savePromptMessages(traceContext, messages));
+        traceStage(context, () -> context.traceService().savePromptMessages(context.traceContext(), messages));
         LlmClient.ChatRequest chatRequest = new LlmClient.ChatRequest(promptPolicy.model(), messages);
         Instant llmStartedAt = Instant.now();
         LlmClient.ChatResult result;
         try {
-            result = chatWithActiveClient(chatRequest);
-            traceStage(traceContext, () -> chatRunTraceService.saveLlmSuccess(traceContext, chatRequest, result, null));
+            context.throwIfCancellationRequested();
+            result = chatWithActiveClient(chatRequest, context.cancellationToken());
+            context.throwIfCancellationRequested();
+            traceStage(context, () -> context.traceService().saveLlmSuccess(context.traceContext(), chatRequest, result, null));
+            transitionTraceStage(context, "LLM_DONE");
+        } catch (ChatRunCancelledException | ChatRunLeaseLostException exception) {
+            throw exception;
         } catch (RuntimeException exception) {
             long latencyMs = Duration.between(llmStartedAt, Instant.now()).toMillis();
-            traceStage(traceContext, () -> chatRunTraceService.saveLlmFailure(traceContext, chatRequest, exception, latencyMs, null));
-            failTrace(traceContext, "LLM", exception);
+            traceStage(context, () -> context.traceService().saveLlmFailure(context.traceContext(), chatRequest, exception, latencyMs, null));
+            failTrace(context, "LLM", exception);
             throw exception;
         }
+        context.throwIfCancellationRequested();
         ChatExecutionResponse response = new ChatExecutionResponse(
             ChatMode.DIRECT,
             result.model(),
@@ -475,7 +506,7 @@ public class ChatExecutionService {
         );
         return completeWithTrace(
             response,
-            traceContext,
+            context,
             result.answer(),
             result.answer(),
             List.of(),
@@ -495,10 +526,11 @@ public class ChatExecutionService {
         String prompt,
         String answer,
         List<ChatSource> sources,
-        ChatRunTraceService.RunTraceContext traceContext,
+        ChatExecutionContext context,
         String rawModelAnswer,
         boolean strictSourcesBlockedAnswer
     ) {
+        context.throwIfCancellationRequested();
         ChatExecutionResponse response = new ChatExecutionResponse(
             mode,
             promptPolicy.model(),
@@ -520,7 +552,7 @@ public class ChatExecutionService {
         );
         return completeWithTrace(
             response,
-            traceContext,
+            context,
             rawModelAnswer,
             answer,
             sources,
@@ -532,7 +564,7 @@ public class ChatExecutionService {
 
     private ChatExecutionResponse completeWithTrace(
         ChatExecutionResponse response,
-        ChatRunTraceService.RunTraceContext traceContext,
+        ChatExecutionContext context,
         String rawModelAnswer,
         String finalUserAnswer,
         List<ChatSource> sources,
@@ -540,12 +572,10 @@ public class ChatExecutionService {
         String contextStatus,
         boolean strictSourcesBlockedAnswer
     ) {
-        if (traceContext == null) {
-            return withAudit(response);
-        }
-        ChatExecutionResponse responseWithTraceId = withAuditRunId(response, traceContext.id());
-        traceStage(traceContext, () -> chatRunTraceService.saveOutput(
-            traceContext,
+        context.throwIfCancellationRequested();
+        ChatExecutionResponse responseWithTraceId = withAuditRunId(response, context.auditRunId());
+        traceStage(context, () -> context.traceService().saveOutput(
+            context.traceContext(),
             rawModelAnswer,
             finalUserAnswer,
             sources,
@@ -553,7 +583,9 @@ public class ChatExecutionService {
             abstained(finalUserAnswer),
             strictSourcesBlockedAnswer
         ));
-        traceStage(traceContext, () -> chatRunTraceService.completeRunWithResult(traceContext, responseWithTraceId));
+        transitionTraceStage(context, "POSTPROCESSED");
+        context.throwIfCancellationRequested();
+        completeTrace(context, responseWithTraceId);
         return responseWithTraceId;
     }
 
@@ -579,32 +611,106 @@ public class ChatExecutionService {
         );
     }
 
-    private ChatRunTraceService.RunTraceContext startTraceOrNull(ChatExecutionRequest request, ChatMode mode) {
-        try {
-            return chatRunTraceService.startRun(request, mode);
-        } catch (RuntimeException exception) {
-            handleTraceStorageFailure(exception);
-            return null;
+    private record ChatExecutionContext(
+        ChatRunTraceService traceService,
+        ChatRunTraceService.RunTraceContext traceContext,
+        ChatCancellationToken cancellationToken,
+        boolean exposeTraceId
+    ) {
+        void throwIfCancellationRequested() {
+            cancellationToken.throwIfCancellationRequested();
+        }
+
+        String auditRunId() {
+            return exposeTraceId ? traceContext.id() : null;
         }
     }
 
-    private void traceStage(ChatRunTraceService.RunTraceContext traceContext, Runnable operation) {
-        if (traceContext == null || chatRunTraceService == null || operation == null) {
+    private ChatExecutionContext startTraceContext(
+        ChatExecutionRequest request,
+        ChatMode mode,
+        ChatCancellationToken cancellationToken,
+        boolean exposeTraceId
+    ) {
+        ChatCancellationToken effectiveToken = cancellationToken == null
+            ? ChatCancellationToken.none()
+            : cancellationToken;
+        try {
+            return new ChatExecutionContext(
+                chatRunTraceService,
+                chatRunTraceService.startRun(request, mode),
+                effectiveToken,
+                exposeTraceId
+            );
+        } catch (RuntimeException exception) {
+            handleTraceStorageFailure(exception);
+            ChatRunTraceService noopTraceService = ChatRunTraceService.noop();
+            return new ChatExecutionContext(
+                noopTraceService,
+                noopTraceService.startRun(request, mode),
+                effectiveToken,
+                false
+            );
+        }
+    }
+
+    private void traceStage(ChatExecutionContext context, Runnable operation) {
+        if (context == null || operation == null) {
             return;
         }
         try {
             operation.run();
+        } catch (ChatRunCancelledException | ChatRunLeaseLostException exception) {
+            throw exception;
         } catch (RuntimeException exception) {
             handleTraceStorageFailure(exception);
         }
     }
 
-    private void failTrace(ChatRunTraceService.RunTraceContext traceContext, String failureStage, RuntimeException exception) {
-        if (traceContext == null || chatRunTraceService == null) {
+    private void transitionTraceStage(ChatExecutionContext context, String status) {
+        if (context == null) {
             return;
         }
         try {
-            chatRunTraceService.failRun(traceContext, failureStage, exception);
+            boolean transitioned = context.traceService().transitionStage(context.traceContext(), status);
+            if (!transitioned && isLeaseGuarded(context)) {
+                throw new ChatRunLeaseLostException("Durable chat run lease no longer owns run " + context.traceContext().id());
+            }
+        } catch (ChatRunCancelledException | ChatRunLeaseLostException exception) {
+            throw exception;
+        } catch (RuntimeException exception) {
+            handleTraceStorageFailure(exception);
+        }
+    }
+
+    private void completeTrace(ChatExecutionContext context, ChatExecutionResponse response) {
+        if (context == null) {
+            return;
+        }
+        try {
+            boolean completed = context.traceService().completeRunWithResult(context.traceContext(), response);
+            if (!completed && isLeaseGuarded(context)) {
+                throw new ChatRunLeaseLostException("Durable chat run lease cannot complete run " + context.traceContext().id());
+            }
+        } catch (ChatRunCancelledException | ChatRunLeaseLostException exception) {
+            throw exception;
+        } catch (RuntimeException exception) {
+            handleTraceStorageFailure(exception);
+        }
+    }
+
+    private boolean isLeaseGuarded(ChatExecutionContext context) {
+        return context != null
+            && context.traceContext() != null
+            && context.traceContext().leaseToken() != null;
+    }
+
+    private void failTrace(ChatExecutionContext context, String failureStage, RuntimeException exception) {
+        if (context == null) {
+            return;
+        }
+        try {
+            context.traceService().failRun(context.traceContext(), failureStage, exception);
         } catch (RuntimeException traceException) {
             handleTraceStorageFailure(traceException);
         }
@@ -625,10 +731,13 @@ public class ChatExecutionService {
         logger.warn("Chat trace recording failed; continuing because audit fail-closed mode is disabled", exception);
     }
 
-    private LlmClient.ChatResult chatWithActiveClient(LlmClient.ChatRequest request) {
-        return chatRunTraceService == null || llmTracingClient == null
-            ? llmClient.chat(request)
-            : llmTracingClient.chat(request);
+    private LlmClient.ChatResult chatWithActiveClient(
+        LlmClient.ChatRequest request,
+        ChatCancellationToken cancellationToken
+    ) {
+        return llmTracingClient == null
+            ? llmClient.chat(request, cancellationToken)
+            : llmTracingClient.chat(request, cancellationToken);
     }
 
     private Map<String, Object> postprocessSnapshot(
@@ -771,45 +880,6 @@ public class ChatExecutionService {
             return prompt.trim();
         }
         return userMessage.append("User request:\n").append(prompt.trim()).toString();
-    }
-
-    private ChatExecutionResponse withAudit(ChatExecutionResponse response) {
-        String auditRunId = null;
-        try {
-            auditRunId = chatAuditService.record(response);
-        } catch (RuntimeException exception) {
-            if (chatAuditProperties != null && chatAuditProperties.isFailClosed()) {
-                if (exception instanceof ApiException apiException) {
-                    throw apiException;
-                }
-                throw new ApiException(
-                    org.springframework.http.HttpStatus.INTERNAL_SERVER_ERROR,
-                    "chat_audit.record_failed",
-                    "Chat audit recording failed and audit fail-closed mode is enabled.",
-                    exception
-                );
-            }
-            logger.warn("Chat audit recording failed; returning successful chat response without audit id", exception);
-        }
-        return new ChatExecutionResponse(
-            response.mode(),
-            response.model(),
-            response.prompt(),
-            response.answer(),
-            response.contextStatus(),
-            response.createdAt(),
-            response.promptTokens(),
-            response.completionTokens(),
-            response.totalTokens(),
-            response.answerModeApplied(),
-            response.appliedInstructions(),
-            response.instructionTrace(),
-            response.knowledgeScopeResolved(),
-            response.retrievalTrace(),
-            response.retrievalDebug(),
-            response.sources(),
-            auditRunId
-        );
     }
 
     private String firstNonBlank(String primary, String fallback) {

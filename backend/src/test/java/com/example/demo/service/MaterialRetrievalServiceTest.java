@@ -6,6 +6,7 @@ import com.example.demo.service.material.LexicalProviderMode;
 import com.example.demo.service.material.LexicalProviderType;
 import com.example.demo.service.material.MaterialChunkSearchMatch;
 import com.example.demo.service.material.MaterialRetrievalScopeSnapshot;
+import com.example.demo.service.material.MaterialSearchScope;
 import com.example.demo.service.material.StoredEmbeddedMaterialChunk;
 import com.example.demo.service.material.StoredMaterialChunk;
 import com.example.demo.service.material.StoredMaterialRecord;
@@ -19,7 +20,6 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
-import static org.mockito.ArgumentMatchers.anySet;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -48,9 +48,9 @@ import com.example.demo.support.TestMaterialServices;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
-import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 
 class MaterialRetrievalServiceTest {
@@ -929,7 +929,7 @@ class MaterialRetrievalServiceTest {
     }
 
     @Test
-    void passesScopedReadyMaterialIdsIntoSearchLayers() {
+    void passesFilteredMaterialSearchScopeIntoSearchLayers() {
         MaterialCatalogRepository catalogRepository = Mockito.mock(MaterialCatalogRepository.class);
         SemanticSearchRepository semanticSearchRepository = Mockito.mock(SemanticSearchRepository.class);
         ProductionLexicalSearchRouter lexicalSearchRouter = Mockito.mock(ProductionLexicalSearchRouter.class);
@@ -984,9 +984,9 @@ class MaterialRetrievalServiceTest {
             List.of(allowedRecord)
         ));
         when(catalogRepository.findById(allowedRecord.id())).thenReturn(java.util.Optional.of(allowedRecord));
-        when(semanticSearchRepository.searchSemantic(any(), anyInt(), anySet(), eq(RetrievalFilters.empty())))
+        when(semanticSearchRepository.searchSemantic(any(), anyInt(), any(MaterialSearchScope.class)))
             .thenReturn(List.of(matchFor(allowedRecord, 0.12d, null)));
-        when(lexicalSearchRouter.search(any(), anyInt(), anySet(), eq(RetrievalFilters.empty()))).thenReturn(new ProductionLexicalSearchRouter.LexicalSearchResult(
+        when(lexicalSearchRouter.search(any(), anyInt(), any(MaterialSearchScope.class))).thenReturn(new ProductionLexicalSearchRouter.LexicalSearchResult(
             LexicalProviderMode.POSTGRES,
             LexicalProviderType.POSTGRES,
             false,
@@ -1003,17 +1003,54 @@ class MaterialRetrievalServiceTest {
             new KnowledgeScope(List.of(), List.of(KnowledgeDocumentClass.CONTRACTS), List.of(), "north-upgrade", false)
         );
 
-        verify(semanticSearchRepository).searchSemantic(any(), eq(12), eq(Set.of(allowedRecord.id())), eq(RetrievalFilters.empty()));
+        ArgumentCaptor<MaterialSearchScope> searchScopeCaptor = ArgumentCaptor.forClass(MaterialSearchScope.class);
+        verify(semanticSearchRepository).searchSemantic(any(), eq(12), searchScopeCaptor.capture());
+        MaterialSearchScope searchScope = searchScopeCaptor.getValue();
+        assertEquals(MaterialSearchScope.Mode.FILTERED, searchScope.mode());
+        assertTrue(searchScope.materialIds().isEmpty());
+        assertEquals(List.of(KnowledgeDocumentClass.CONTRACTS), searchScope.knowledgeScope().documentClasses());
+        assertEquals("north-upgrade", searchScope.knowledgeScope().workspaceKey());
+        assertTrue(searchScope.retrievalFilters().isEmpty());
         verify(lexicalSearchRouter).search(
             eq("Какая цена North Upgrade?"),
             eq(12),
-            eq(Set.of(allowedRecord.id())),
-            eq(RetrievalFilters.empty())
+            eq(searchScope)
         );
         verify(catalogRepository, never()).findAll();
         assertEquals(1, result.scopedMaterialCount());
         assertEquals(1, result.scopedReadyMaterialCount());
         assertTrue(result.sources().stream().allMatch(source -> source.materialId().equals(allowedRecord.id())));
+    }
+
+    @Test
+    void zeroScopedReadyCountDoesNotCallEmbeddingOrSearchProviders() {
+        MaterialCatalogRepository catalogRepository = Mockito.mock(MaterialCatalogRepository.class);
+        MaterialChunkingRepository chunkingRepository = Mockito.mock(MaterialChunkingRepository.class);
+        SemanticSearchRepository semanticSearchRepository = Mockito.mock(SemanticSearchRepository.class);
+        ProductionLexicalSearchRouter lexicalSearchRouter = Mockito.mock(ProductionLexicalSearchRouter.class);
+        EmbeddingClient embeddingClient = Mockito.mock(EmbeddingClient.class);
+        when(catalogRepository.describeRetrievalScope(any(), any(), any(), any())).thenReturn(
+            new MaterialRetrievalScopeSnapshot(1, 1, 1, 1, 1, 0)
+        );
+        MaterialProperties properties = new MaterialProperties();
+        MaterialContentSupport contentSupport = new MaterialContentSupport(properties);
+        MaterialRetrievalService service = TestMaterialServices.retrievalService(
+            catalogRepository,
+            chunkingRepository,
+            semanticSearchRepository,
+            lexicalSearchRouter,
+            embeddingClient,
+            new RagProperties(),
+            new HybridChunkRanker(),
+            contentSupport
+        );
+
+        MaterialRetrievalResult result = service.retrieveContext("Какая цена тарифа?");
+
+        assertTrue(result.sources().isEmpty());
+        verify(embeddingClient, never()).embed(any());
+        verify(semanticSearchRepository, never()).searchSemantic(any(), anyInt(), any(MaterialSearchScope.class));
+        verify(lexicalSearchRouter, never()).search(any(), anyInt(), any(MaterialSearchScope.class));
     }
 
     @Test
@@ -1027,8 +1064,8 @@ class MaterialRetrievalServiceTest {
             List.of(record)
         ));
         when(catalogRepository.findById(record.id())).thenReturn(java.util.Optional.of(record));
-        when(semanticSearchRepository.searchSemantic(any(), anyInt(), anySet(), eq(RetrievalFilters.empty()))).thenReturn(List.of());
-        when(lexicalSearchRouter.search(any(), anyInt(), anySet(), eq(RetrievalFilters.empty()))).thenReturn(new ProductionLexicalSearchRouter.LexicalSearchResult(
+        when(semanticSearchRepository.searchSemantic(any(), anyInt(), any(MaterialSearchScope.class))).thenReturn(List.of());
+        when(lexicalSearchRouter.search(any(), anyInt(), any(MaterialSearchScope.class))).thenReturn(new ProductionLexicalSearchRouter.LexicalSearchResult(
             LexicalProviderMode.POSTGRES,
             LexicalProviderType.POSTGRES,
             false,
@@ -1057,9 +1094,9 @@ class MaterialRetrievalServiceTest {
             List.of(record)
         ));
         when(catalogRepository.findById(record.id())).thenReturn(java.util.Optional.of(record));
-        when(semanticSearchRepository.searchSemantic(any(), anyInt(), anySet(), eq(RetrievalFilters.empty())))
+        when(semanticSearchRepository.searchSemantic(any(), anyInt(), any(MaterialSearchScope.class)))
             .thenReturn(List.of(matchFor(record, 0.18d, null)));
-        when(lexicalSearchRouter.search(any(), anyInt(), anySet(), eq(RetrievalFilters.empty()))).thenReturn(new ProductionLexicalSearchRouter.LexicalSearchResult(
+        when(lexicalSearchRouter.search(any(), anyInt(), any(MaterialSearchScope.class))).thenReturn(new ProductionLexicalSearchRouter.LexicalSearchResult(
             LexicalProviderMode.POSTGRES,
             LexicalProviderType.POSTGRES,
             false,
@@ -1089,9 +1126,9 @@ class MaterialRetrievalServiceTest {
             List.of(record)
         ));
         when(catalogRepository.findById(record.id())).thenReturn(java.util.Optional.of(record));
-        when(semanticSearchRepository.searchSemantic(any(), anyInt(), anySet(), eq(RetrievalFilters.empty())))
+        when(semanticSearchRepository.searchSemantic(any(), anyInt(), any(MaterialSearchScope.class)))
             .thenReturn(List.of(corroboratedMatch));
-        when(lexicalSearchRouter.search(any(), anyInt(), anySet(), eq(RetrievalFilters.empty()))).thenReturn(new ProductionLexicalSearchRouter.LexicalSearchResult(
+        when(lexicalSearchRouter.search(any(), anyInt(), any(MaterialSearchScope.class))).thenReturn(new ProductionLexicalSearchRouter.LexicalSearchResult(
             LexicalProviderMode.POSTGRES,
             LexicalProviderType.POSTGRES,
             false,
@@ -1211,11 +1248,7 @@ class MaterialRetrievalServiceTest {
             (int) allRecords.stream().filter(this::isReadyForRetrieval).count(),
             scopedRecords.size(),
             (int) scopedRecords.stream().filter(record -> record.versionState() == MaterialVersionState.ACTIVE).count(),
-            (int) scopedRecords.stream().filter(this::isReadyForRetrieval).count(),
-            scopedRecords.stream()
-                .filter(this::isReadyForRetrieval)
-                .map(StoredMaterialRecord::id)
-                .collect(java.util.stream.Collectors.toSet())
+            (int) scopedRecords.stream().filter(this::isReadyForRetrieval).count()
         );
     }
 

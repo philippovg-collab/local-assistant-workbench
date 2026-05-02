@@ -142,6 +142,7 @@ class ElasticsearchIndexSyncServiceTest {
             "file",
             "material-a.txt",
             "text/plain",
+            Instant.parse("2026-04-17T09:55:00Z"),
             Instant.parse("2026-04-17T10:00:00Z"),
             List.of(new SearchableMaterialChunkSnapshot(0, "replacement text", 1, "direct-text", false))
         ));
@@ -189,6 +190,7 @@ class ElasticsearchIndexSyncServiceTest {
             "file",
             "material-a.txt",
             "text/plain",
+            Instant.parse("2026-04-17T09:55:00Z"),
             Instant.parse("2026-04-17T10:00:00Z"),
             List.of()
         ));
@@ -236,6 +238,7 @@ class ElasticsearchIndexSyncServiceTest {
             "file",
             "material-a.txt",
             "text/plain",
+            Instant.parse("2026-04-17T09:55:00Z"),
             Instant.parse("2026-04-17T10:00:00Z"),
             List.of()
         ));

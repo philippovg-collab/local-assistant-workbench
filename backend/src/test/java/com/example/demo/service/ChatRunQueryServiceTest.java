@@ -10,9 +10,10 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.example.demo.api.ApiException;
-import com.example.demo.infrastructure.audit.PostgresChatAuditRepository;
-import com.example.demo.infrastructure.audit.PostgresChatRunTraceRepository;
-import com.example.demo.infrastructure.audit.StoredChatAuditRunRecord;
+import com.example.demo.service.audit.ChatRunHeaderStatus;
+import com.example.demo.service.audit.port.ChatAuditRepository;
+import com.example.demo.service.audit.port.ChatRunTraceRepository;
+import com.example.demo.service.audit.StoredChatAuditRunRecord;
 import com.example.demo.model.ChatAuditRunSummary;
 import com.example.demo.model.ChatExecutionResponse;
 import com.example.demo.model.ChatMode;
@@ -30,14 +31,14 @@ import org.springframework.http.HttpStatus;
 
 class ChatRunQueryServiceTest {
 
-    private PostgresChatRunTraceRepository traceRepository;
-    private PostgresChatAuditRepository legacyRepository;
+    private ChatRunTraceRepository traceRepository;
+    private ChatAuditRepository legacyRepository;
     private ChatRunQueryService service;
 
     @BeforeEach
     void setUp() {
-        traceRepository = mock(PostgresChatRunTraceRepository.class);
-        legacyRepository = mock(PostgresChatAuditRepository.class);
+        traceRepository = mock(ChatRunTraceRepository.class);
+        legacyRepository = mock(ChatAuditRepository.class);
         service = new ChatRunQueryService(traceRepository, legacyRepository);
     }
 
@@ -141,7 +142,7 @@ class ChatRunQueryServiceTest {
     @Test
     void getStatusReturnsHeaderOnlyStatusWithoutLoadingTraceJson() {
         String runId = UUID.randomUUID().toString();
-        when(traceRepository.findHeaderStatus(runId)).thenReturn(Optional.of(new PostgresChatRunTraceRepository.ChatRunHeaderStatus(
+        when(traceRepository.findHeaderStatus(runId)).thenReturn(Optional.of(new ChatRunHeaderStatus(
             runId,
             "FAILED",
             Instant.parse("2026-04-19T00:00:00Z"),
@@ -254,7 +255,7 @@ class ChatRunQueryServiceTest {
         verify(traceRepository, never()).insertResultIfAbsent(any(), any(), any(), any());
     }
 
-    private PostgresChatRunTraceRepository.ChatRunHeaderStatus header(
+    private ChatRunHeaderStatus header(
         String id,
         String status,
         String failureMessage
@@ -263,7 +264,7 @@ class ChatRunQueryServiceTest {
         Instant completedAt = "COMPLETED".equals(status)
             ? Instant.parse("2026-04-19T00:00:01Z")
             : null;
-        return new PostgresChatRunTraceRepository.ChatRunHeaderStatus(
+        return new ChatRunHeaderStatus(
             id,
             status,
             createdAt,

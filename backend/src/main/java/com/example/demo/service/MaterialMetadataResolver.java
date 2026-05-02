@@ -3,8 +3,8 @@ package com.example.demo.service;
 import com.example.demo.service.material.MaterialMetadataHints;
 
 import com.example.demo.api.ApiException;
-import com.example.demo.infrastructure.reference.PostgresReferenceDataRepository;
-import com.example.demo.infrastructure.reference.StoredReferenceProjectRecord;
+import com.example.demo.service.reference.port.ReferenceDataRepository;
+import com.example.demo.service.reference.StoredReferenceProjectRecord;
 import com.example.demo.model.DocumentStatus;
 import com.example.demo.model.DocumentType;
 import com.example.demo.model.KnowledgeDocumentClass;
@@ -149,14 +149,10 @@ public class MaterialMetadataResolver {
         "файл"
     );
 
-    private final PostgresReferenceDataRepository referenceDataRepository;
-
-    public MaterialMetadataResolver() {
-        this(null);
-    }
+    private final ReferenceDataRepository referenceDataRepository;
 
     @Autowired
-    public MaterialMetadataResolver(PostgresReferenceDataRepository referenceDataRepository) {
+    public MaterialMetadataResolver(ReferenceDataRepository referenceDataRepository) {
         this.referenceDataRepository = referenceDataRepository;
     }
 
@@ -350,6 +346,11 @@ public class MaterialMetadataResolver {
         SourceTrustLevel sourceTrust = SourceTrustLevel.UNKNOWN;
         String workspaceKey = resolveWorkspaceKey(manualInput);
         String projectKey = resolveProjectKey(manualInput, workspaceKey);
+        String project = chooseString(manualInput != null ? manualInput.project() : null, hints.project());
+        String businessStatus = chooseString(
+            manualInput != null ? manualInput.businessStatus() : null,
+            hints.businessStatus()
+        );
         DocumentStatus documentStatus = manualInput != null && manualInput.documentStatus() != null
             ? manualInput.documentStatus()
             : DocumentStatus.ACTIVE;
@@ -417,15 +418,22 @@ public class MaterialMetadataResolver {
                     ? MetadataValueOrigin.MANUAL
                     : MetadataValueOrigin.MANUAL
             );
-            origins.put(PROJECT, origins.get(PROJECT_KEY));
         }
+        recordFieldOrigin(origins, confidence, PROJECT, manualInput != null ? manualInput.project() : null, hints.project(), hints);
         if (manualInput != null && manualInput.workspaceKey() != null) {
             origins.put(WORKSPACE_KEY, MetadataValueOrigin.MANUAL);
         } else {
             origins.put(WORKSPACE_KEY, MetadataValueOrigin.DEFAULT);
         }
         recordFieldOrigin(origins, confidence, COUNTERPARTY, null, hints.counterparty(), hints);
-        origins.put(BUSINESS_STATUS, origins.get(DOCUMENT_STATUS));
+        recordFieldOrigin(
+            origins,
+            confidence,
+            BUSINESS_STATUS,
+            manualInput != null ? manualInput.businessStatus() : null,
+            hints.businessStatus(),
+            hints
+        );
         recordFieldOrigin(origins, confidence, PERIOD_START, manualInput != null ? manualInput.periodStart() : null, hints.periodStart(), hints);
         recordFieldOrigin(origins, confidence, PERIOD_END, manualInput != null ? manualInput.periodEnd() : null, hints.periodEnd(), hints);
 
@@ -449,11 +457,11 @@ public class MaterialMetadataResolver {
             autoTags,
             tags,
             sourceTrust,
-            projectKey,
+            project,
             projectKey,
             workspaceKey,
             hints.counterparty(),
-            documentStatus.name(),
+            businessStatus,
             documentStatus,
             manualInput != null && manualInput.periodStart() != null ? manualInput.periodStart() : hints.periodStart(),
             manualInput != null && manualInput.periodEnd() != null ? manualInput.periodEnd() : hints.periodEnd(),

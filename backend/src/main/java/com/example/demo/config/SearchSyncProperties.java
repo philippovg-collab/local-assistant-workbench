@@ -9,7 +9,7 @@ public class SearchSyncProperties {
 
     private boolean enabled = false;
     private String indexPrefix = "rag-chunks";
-    private String indexVersion = "v2";
+    private String indexVersion = "v3";
     private int claimBatchSize = 32;
     private int claimLeaseSeconds = 120;
     private int maxAttempts = 3;

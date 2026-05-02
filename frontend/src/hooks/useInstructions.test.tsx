@@ -22,8 +22,8 @@ function swallow(promise: Promise<unknown>) {
   void promise.catch(() => undefined);
 }
 
-function InstructionsHookHarness() {
-  const instructions = useInstructions();
+function InstructionsHookHarness({ enabled = true }: { enabled?: boolean }) {
+  const instructions = useInstructions({ enabled });
 
   return (
     <section>
@@ -58,6 +58,8 @@ function InstructionsHookHarness() {
       <output data-testid="load-error">{instructions.error ?? ""}</output>
       <output data-testid="action-error">{instructions.actionError ?? ""}</output>
       <output data-testid="message">{instructions.message ?? ""}</output>
+      <output data-testid="instruction-count">{instructions.instructions.length}</output>
+      <output data-testid="is-loading">{String(instructions.isLoading)}</output>
     </section>
   );
 }
@@ -66,6 +68,40 @@ describe("useInstructions", () => {
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
+  });
+
+  it("does not fetch while disabled and loads once when enabled", async () => {
+    vi.mocked(apiClient.fetchInstructions).mockResolvedValue([
+      {
+        id: "instruction-1",
+        title: "Debug",
+        category: "system",
+        scopeLevel: "chat_scenario",
+        revision: 1,
+        active: true,
+        createdAt: "2026-04-16T10:00:00Z",
+        preview: "Rule",
+      },
+    ]);
+
+    const { rerender } = render(<InstructionsHookHarness enabled={false} />);
+
+    expect(screen.getByTestId("is-loading").textContent).toBe("false");
+    expect(apiClient.fetchInstructions).not.toHaveBeenCalled();
+
+    rerender(<InstructionsHookHarness enabled />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("instruction-count").textContent).toBe("1");
+    });
+
+    expect(apiClient.fetchInstructions).toHaveBeenCalledTimes(1);
+
+    rerender(<InstructionsHookHarness enabled={false} />);
+    expect(screen.getByTestId("instruction-count").textContent).toBe("1");
+
+    rerender(<InstructionsHookHarness enabled />);
+    expect(apiClient.fetchInstructions).toHaveBeenCalledTimes(1);
   });
 
   it("shows requestId for unexpected instruction load failures", async () => {

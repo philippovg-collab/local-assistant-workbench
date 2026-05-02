@@ -16,6 +16,7 @@ import {
   EMPTY_KNOWLEDGE_SCOPE_RESOLVED,
   EMPTY_RETRIEVAL_TRACE,
 } from "./utils/workbenchPresentation";
+import { ACTIVE_RAG_PROJECT_STORAGE_KEY } from "./components/workbench/workbenchConfig";
 
 const buildHealthResponse = (overrides: Partial<HealthResponse> = {}): HealthResponse => ({
   application: "Local Assistant Workbench",
@@ -279,6 +280,32 @@ const getUrl = (input: RequestInfo | URL) => {
   return input.toString();
 };
 
+const getRequestPathnames = () =>
+  vi.mocked(globalThis.fetch).mock.calls.map(([input]) => new URL(getUrl(input)).pathname);
+
+const getRequestUrls = () =>
+  vi.mocked(globalThis.fetch).mock.calls.map(([input]) => new URL(getUrl(input)));
+
+const expectNoRequestsTo = (forbiddenPathnames: string[]) => {
+  const pathnames = getRequestPathnames();
+  forbiddenPathnames.forEach((pathname) => {
+    expect(pathnames).not.toContain(pathname);
+  });
+};
+
+const crossTabRequestPathnames = [
+  "/api/materials",
+  "/api/materials/policy",
+  "/api/models",
+  "/api/instructions",
+  "/api/knowledge-presets",
+  "/api/knowledge-facets",
+  "/api/reference/workspaces",
+  "/api/reference/projects",
+  "/api/rag-projects",
+  "/api/chat-runs",
+];
+
 const getPanel = (panelId: "overview" | "materials" | "instructions" | "references" | "rag" | "direct") =>
   document.querySelector(`#panel-${panelId}`) as HTMLElement;
 
@@ -293,6 +320,9 @@ type CapturedChatRequest = {
   instructionIds: string[];
   scenarioInstructionIds?: string[];
   answerMode?: string;
+  knowledgeScope?: {
+    workspaceKey?: string | null;
+  };
   temporaryInstruction?: string;
 };
 
@@ -360,6 +390,8 @@ describe("App", () => {
     | typeof legacyMaterialUploadPolicyResponse;
   let currentMaterialsResponse: MaterialListResponse;
   let currentRagProjects: RagProjectSummary[];
+  let currentRagProjectsError: boolean;
+  let ragProjectsFetchGate: Promise<void> | null;
   let currentReferenceWorkspaces: ReferenceWorkspace[];
   let currentReferenceProjects: ReferenceProject[];
   let chatRequests: CapturedChatRequest[];
@@ -378,6 +410,8 @@ describe("App", () => {
     currentMaterialUploadPolicyResponse = materialUploadPolicyResponse;
     currentMaterialsResponse = buildMaterialListResponse(materialsResponse);
     currentRagProjects = ragProjectsResponse.map((project) => ({ ...project }));
+    currentRagProjectsError = false;
+    ragProjectsFetchGate = null;
     currentReferenceWorkspaces = referenceWorkspacesResponse.map((workspace) => ({ ...workspace }));
     currentReferenceProjects = referenceProjectsResponse.map((project) => ({ ...project }));
     chatRequests = [];
@@ -435,7 +469,25 @@ describe("App", () => {
         return jsonResponse(knowledgePresetsResponse);
       }
 
+      if (url.endsWith("/api/knowledge-facets")) {
+        return jsonResponse(knowledgePresetsResponse);
+      }
+
       if (pathname === "/api/rag-projects" && (!init?.method || init.method === "GET")) {
+        if (ragProjectsFetchGate) {
+          await ragProjectsFetchGate;
+        }
+        if (currentRagProjectsError) {
+          return new Response(JSON.stringify({
+            code: "rag_projects.storage_read_failed",
+            message: "Unable to load RAG projects",
+          }), {
+            status: 500,
+            headers: {
+              "Content-Type": "application/json",
+            },
+          });
+        }
         return jsonResponse(currentRagProjects);
       }
 
@@ -820,6 +872,185 @@ describe("App", () => {
     expect(screen.getByLabelText("Логин")).toBeTruthy();
     expect(screen.getByLabelText("Пароль")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Войти" })).toBeTruthy();
+  });
+
+  it("keeps the authenticated dashboard to shell-level requests only", async () => {
+    render(<App />);
+
+    expect(await screen.findByRole("button", { name: /дашборд/i })).toBeTruthy();
+
+    const pathnames = getRequestPathnames();
+    expect(pathnames).toContain("/api/auth/session");
+    expect(pathnames).toContain("/api/health");
+    expect(pathnames).toContain("/api/rag-projects");
+    expectNoRequestsTo(crossTabRequestPathnames.filter((pathname) => pathname !== "/api/rag-projects"));
+  });
+
+  it("loads feature data only when the corresponding tab becomes active", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await screen.findByRole("button", { name: /дашборд/i });
+    vi.mocked(globalThis.fetch).mockClear();
+
+    await openSection(user, /материалы/i);
+    await waitFor(() => {
+      expect(getRequestPathnames()).toContain("/api/materials");
+    });
+    expect(getRequestPathnames()).toContain("/api/materials/policy");
+    expectNoRequestsTo([
+      "/api/models",
+      "/api/instructions",
+      "/api/knowledge-presets",
+      "/api/knowledge-facets",
+      "/api/reference/workspaces",
+      "/api/reference/projects",
+      "/api/rag-projects",
+      "/api/chat-runs",
+    ]);
+
+    vi.mocked(globalThis.fetch).mockClear();
+    await openSection(user, /справочники/i);
+    await waitFor(() => {
+      expect(getRequestPathnames()).toContain("/api/reference/workspaces");
+    });
+    expect(getRequestPathnames()).toEqual(expect.arrayContaining([
+      "/api/knowledge-presets",
+      "/api/knowledge-facets",
+      "/api/reference/workspaces",
+      "/api/reference/projects",
+    ]));
+    expectNoRequestsTo(["/api/materials", "/api/materials/policy", "/api/models", "/api/instructions", "/api/rag-projects", "/api/chat-runs"]);
+
+    vi.mocked(globalThis.fetch).mockClear();
+    await openSection(user, /direct studio/i);
+    await waitFor(() => {
+      expect(getRequestPathnames()).toContain("/api/models");
+    });
+    expect(getRequestPathnames()).toEqual(expect.arrayContaining([
+      "/api/instructions",
+      "/api/chat-runs",
+    ]));
+    expectNoRequestsTo([
+      "/api/materials",
+      "/api/materials/policy",
+      "/api/knowledge-presets",
+      "/api/knowledge-facets",
+      "/api/reference/workspaces",
+      "/api/reference/projects",
+      "/api/rag-projects",
+    ]);
+
+    vi.mocked(globalThis.fetch).mockClear();
+    await openSection(user, /rag studio/i);
+    await waitFor(() => {
+      expect(getRequestPathnames()).toContain("/api/chat-runs");
+    });
+    expectNoRequestsTo([
+      "/api/materials",
+      "/api/materials/policy",
+      "/api/models",
+      "/api/instructions",
+      "/api/knowledge-presets",
+      "/api/knowledge-facets",
+      "/api/reference/workspaces",
+      "/api/reference/projects",
+      "/api/rag-projects",
+    ]);
+  });
+
+  it("resolves inactive stored RAG project before material and RAG calls", async () => {
+    const user = userEvent.setup();
+    currentRagProjects = [
+      {
+        key: "legacy-project",
+        name: "Legacy Project",
+        description: null,
+        active: false,
+        isDefault: false,
+        sortOrder: -1,
+        materialCount: 0,
+        readyMaterialCount: 0,
+        updatedAt: referenceTimestamp,
+      },
+      ...ragProjectsResponse.map((project) => ({ ...project })),
+    ];
+    window.localStorage.setItem(ACTIVE_RAG_PROJECT_STORAGE_KEY, "legacy-project");
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(window.localStorage.getItem(ACTIVE_RAG_PROJECT_STORAGE_KEY)).toBe("general");
+    });
+
+    vi.mocked(globalThis.fetch).mockClear();
+    await openSection(user, /материалы/i);
+    await waitFor(() => {
+      expect(getRequestUrls().some(
+        (url) => url.pathname === "/api/materials" && url.searchParams.get("workspaceKey") === "general",
+      )).toBe(true);
+    });
+    expect(getRequestUrls().some((url) => url.searchParams.get("workspaceKey") === "legacy-project")).toBe(false);
+
+    vi.mocked(globalThis.fetch).mockClear();
+    await openSection(user, /rag studio/i);
+    await waitFor(() => {
+      expect(getRequestUrls().some(
+        (url) => url.pathname === "/api/chat-runs" && url.searchParams.get("workspaceKey") === "general",
+      )).toBe(true);
+    });
+    expect(getRequestUrls().some((url) => url.searchParams.get("workspaceKey") === "legacy-project")).toBe(false);
+  });
+
+  it("does not start project-scoped calls before active RAG project resolution completes", async () => {
+    const user = userEvent.setup();
+    let releaseRagProjects: () => void = () => {};
+    ragProjectsFetchGate = new Promise((resolve) => {
+      releaseRagProjects = resolve;
+    });
+
+    render(<App />);
+    await screen.findByRole("button", { name: /дашборд/i });
+
+    vi.mocked(globalThis.fetch).mockClear();
+    await openSection(user, /материалы/i);
+    await act(async () => {});
+    expectNoRequestsTo(["/api/materials", "/api/materials/policy"]);
+
+    await openSection(user, /rag studio/i);
+    await act(async () => {});
+    expectNoRequestsTo(["/api/chat-runs"]);
+
+    releaseRagProjects();
+    await waitFor(() => {
+      expect(window.localStorage.getItem(ACTIVE_RAG_PROJECT_STORAGE_KEY)).toBe("general");
+    });
+  });
+
+  it("keeps stale localStorage untouched when RAG project loading fails", async () => {
+    const user = userEvent.setup();
+    currentRagProjectsError = true;
+    window.localStorage.setItem(ACTIVE_RAG_PROJECT_STORAGE_KEY, "legacy-project");
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(getRequestPathnames()).toContain("/api/rag-projects");
+    });
+    await act(async () => {});
+    expect(window.localStorage.getItem(ACTIVE_RAG_PROJECT_STORAGE_KEY)).toBe("legacy-project");
+
+    vi.mocked(globalThis.fetch).mockClear();
+    await openSection(user, /материалы/i);
+    await act(async () => {});
+    expectNoRequestsTo(["/api/materials", "/api/materials/policy"]);
+
+    await openSection(user, /rag studio/i);
+    await act(async () => {});
+    expectNoRequestsTo(["/api/chat-runs"]);
+    const ragPanel = getPanel("rag");
+    expect((within(ragPanel).getByRole("button", { name: "Спросить по материалам" }) as HTMLButtonElement).disabled)
+      .toBe(true);
   });
 
   it("opens on dashboard and shows explicit instruction selectors in both studio screens", async () => {

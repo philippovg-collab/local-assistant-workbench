@@ -7,10 +7,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.example.demo.model.ChatExecutionRequest;
 import com.example.demo.model.ChatMode;
+import com.example.demo.service.audit.ChatRunQueueLease;
+import com.example.demo.service.audit.EnqueuedChatRun;
+import com.example.demo.service.audit.port.ChatRunQueueRepository;
 import com.example.demo.support.PostgresIntegrationTestSupport;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -48,14 +52,17 @@ class PostgresChatRunQueueRepositoryIT extends PostgresIntegrationTestSupport {
         EnqueuedChatRun run = repository.enqueue(request("Resume me"), ChatMode.RAG, Instant.parse("2026-04-19T00:00:00Z"));
         Instant claimedAt = Instant.parse("2026-04-19T00:00:05Z");
 
-        ChatRunQueueLease lease = repository.claimNext(claimedAt).orElseThrow();
+        ChatRunQueueLease lease = repository.claimNext("worker-a", claimedAt, Duration.ofMinutes(5)).orElseThrow();
 
         assertEquals(run.runId(), lease.runId());
         assertEquals("Resume me", lease.request().prompt());
         assertEquals(1, lease.attemptCount());
         assertEquals(claimedAt, lease.claimedAt());
+        assertEquals("worker-a", lease.leaseOwner());
+        assertEquals(claimedAt.plus(Duration.ofMinutes(5)), lease.leaseExpiresAt());
         assertEquals("IN_PROGRESS", stringValue("SELECT delivery_state FROM chat_run_queue WHERE run_id = ?::uuid", run.runId()));
         assertEquals(1, intValue("SELECT attempt_count FROM chat_run_queue WHERE run_id = ?::uuid", run.runId()));
+        assertEquals("worker-a", stringValue("SELECT lease_owner FROM chat_run_queue WHERE run_id = ?::uuid", run.runId()));
         assertTrue(eventTypes(run.runId()).contains("CLAIMED"));
     }
 
@@ -74,7 +81,11 @@ class PostgresChatRunQueueRepositoryIT extends PostgresIntegrationTestSupport {
                     assertTrue(resultSet.next());
                 }
 
-                ChatRunQueueLease lease = repository.claimNext(Instant.parse("2026-04-19T00:00:05Z")).orElseThrow();
+                ChatRunQueueLease lease = repository.claimNext(
+                    "worker-a",
+                    Instant.parse("2026-04-19T00:00:05Z"),
+                    Duration.ofMinutes(5)
+                ).orElseThrow();
 
                 assertEquals(availableRun.runId(), lease.runId());
                 assertNotEquals(lockedRun.runId(), lease.runId());
@@ -87,23 +98,26 @@ class PostgresChatRunQueueRepositoryIT extends PostgresIntegrationTestSupport {
     @Test
     void staleClaimIsRequeuedOnceAndThenFailedAsAbandoned() {
         EnqueuedChatRun run = repository.enqueue(request("Recover"), ChatMode.DIRECT, Instant.parse("2026-04-19T00:00:00Z"));
-        ChatRunQueueLease firstLease = repository.claimNext(Instant.parse("2026-04-19T00:00:05Z")).orElseThrow();
+        ChatRunQueueLease firstLease = repository.claimNext(
+            "worker-a",
+            Instant.parse("2026-04-19T00:00:05Z"),
+            Duration.ofMinutes(5)
+        ).orElseThrow();
 
-        repository.recoverStaleClaims(
-            firstLease.claimedAt().plusSeconds(1),
-            Instant.parse("2026-04-19T00:06:00Z")
-        );
+        repository.recoverExpiredLeases(Instant.parse("2026-04-19T00:06:00Z"), 2);
 
         assertEquals("PENDING", stringValue("SELECT delivery_state FROM chat_run_queue WHERE run_id = ?::uuid", run.runId()));
-        assertTrue(eventTypes(run.runId()).contains("REQUEUED_AFTER_STALE_CLAIM"));
+        assertTrue(eventTypes(run.runId()).contains("REQUEUED_AFTER_EXPIRED_LEASE"));
 
-        ChatRunQueueLease secondLease = repository.claimNext(Instant.parse("2026-04-19T00:06:05Z")).orElseThrow();
+        ChatRunQueueLease secondLease = repository.claimNext(
+            "worker-b",
+            Instant.parse("2026-04-19T00:06:05Z"),
+            Duration.ofMinutes(5)
+        ).orElseThrow();
         assertEquals(2, secondLease.attemptCount());
+        assertEquals("worker-b", secondLease.leaseOwner());
 
-        repository.recoverStaleClaims(
-            secondLease.claimedAt().plusSeconds(1),
-            Instant.parse("2026-04-19T00:12:00Z")
-        );
+        repository.recoverExpiredLeases(Instant.parse("2026-04-19T00:12:00Z"), 2);
 
         assertEquals("FAILED", stringValue("SELECT status FROM chat_run_headers WHERE id = ?::uuid", run.runId()));
         assertEquals(
@@ -118,11 +132,64 @@ class PostgresChatRunQueueRepositoryIT extends PostgresIntegrationTestSupport {
     void secondClaimDoesNotReturnAlreadyClaimedRun() {
         EnqueuedChatRun run = repository.enqueue(request("Single"), ChatMode.DIRECT, Instant.parse("2026-04-19T00:00:00Z"));
 
-        ChatRunQueueLease firstLease = repository.claimNext(Instant.parse("2026-04-19T00:00:05Z")).orElseThrow();
-        Optional<ChatRunQueueLease> secondLease = repository.claimNext(Instant.parse("2026-04-19T00:00:06Z"));
+        ChatRunQueueLease firstLease = repository.claimNext(
+            "worker-a",
+            Instant.parse("2026-04-19T00:00:05Z"),
+            Duration.ofMinutes(5)
+        ).orElseThrow();
+        Optional<ChatRunQueueLease> secondLease = repository.claimNext(
+            "worker-b",
+            Instant.parse("2026-04-19T00:00:06Z"),
+            Duration.ofMinutes(5)
+        );
 
         assertEquals(run.runId(), firstLease.runId());
         assertFalse(secondLease.isPresent());
+    }
+
+    @Test
+    void heartbeatPreventsExpiredLeaseRecovery() {
+        EnqueuedChatRun run = repository.enqueue(request("Heartbeat"), ChatMode.DIRECT, Instant.parse("2026-04-19T00:00:00Z"));
+        ChatRunQueueLease lease = repository.claimNext(
+            "worker-a",
+            Instant.parse("2026-04-19T00:00:05Z"),
+            Duration.ofMinutes(5)
+        ).orElseThrow();
+
+        assertTrue(repository.extendLease(
+            lease,
+            Instant.parse("2026-04-19T00:04:00Z"),
+            Instant.parse("2026-04-19T00:09:00Z")
+        ));
+        ChatRunQueueRepository.RecoverySummary summary = repository.recoverExpiredLeases(
+            Instant.parse("2026-04-19T00:06:00Z"),
+            2
+        );
+
+        assertEquals(0, summary.requeuedCount());
+        assertEquals(0, summary.abandonedCount());
+        assertEquals("IN_PROGRESS", stringValue("SELECT delivery_state FROM chat_run_queue WHERE run_id = ?::uuid", run.runId()));
+        assertEquals("worker-a", stringValue("SELECT lease_owner FROM chat_run_queue WHERE run_id = ?::uuid", run.runId()));
+    }
+
+    @Test
+    void oldOwnerCannotDeleteAfterExpiredLeaseIsReclaimed() {
+        EnqueuedChatRun run = repository.enqueue(request("Ownership"), ChatMode.DIRECT, Instant.parse("2026-04-19T00:00:00Z"));
+        ChatRunQueueLease firstLease = repository.claimNext(
+            "worker-a",
+            Instant.parse("2026-04-19T00:00:05Z"),
+            Duration.ofMinutes(5)
+        ).orElseThrow();
+        repository.recoverExpiredLeases(Instant.parse("2026-04-19T00:06:00Z"), 2);
+        ChatRunQueueLease secondLease = repository.claimNext(
+            "worker-b",
+            Instant.parse("2026-04-19T00:06:05Z"),
+            Duration.ofMinutes(5)
+        ).orElseThrow();
+
+        assertFalse(repository.deleteQueueEntryIfOwned(firstLease));
+        assertTrue(repository.deleteQueueEntryIfOwned(secondLease));
+        assertEquals(0, intValue("SELECT COUNT(*) FROM chat_run_queue WHERE run_id = ?::uuid", run.runId()));
     }
 
     private ChatExecutionRequest request(String prompt) {

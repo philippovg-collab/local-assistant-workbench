@@ -3,6 +3,7 @@ package com.example.demo.service;
 import com.example.demo.service.material.LexicalProviderMode;
 import com.example.demo.service.material.LexicalProviderType;
 import com.example.demo.service.material.MaterialChunkSearchMatch;
+import com.example.demo.service.material.MaterialSearchScope;
 import com.example.demo.service.material.port.LexicalSearchProvider;
 
 import com.example.demo.model.RetrievalFilters;
@@ -70,21 +71,31 @@ public class ProductionLexicalSearchRouter {
     }
 
     public LexicalSearchResult search(String query, int limit) {
-        return search(query, limit, null);
+        return search(query, limit, MaterialSearchScope.unscoped());
     }
 
+    @Deprecated
     public LexicalSearchResult search(String query, int limit, Set<String> allowedMaterialIds) {
-        return search(query, limit, allowedMaterialIds, RetrievalFilters.empty());
+        return search(query, limit, MaterialSearchScope.fromLegacyMaterialIds(allowedMaterialIds));
     }
 
+    @Deprecated
     public LexicalSearchResult search(String query, int limit, Set<String> allowedMaterialIds, RetrievalFilters filters) {
+        return search(query, limit, MaterialSearchScope.fromLegacyMaterialIds(allowedMaterialIds, filters));
+    }
+
+    public LexicalSearchResult search(String query, int limit, MaterialSearchScope scope) {
         LexicalRoutingDecision decision = currentDecision();
         if (query == null || query.isBlank() || limit <= 0) {
             return decision.toResult(List.of());
         }
+        MaterialSearchScope safeScope = scope == null ? MaterialSearchScope.unscoped() : scope;
+        if (safeScope.isNoResults()) {
+            return decision.toResult(List.of());
+        }
 
         try {
-            return decision.toResult(providerOf(decision.effectiveProvider()).search(query, limit, allowedMaterialIds, filters));
+            return decision.toResult(providerOf(decision.effectiveProvider()).search(query, limit, safeScope));
         } catch (RuntimeException exception) {
             ElasticsearchHealthService.SearchSyncHealth runtimeFailureHealth = decision.searchHealth();
             if (decision.effectiveProvider() == LexicalProviderType.ELASTICSEARCH) {
@@ -95,7 +106,7 @@ public class ProductionLexicalSearchRouter {
             }
 
             List<MaterialChunkSearchMatch> fallbackMatches = providerOf(LexicalProviderType.POSTGRES)
-                .search(query, limit, allowedMaterialIds, filters);
+                .search(query, limit, safeScope);
             String fallbackReasonMessage = rootMessage(exception);
             logger.warn(
                 "Production lexical runtime fallback: configuredMode={} from={} to={} reasonCode={} message={}",

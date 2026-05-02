@@ -1,4 +1,4 @@
-package com.example.demo.infrastructure.knowledge;
+package com.example.demo.service.knowledge.port;
 
 import com.example.demo.model.KnowledgeScope;
 import com.example.demo.model.SavedKnowledgeFilterKind;

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { apiClient, isApiClientError } from "../api/client";
 import { translateCommonApiError } from "../api/errorMessages";
 import type {
@@ -31,7 +31,12 @@ const translateInstructionError = (error: unknown, fallback: string) => {
   return translateCommonApiError(error, fallback);
 };
 
-export const useInstructions = () => {
+type UseInstructionsOptions = {
+  enabled?: boolean;
+};
+
+export const useInstructions = (options: UseInstructionsOptions = {}) => {
+  const { enabled = true } = options;
   const [instructions, setInstructions] = useState<InstructionSummary[]>([]);
   const [selectedInstruction, setSelectedInstruction] = useState<InstructionDetail | null>(null);
   const [revisions, setRevisions] = useState<InstructionRevisionDetail[]>([]);
@@ -39,12 +44,19 @@ export const useInstructions = () => {
   const [detailError, setDetailError] = useState<string | null>(null);
   const [isLoadingDetail, setIsLoadingDetail] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(enabled);
   const [message, setMessage] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [deletingInstructionId, setDeletingInstructionId] = useState<string | null>(null);
+  const hasLoadedRef = useRef(false);
 
   const loadInstructions = async (signal?: AbortSignal) => {
+    if (!enabled) {
+      setIsLoading(false);
+      return null;
+    }
+
+    setIsLoading(true);
     try {
       const payload = await apiClient.fetchInstructions(signal);
       setInstructions(payload);
@@ -62,6 +74,7 @@ export const useInstructions = () => {
           : null,
       );
       setError(null);
+      hasLoadedRef.current = true;
       return payload;
     } catch (loadError) {
       if (signal?.aborted) {
@@ -77,10 +90,18 @@ export const useInstructions = () => {
   };
 
   useEffect(() => {
+    if (!enabled) {
+      setIsLoading(false);
+      return;
+    }
+    if (hasLoadedRef.current) {
+      return;
+    }
+
     const controller = new AbortController();
     void loadInstructions(controller.signal);
     return () => controller.abort();
-  }, []);
+  }, [enabled]);
 
   const createInstruction = async (input: CreateInstructionRequest) => {
     setActionError(null);

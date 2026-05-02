@@ -7,9 +7,6 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.example.demo.api.ApiException;
-import com.example.demo.infrastructure.knowledge.PostgresKnowledgePresetRepository;
-import com.example.demo.infrastructure.knowledge.StoredKnowledgePresetRecord;
-import com.example.demo.infrastructure.knowledge.StoredKnowledgePresetRevisionRecord;
 import com.example.demo.model.CreateKnowledgePresetRequest;
 import com.example.demo.model.DocumentStatus;
 import com.example.demo.model.DocumentType;
@@ -17,6 +14,9 @@ import com.example.demo.model.KnowledgePresetRevisionDiff;
 import com.example.demo.model.KnowledgeScope;
 import com.example.demo.model.MaterialLanguageCode;
 import com.example.demo.model.SavedKnowledgeFilterKind;
+import com.example.demo.service.knowledge.port.KnowledgePresetRepository;
+import com.example.demo.service.knowledge.port.StoredKnowledgePresetRecord;
+import com.example.demo.service.knowledge.port.StoredKnowledgePresetRevisionRecord;
 import java.time.LocalDate;
 import java.time.Instant;
 import java.util.List;
@@ -28,7 +28,7 @@ class KnowledgePresetServiceTest {
 
     @Test
     void rejectsInactivePresetsDuringScopeResolution() {
-        PostgresKnowledgePresetRepository repository = mock(PostgresKnowledgePresetRepository.class);
+        KnowledgePresetRepository repository = mock(KnowledgePresetRepository.class);
         KnowledgePresetService service = new KnowledgePresetService(repository);
         String presetId = UUID.randomUUID().toString();
         when(repository.findById(presetId)).thenReturn(Optional.of(new StoredKnowledgePresetRecord(
@@ -51,7 +51,7 @@ class KnowledgePresetServiceTest {
 
     @Test
     void rejectsTooManyPresetTags() {
-        PostgresKnowledgePresetRepository repository = mock(PostgresKnowledgePresetRepository.class);
+        KnowledgePresetRepository repository = mock(KnowledgePresetRepository.class);
         KnowledgePresetService service = new KnowledgePresetService(repository);
         List<String> tags = java.util.stream.IntStream.range(0, 33)
             .mapToObj(index -> "tag-" + index)
@@ -71,7 +71,7 @@ class KnowledgePresetServiceTest {
 
     @Test
     void computesKnowledgePresetRevisionDiff() {
-        PostgresKnowledgePresetRepository repository = mock(PostgresKnowledgePresetRepository.class);
+        KnowledgePresetRepository repository = mock(KnowledgePresetRepository.class);
         KnowledgePresetService service = new KnowledgePresetService(repository);
         String presetId = UUID.randomUUID().toString();
         Instant now = Instant.parse("2026-04-18T10:00:00Z");
@@ -109,7 +109,7 @@ class KnowledgePresetServiceTest {
 
     @Test
     void resolvesPresetAndFacetIntoCanonicalScopeInsideActiveWorkspace() {
-        PostgresKnowledgePresetRepository repository = mock(PostgresKnowledgePresetRepository.class);
+        KnowledgePresetRepository repository = mock(KnowledgePresetRepository.class);
         KnowledgePresetService service = new KnowledgePresetService(repository);
         String presetId = UUID.randomUUID().toString();
         String facetId = UUID.randomUUID().toString();
@@ -201,7 +201,7 @@ class KnowledgePresetServiceTest {
 
     @Test
     void rejectsFacetIdPassedAsPresetId() {
-        PostgresKnowledgePresetRepository repository = mock(PostgresKnowledgePresetRepository.class);
+        KnowledgePresetRepository repository = mock(KnowledgePresetRepository.class);
         KnowledgePresetService service = new KnowledgePresetService(repository);
         String facetId = UUID.randomUUID().toString();
         Instant now = Instant.parse("2026-04-18T10:00:00Z");

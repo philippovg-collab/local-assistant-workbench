@@ -165,7 +165,7 @@ class LegacyMaterialImporterIT extends PostgresIntegrationTestSupport {
                 lifecycleService,
                 materialIndexingService,
                 afterCommitExecutor,
-                new MaterialMetadataResolver()
+                new MaterialMetadataResolver(new com.example.demo.support.NoopReferenceDataRepository())
             ),
             new MaterialIngestionService(
                 catalogRepository,
@@ -173,7 +173,7 @@ class LegacyMaterialImporterIT extends PostgresIntegrationTestSupport {
                 extractor,
                 materialProperties,
                 contentSupport,
-                new MaterialMetadataResolver(),
+                new MaterialMetadataResolver(new com.example.demo.support.NoopReferenceDataRepository()),
                 lifecycleService,
                 materialIndexingService,
                 afterCommitExecutor

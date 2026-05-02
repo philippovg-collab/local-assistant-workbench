@@ -60,8 +60,8 @@ const policyMetadata: MaterialMetadataInput = {
   manualTags: ["policy", "grid"],
 };
 
-function MaterialsHookHarness() {
-  const materials = useMaterials();
+function MaterialsHookHarness({ enabled = true }: { enabled?: boolean }) {
+  const materials = useMaterials({ enabled });
 
   return (
     <section>
@@ -256,6 +256,8 @@ function MaterialsHookHarness() {
       <output data-testid="policy-warning">{materials.policyWarning ?? ""}</output>
       <output data-testid="policy-mode">{materials.uploadPolicy?.pdf.mode ?? ""}</output>
       <output data-testid="policy-enabled">{String(materials.uploadPolicy?.pdf.enabled ?? false)}</output>
+      <output data-testid="material-count">{materials.materials.length}</output>
+      <output data-testid="is-loading">{String(materials.isLoading)}</output>
     </section>
   );
 }
@@ -272,6 +274,37 @@ describe("useMaterials", () => {
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
+  });
+
+  it("does not prefetch while disabled and keeps loaded catalog across disabled toggles", async () => {
+    vi.mocked(apiClient.fetchMaterials).mockResolvedValue(buildMaterialListResponse([
+      buildMaterialSummary({
+        id: "material-1",
+        title: "Pricing note",
+      }),
+    ]));
+    vi.mocked(apiClient.fetchMaterialUploadPolicy).mockResolvedValue(buildPolicy());
+
+    const { rerender } = render(<MaterialsHookHarness enabled={false} />);
+
+    expect(screen.getByTestId("is-loading").textContent).toBe("false");
+    expect(apiClient.fetchMaterialUploadPolicy).not.toHaveBeenCalled();
+    expect(apiClient.fetchMaterials).not.toHaveBeenCalled();
+
+    rerender(<MaterialsHookHarness enabled />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("material-count").textContent).toBe("1");
+    });
+    expect(apiClient.fetchMaterialUploadPolicy).toHaveBeenCalledTimes(1);
+    expect(apiClient.fetchMaterials).toHaveBeenCalledTimes(1);
+
+    rerender(<MaterialsHookHarness enabled={false} />);
+    expect(screen.getByTestId("material-count").textContent).toBe("1");
+
+    rerender(<MaterialsHookHarness enabled />);
+    expect(apiClient.fetchMaterialUploadPolicy).toHaveBeenCalledTimes(1);
+    expect(apiClient.fetchMaterials).toHaveBeenCalledTimes(1);
   });
 
   it("blocks oversized uploads before sending a network request", async () => {

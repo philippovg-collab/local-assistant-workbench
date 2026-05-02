@@ -8,11 +8,11 @@ export { useMaterialLineage } from "@/hooks/useMaterialLineage";
 export { useMaterialMutations } from "@/hooks/useMaterialMutations";
 export { useMaterialUploadPolicy } from "@/hooks/useMaterialUploadPolicy";
 
-export const useMaterials = (options: { workspaceKey?: string | null } = {}) => {
-  const { workspaceKey = null } = options;
-  const uploadPolicyState = useMaterialUploadPolicy();
-  const catalog = useMaterialCatalog(uploadPolicyState.uploadPolicy, workspaceKey);
-  const lineage = useMaterialLineage(uploadPolicyState.uploadPolicy, workspaceKey);
+export const useMaterials = (options: { workspaceKey?: string | null; enabled?: boolean } = {}) => {
+  const { workspaceKey = null, enabled = true } = options;
+  const uploadPolicyState = useMaterialUploadPolicy({ enabled });
+  const catalog = useMaterialCatalog(uploadPolicyState.uploadPolicy, workspaceKey, { enabled });
+  const lineage = useMaterialLineage(uploadPolicyState.uploadPolicy, workspaceKey, { enabled });
   const mutations = useMaterialMutations({
     workspaceKey,
     uploadPolicy: uploadPolicyState.uploadPolicy,

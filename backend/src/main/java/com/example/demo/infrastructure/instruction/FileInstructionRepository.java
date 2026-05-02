@@ -2,6 +2,10 @@ package com.example.demo.infrastructure.instruction;
 
 import com.example.demo.infrastructure.storage.AtomicJsonFileStore;
 import com.example.demo.model.InstructionScopeLevel;
+import com.example.demo.service.instruction.port.InstructionRepository;
+import com.example.demo.service.instruction.port.InstructionScopeQuery;
+import com.example.demo.service.instruction.port.StoredInstructionRecord;
+import com.example.demo.service.instruction.port.StoredInstructionRevisionRecord;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.file.Path;
 import java.time.Instant;
@@ -49,7 +53,7 @@ public class FileInstructionRepository implements InstructionRepository {
     }
 
     @Override
-    public List<StoredInstructionRecord> findByScope(StoredInstructionRecordScope scope) {
+    public List<StoredInstructionRecord> findByScope(InstructionScopeQuery scope) {
         if (scope == null || scope.scopeLevel() == null) {
             return List.of();
         }

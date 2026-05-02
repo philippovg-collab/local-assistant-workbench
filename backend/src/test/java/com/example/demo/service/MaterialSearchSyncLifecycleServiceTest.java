@@ -260,7 +260,7 @@ class MaterialSearchSyncLifecycleServiceTest {
                 lifecycleService,
                 indexingService,
                 new AfterCommitExecutor(),
-                new MaterialMetadataResolver()
+                new MaterialMetadataResolver(new com.example.demo.support.NoopReferenceDataRepository())
             ),
             new MaterialIngestionService(
                 repository,
@@ -268,7 +268,7 @@ class MaterialSearchSyncLifecycleServiceTest {
                 extractor,
                 properties,
                 contentSupport,
-                new MaterialMetadataResolver(),
+                new MaterialMetadataResolver(new com.example.demo.support.NoopReferenceDataRepository()),
                 lifecycleService,
                 indexingService,
                 new AfterCommitExecutor()

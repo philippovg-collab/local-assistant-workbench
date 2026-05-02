@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.example.demo.model.InstructionCategory;
+import com.example.demo.service.instruction.port.StoredInstructionRecord;
 import com.example.demo.support.PostgresIntegrationTestSupport;
 import java.time.Instant;
 import java.util.List;

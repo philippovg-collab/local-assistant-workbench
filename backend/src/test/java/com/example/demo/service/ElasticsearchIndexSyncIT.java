@@ -13,7 +13,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import co.elastic.clients.elasticsearch.core.SearchResponse;
 import com.example.demo.embedding.EmbeddingClient;
-import com.example.demo.infrastructure.material.PostgresMaterialRepository;
+import com.example.demo.infrastructure.material.PostgresMaterialTestRepositoryBundle;
 import com.example.demo.model.MaterialIndexingStatus;
 import com.example.demo.model.MaterialVersionState;
 import com.example.demo.support.IntegrationTestOverrides;
@@ -32,6 +32,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.testcontainers.elasticsearch.ElasticsearchContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.utility.DockerImageName;
@@ -57,8 +58,7 @@ class ElasticsearchIndexSyncIT extends PostgresIntegrationTestSupport {
         registry.add("spring.elasticsearch.uris", () -> "http://" + ELASTICSEARCH.getHttpHostAddress());
     }
 
-    @Autowired
-    private PostgresMaterialRepository repository;
+    private PostgresMaterialTestRepositoryBundle repository;
 
     @Autowired
     private MaterialSearchSyncLifecycleService lifecycleService;
@@ -81,8 +81,12 @@ class ElasticsearchIndexSyncIT extends PostgresIntegrationTestSupport {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
+    @Autowired
+    private PlatformTransactionManager transactionManager;
+
     @BeforeEach
     void resetState() throws Exception {
+        repository = new PostgresMaterialTestRepositoryBundle(jdbcTemplate, transactionManager);
         jdbcTemplate.execute("TRUNCATE TABLE material_search_sync_queue, material_chunks, materials CASCADE");
         indexAdminService.prepareConfiguredWriteIndex();
         elasticsearchClient.deleteByQuery(delete -> delete
@@ -102,7 +106,7 @@ class ElasticsearchIndexSyncIT extends PostgresIntegrationTestSupport {
             MaterialIndexingStatus.PENDING,
             Instant.parse("2026-04-17T10:00:00Z")
         );
-        repository.save(record, List.of(
+        repository.catalog().save(record, List.of(
             rawChunk(0, "Тариф Премиум стоит 12000 тенге.", 1),
             rawChunk(1, "Приоритетная поддержка включена.", 2)
         ));
@@ -126,7 +130,7 @@ class ElasticsearchIndexSyncIT extends PostgresIntegrationTestSupport {
         assertEquals(List.of(record.id() + ":0", record.id() + ":1"), documents.stream().map(SearchableChunkDocument::chunkId).toList());
         assertTrue(elasticsearchClient.indices().existsAlias(request -> request.name("rag-chunks-it-write")).value());
         assertTrue(elasticsearchClient.indices().existsAlias(request -> request.name("rag-chunks-it-read")).value());
-        assertEquals(0, repository.getSearchSyncQueueSnapshot().pendingCount());
+        assertEquals(0, repository.searchSyncQueue().getSearchSyncQueueSnapshot().pendingCount());
     }
 
     @Test
@@ -148,8 +152,8 @@ class ElasticsearchIndexSyncIT extends PostgresIntegrationTestSupport {
             Instant.parse("2026-04-17T10:05:00Z")
         );
 
-        repository.save(promoted, List.of(rawChunk(0, promoted.content(), 1)));
-        repository.markIndexingReady(
+        repository.catalog().save(promoted, List.of(rawChunk(0, promoted.content(), 1)));
+        repository.indexingQueue().markIndexingReady(
             promoted.id(),
             List.of(embeddedChunk(0, promoted.content(), 1)),
             MaterialIndexingStatus.READY,
@@ -157,7 +161,7 @@ class ElasticsearchIndexSyncIT extends PostgresIntegrationTestSupport {
             null,
             promoted.updatedAt()
         );
-        repository.save(active, List.of(rawChunk(0, active.content(), 1)));
+        repository.catalog().save(active, List.of(rawChunk(0, active.content(), 1)));
         lifecycleService.markIndexingReady(
             active.id(),
             List.of(embeddedChunk(0, active.content(), 1)),
@@ -177,7 +181,7 @@ class ElasticsearchIndexSyncIT extends PostgresIntegrationTestSupport {
         List<SearchableChunkDocument> promotedDocuments = documentsFor(promoted.id());
         assertEquals(1, promotedDocuments.size());
         assertEquals(promoted.id() + ":0", promotedDocuments.getFirst().chunkId());
-        assertTrue(repository.findAllSearchSyncEntries().isEmpty());
+        assertTrue(repository.searchSyncQueue().findAllSearchSyncEntries().isEmpty());
     }
 
     @Test
@@ -190,7 +194,7 @@ class ElasticsearchIndexSyncIT extends PostgresIntegrationTestSupport {
             MaterialIndexingStatus.PENDING,
             Instant.parse("2026-04-17T10:00:00Z")
         );
-        repository.save(record, List.of(rawChunk(0, record.content(), 1)));
+        repository.catalog().save(record, List.of(rawChunk(0, record.content(), 1)));
         lifecycleService.markIndexingReady(
             record.id(),
             List.of(embeddedChunk(0, record.content(), 1)),
@@ -202,13 +206,13 @@ class ElasticsearchIndexSyncIT extends PostgresIntegrationTestSupport {
         refreshWriteAlias();
         assertFalse(documentsFor(record.id()).isEmpty());
 
-        repository.markIndexingPending(
+        repository.indexingQueue().markIndexingPending(
             record.id(),
             "material.reindex_requested",
             "Manual reindex requested",
             Instant.parse("2026-04-17T10:02:00Z")
         );
-        repository.enqueueMaterialsForSync(
+        repository.searchSyncQueue().enqueueMaterialsForSync(
             List.of(record.id()),
             Instant.parse("2026-04-17T10:03:00Z")
         );
@@ -217,7 +221,7 @@ class ElasticsearchIndexSyncIT extends PostgresIntegrationTestSupport {
         refreshWriteAlias();
 
         assertTrue(documentsFor(record.id()).isEmpty());
-        assertEquals(0, repository.getSearchSyncQueueSnapshot().pendingCount());
+        assertEquals(0, repository.searchSyncQueue().getSearchSyncQueueSnapshot().pendingCount());
     }
 
     @Test
@@ -240,8 +244,8 @@ class ElasticsearchIndexSyncIT extends PostgresIntegrationTestSupport {
             MaterialIndexingStatus.READY,
             Instant.parse("2026-04-17T11:00:00Z")
         );
-        repository.save(record, List.of(rawChunk(0, record.content(), 1)));
-        repository.markIndexingReady(
+        repository.catalog().save(record, List.of(rawChunk(0, record.content(), 1)));
+        repository.indexingQueue().markIndexingReady(
             record.id(),
             List.of(embeddedChunk(0, record.content(), 1)),
             MaterialIndexingStatus.READY,
@@ -249,12 +253,12 @@ class ElasticsearchIndexSyncIT extends PostgresIntegrationTestSupport {
             null,
             record.updatedAt()
         );
-        repository.enqueueMaterialsForSync(List.of(record.id()), Instant.parse("2026-04-17T11:00:00Z"));
-        MaterialSearchSyncQueueEntry failedEntry = repository.claimNextSearchSyncBatch(
+        repository.searchSyncQueue().enqueueMaterialsForSync(List.of(record.id()), Instant.parse("2026-04-17T11:00:00Z"));
+        MaterialSearchSyncQueueEntry failedEntry = repository.searchSyncQueue().claimNextSearchSyncBatch(
             Instant.parse("2026-04-17T11:00:05Z"),
             1
         ).getFirst();
-        repository.markSearchSyncEntryFailed(
+        repository.searchSyncQueue().markSearchSyncEntryFailed(
             failedEntry.materialId(),
             failedEntry.claimedAt(),
             "search.sync_failed",
@@ -270,8 +274,8 @@ class ElasticsearchIndexSyncIT extends PostgresIntegrationTestSupport {
 
         assertEquals(1, firstRun.requeuedFailedCount());
         assertEquals(1, documentsFor(record.id()).size());
-        assertEquals(0, repository.getSearchSyncQueueSnapshot().failedCount());
-        assertTrue(repository.findAllSearchSyncEntries().isEmpty());
+        assertEquals(0, repository.searchSyncQueue().getSearchSyncQueueSnapshot().failedCount());
+        assertTrue(repository.searchSyncQueue().findAllSearchSyncEntries().isEmpty());
 
         SearchSyncRecoveryService.RequeueRunSummary secondRun = recoveryService.recoverFailedEventsAndWait(
             java.time.Duration.ofSeconds(5),
@@ -329,8 +333,8 @@ class ElasticsearchIndexSyncIT extends PostgresIntegrationTestSupport {
             Instant.parse("2026-04-17T12:04:00Z")
         );
 
-        repository.save(ready, List.of(rawChunk(0, ready.content(), 1)));
-        repository.markIndexingReady(
+        repository.catalog().save(ready, List.of(rawChunk(0, ready.content(), 1)));
+        repository.indexingQueue().markIndexingReady(
             ready.id(),
             List.of(embeddedChunk(0, ready.content(), 1)),
             MaterialIndexingStatus.READY,
@@ -338,8 +342,8 @@ class ElasticsearchIndexSyncIT extends PostgresIntegrationTestSupport {
             null,
             ready.updatedAt()
         );
-        repository.save(partial, List.of(rawChunk(0, partial.content(), 1)));
-        repository.markIndexingReady(
+        repository.catalog().save(partial, List.of(rawChunk(0, partial.content(), 1)));
+        repository.indexingQueue().markIndexingReady(
             partial.id(),
             List.of(embeddedChunk(0, partial.content(), 1)),
             MaterialIndexingStatus.PARTIAL_READY,
@@ -347,8 +351,8 @@ class ElasticsearchIndexSyncIT extends PostgresIntegrationTestSupport {
             "Partial OCR warning",
             partial.updatedAt()
         );
-        repository.save(superseded, List.of(rawChunk(0, superseded.content(), 1)));
-        repository.markIndexingReady(
+        repository.catalog().save(superseded, List.of(rawChunk(0, superseded.content(), 1)));
+        repository.indexingQueue().markIndexingReady(
             superseded.id(),
             List.of(embeddedChunk(0, superseded.content(), 1)),
             MaterialIndexingStatus.READY,
@@ -356,15 +360,15 @@ class ElasticsearchIndexSyncIT extends PostgresIntegrationTestSupport {
             null,
             superseded.updatedAt()
         );
-        repository.save(pending, List.of(rawChunk(0, pending.content(), 1)));
-        repository.save(failed, List.of(rawChunk(0, failed.content(), 1)));
+        repository.catalog().save(pending, List.of(rawChunk(0, pending.content(), 1)));
+        repository.catalog().save(failed, List.of(rawChunk(0, failed.content(), 1)));
 
-        repository.enqueueMaterialsForSync(List.of(pending.id()), Instant.parse("2026-04-17T12:05:00Z"));
-        MaterialSearchSyncQueueEntry failedPendingEntry = repository.claimNextSearchSyncBatch(
+        repository.searchSyncQueue().enqueueMaterialsForSync(List.of(pending.id()), Instant.parse("2026-04-17T12:05:00Z"));
+        MaterialSearchSyncQueueEntry failedPendingEntry = repository.searchSyncQueue().claimNextSearchSyncBatch(
             Instant.parse("2026-04-17T12:05:05Z"),
             1
         ).getFirst();
-        repository.markSearchSyncEntryFailed(
+        repository.searchSyncQueue().markSearchSyncEntryFailed(
             failedPendingEntry.materialId(),
             failedPendingEntry.claimedAt(),
             "search.sync_failed",
@@ -408,7 +412,7 @@ class ElasticsearchIndexSyncIT extends PostgresIntegrationTestSupport {
         assertTrue(documentsFor(superseded.id()).isEmpty());
         assertTrue(documentsFor(pending.id()).isEmpty());
         assertTrue(documentsFor(failed.id()).isEmpty());
-        assertEquals(0, repository.getSearchSyncQueueSnapshot().failedCount());
+        assertEquals(0, repository.searchSyncQueue().getSearchSyncQueueSnapshot().failedCount());
     }
 
     private void indexDocument(String indexName, SearchableChunkDocument document) throws IOException {

@@ -3,6 +3,8 @@ package com.example.demo.infrastructure.audit;
 import com.example.demo.api.ApiException;
 import com.example.demo.model.AnswerMode;
 import com.example.demo.model.ChatMode;
+import com.example.demo.service.audit.StoredChatAuditRunRecord;
+import com.example.demo.service.audit.port.ChatAuditRepository;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
@@ -15,7 +17,7 @@ import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
 
 @Repository
-public class PostgresChatAuditRepository {
+public class PostgresChatAuditRepository implements ChatAuditRepository {
 
     private static final RowMapper<StoredChatAuditRunRecord> ROW_MAPPER = (resultSet, rowNum) ->
         new StoredChatAuditRunRecord(

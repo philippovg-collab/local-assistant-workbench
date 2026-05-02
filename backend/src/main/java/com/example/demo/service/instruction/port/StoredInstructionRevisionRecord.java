@@ -1,4 +1,4 @@
-package com.example.demo.infrastructure.instruction;
+package com.example.demo.service.instruction.port;
 
 import com.example.demo.model.InstructionCategory;
 import com.example.demo.model.InstructionScopeLevel;

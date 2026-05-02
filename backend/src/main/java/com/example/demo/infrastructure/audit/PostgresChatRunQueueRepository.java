@@ -3,12 +3,16 @@ package com.example.demo.infrastructure.audit;
 import com.example.demo.api.ApiException;
 import com.example.demo.model.ChatExecutionRequest;
 import com.example.demo.model.ChatMode;
+import com.example.demo.service.audit.ChatRunQueueLease;
+import com.example.demo.service.audit.EnqueuedChatRun;
+import com.example.demo.service.audit.port.ChatRunQueueRepository;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.json.JsonMapper;
 import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -22,7 +26,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 @Repository
-public class PostgresChatRunQueueRepository {
+public class PostgresChatRunQueueRepository implements ChatRunQueueRepository {
 
     private static final ObjectMapper JSON_MAPPER = JsonMapper.builder().findAndAddModules().build();
 
@@ -90,9 +94,12 @@ public class PostgresChatRunQueueRepository {
                         delivery_state,
                         attempt_count,
                         claimed_at,
+                        lease_owner,
+                        lease_expires_at,
+                        heartbeat_at,
                         created_at,
                         updated_at
-                    ) VALUES (?, 'PENDING', 0, NULL, ?, ?)
+                    ) VALUES (?, 'PENDING', 0, NULL, NULL, NULL, NULL, ?, ?)
                     """,
                 runUuid,
                 Timestamp.from(effectiveCreatedAt),
@@ -105,8 +112,13 @@ public class PostgresChatRunQueueRepository {
         return new EnqueuedChatRun(runId, effectiveCreatedAt);
     }
 
-    public Optional<ChatRunQueueLease> claimNext(Instant claimedAt) {
+    public Optional<ChatRunQueueLease> claimNext(String workerId, Instant claimedAt, Duration leaseDuration) {
+        String effectiveWorkerId = workerId == null || workerId.isBlank() ? "unknown" : workerId;
         Instant effectiveClaimedAt = claimedAt == null ? Instant.now() : claimedAt;
+        Duration effectiveLeaseDuration = leaseDuration == null || leaseDuration.isNegative() || leaseDuration.isZero()
+            ? Duration.ofSeconds(300)
+            : leaseDuration;
+        Instant leaseExpiresAt = effectiveClaimedAt.plus(effectiveLeaseDuration);
         return write(() -> {
             List<UUID> runIds = jdbcTemplate.query(
                 """
@@ -135,11 +147,17 @@ public class PostgresChatRunQueueRepository {
                     SET delivery_state = 'IN_PROGRESS',
                         attempt_count = attempt_count + 1,
                         claimed_at = ?,
+                        lease_owner = ?,
+                        heartbeat_at = ?,
+                        lease_expires_at = ?,
                         updated_at = ?
                     WHERE run_id = ?
                       AND delivery_state = 'PENDING'
                     """,
                 Timestamp.from(effectiveClaimedAt),
+                effectiveWorkerId,
+                Timestamp.from(effectiveClaimedAt),
+                Timestamp.from(leaseExpiresAt),
                 Timestamp.from(effectiveClaimedAt),
                 runId
             );
@@ -148,46 +166,104 @@ public class PostgresChatRunQueueRepository {
             }
 
             ChatRunQueueLease lease = loadLease(runId).orElseThrow();
-            insertEvent(runId, "CLAIMED", Map.of("attemptCount", lease.attemptCount()), effectiveClaimedAt);
+            insertEvent(runId, "CLAIMED", Map.of(
+                "attemptCount",
+                lease.attemptCount(),
+                "leaseOwner",
+                lease.leaseOwner(),
+                "leaseExpiresAt",
+                lease.leaseExpiresAt().toString()
+            ), effectiveClaimedAt);
             return Optional.of(lease);
         });
     }
 
-    public void recoverStaleClaims(Instant staleBefore, Instant observedAt) {
-        if (staleBefore == null) {
-            return;
+    public boolean extendLease(ChatRunQueueLease lease, Instant heartbeatAt, Instant leaseExpiresAt) {
+        if (lease == null || lease.runId() == null || lease.leaseOwner() == null || leaseExpiresAt == null) {
+            return false;
         }
+        Instant effectiveHeartbeatAt = heartbeatAt == null ? Instant.now() : heartbeatAt;
+        return write(() -> jdbcTemplate.update(
+            """
+                UPDATE chat_run_queue
+                SET heartbeat_at = ?,
+                    lease_expires_at = ?,
+                    updated_at = ?
+                WHERE run_id = ?
+                  AND delivery_state = 'IN_PROGRESS'
+                  AND lease_owner = ?
+                  AND attempt_count = ?
+                """,
+            Timestamp.from(effectiveHeartbeatAt),
+            Timestamp.from(leaseExpiresAt),
+            Timestamp.from(effectiveHeartbeatAt),
+            UUID.fromString(lease.runId()),
+            lease.leaseOwner(),
+            lease.attemptCount()
+        ) > 0);
+    }
+
+    public boolean deleteQueueEntryIfOwned(ChatRunQueueLease lease) {
+        if (lease == null || lease.runId() == null || lease.leaseOwner() == null) {
+            return false;
+        }
+        return write(() -> jdbcTemplate.update(
+            """
+                DELETE FROM chat_run_queue
+                WHERE run_id = ?
+                  AND lease_owner = ?
+                  AND attempt_count = ?
+                """,
+            UUID.fromString(lease.runId()),
+            lease.leaseOwner(),
+            lease.attemptCount()
+        ) > 0);
+    }
+
+    public ChatRunQueueRepository.RecoverySummary recoverExpiredLeases(Instant observedAt, int maxAttempts) {
         Instant effectiveObservedAt = observedAt == null ? Instant.now() : observedAt;
-        write(() -> {
-            List<StaleClaim> requeueCandidates = findStaleClaims(staleBefore, true);
-            for (StaleClaim claim : requeueCandidates) {
+        int effectiveMaxAttempts = Math.max(1, maxAttempts);
+        return write(() -> {
+            int requeuedCount = 0;
+            List<ExpiredClaim> requeueCandidates = findExpiredClaims(effectiveObservedAt, effectiveMaxAttempts, true);
+            for (ExpiredClaim claim : requeueCandidates) {
                 int updated = jdbcTemplate.update(
                     """
                         UPDATE chat_run_queue
                         SET delivery_state = 'PENDING',
                             claimed_at = NULL,
+                            lease_owner = NULL,
+                            lease_expires_at = NULL,
+                            heartbeat_at = NULL,
                             updated_at = ?
                         WHERE run_id = ?
                           AND delivery_state = 'IN_PROGRESS'
-                          AND claimed_at = ?
-                          AND attempt_count < 2
+                          AND lease_owner = ?
+                          AND lease_expires_at = ?
+                          AND attempt_count = ?
+                          AND attempt_count < ?
                         """,
                     Timestamp.from(effectiveObservedAt),
                     claim.runId(),
-                    Timestamp.from(claim.claimedAt())
+                    claim.leaseOwner(),
+                    Timestamp.from(claim.leaseExpiresAt()),
+                    claim.attemptCount(),
+                    effectiveMaxAttempts
                 );
                 if (updated > 0) {
+                    requeuedCount += updated;
                     insertEvent(
                         claim.runId(),
-                        "REQUEUED_AFTER_STALE_CLAIM",
-                        Map.of("attemptCount", claim.attemptCount()),
+                        "REQUEUED_AFTER_EXPIRED_LEASE",
+                        recoveryPayload(claim),
                         effectiveObservedAt
                     );
                 }
             }
 
-            List<StaleClaim> abandonedClaims = findStaleClaims(staleBefore, false);
-            for (StaleClaim claim : abandonedClaims) {
+            int abandonedCount = 0;
+            List<ExpiredClaim> abandonedClaims = findExpiredClaims(effectiveObservedAt, effectiveMaxAttempts, false);
+            for (ExpiredClaim claim : abandonedClaims) {
                 String message = "Chat run execution claim expired after restart and the resume limit was exhausted.";
                 int transitioned = jdbcTemplate.update(
                     """
@@ -202,13 +278,26 @@ public class PostgresChatRunQueueRepository {
                           AND status <> 'FAILED'
                           AND status <> 'COMPLETED'
                           AND status <> 'CANCELLED'
+                          AND EXISTS (
+                              SELECT 1
+                              FROM chat_run_queue q
+                              WHERE q.run_id = chat_run_headers.id
+                                AND q.delivery_state = 'IN_PROGRESS'
+                                AND q.lease_owner = ?
+                                AND q.lease_expires_at = ?
+                                AND q.attempt_count = ?
+                          )
                         """,
                     Timestamp.from(effectiveObservedAt),
                     Duration.between(claim.createdAt(), effectiveObservedAt).toMillis(),
                     message,
-                    claim.runId()
+                    claim.runId(),
+                    claim.leaseOwner(),
+                    Timestamp.from(claim.leaseExpiresAt()),
+                    claim.attemptCount()
                 );
                 if (transitioned > 0) {
+                    abandonedCount += transitioned;
                     insertEvent(claim.runId(), "FAILED", Map.of(
                         "stage",
                         "QUEUE",
@@ -222,7 +311,7 @@ public class PostgresChatRunQueueRepository {
             }
 
             deleteTerminalQueueEntries();
-            return null;
+            return new ChatRunQueueRepository.RecoverySummary(requeuedCount, abandonedCount);
         });
     }
 
@@ -254,36 +343,40 @@ public class PostgresChatRunQueueRepository {
         });
     }
 
-    private List<StaleClaim> findStaleClaims(Instant staleBefore, boolean resumable) {
+    private List<ExpiredClaim> findExpiredClaims(Instant observedAt, int maxAttempts, boolean resumable) {
         return jdbcTemplate.query(
             """
-                SELECT q.run_id, q.attempt_count, q.claimed_at, h.created_at
+                SELECT q.run_id, q.attempt_count, q.lease_owner, q.lease_expires_at, h.created_at
                 FROM chat_run_queue q
                 JOIN chat_run_headers h ON h.id = q.run_id
                 WHERE q.delivery_state = 'IN_PROGRESS'
-                  AND q.claimed_at IS NOT NULL
-                  AND q.claimed_at < ?
+                  AND q.lease_owner IS NOT NULL
+                  AND q.lease_expires_at IS NOT NULL
+                  AND q.lease_expires_at < ?
                   AND q.attempt_count %s
                   AND h.status <> 'FAILED'
                   AND h.status <> 'COMPLETED'
                   AND h.status <> 'CANCELLED'
-                ORDER BY q.claimed_at ASC, q.run_id ASC
+                ORDER BY q.lease_expires_at ASC, q.run_id ASC
                 FOR UPDATE OF q, h SKIP LOCKED
-                """.formatted(resumable ? "< 2" : ">= 2"),
-            (resultSet, rowNum) -> new StaleClaim(
+                """.formatted(resumable ? "< ?" : ">= ?"),
+            (resultSet, rowNum) -> new ExpiredClaim(
                 resultSet.getObject("run_id", UUID.class),
                 resultSet.getInt("attempt_count"),
-                toInstant(resultSet.getTimestamp("claimed_at")),
+                resultSet.getString("lease_owner"),
+                toInstant(resultSet.getTimestamp("lease_expires_at")),
                 toInstant(resultSet.getTimestamp("created_at"))
             ),
-            Timestamp.from(staleBefore)
+            Timestamp.from(observedAt),
+            maxAttempts
         );
     }
 
     private Optional<ChatRunQueueLease> loadLease(UUID runId) {
         return jdbcTemplate.query(
             """
-                SELECT q.run_id, q.attempt_count, q.claimed_at, h.created_at, r.request_jsonb
+                SELECT q.run_id, q.attempt_count, q.claimed_at, q.lease_owner, q.lease_expires_at,
+                       h.created_at, r.request_jsonb
                 FROM chat_run_queue q
                 JOIN chat_run_headers h ON h.id = q.run_id
                 JOIN chat_run_request_snapshots r ON r.run_id = q.run_id
@@ -301,7 +394,9 @@ public class PostgresChatRunQueueRepository {
             readJson(resultSet.getString("request_jsonb"), ChatExecutionRequest.class),
             toInstant(resultSet.getTimestamp("created_at")),
             toInstant(resultSet.getTimestamp("claimed_at")),
-            resultSet.getInt("attempt_count")
+            resultSet.getInt("attempt_count"),
+            resultSet.getString("lease_owner"),
+            toInstant(resultSet.getTimestamp("lease_expires_at"))
         );
     }
 
@@ -340,6 +435,14 @@ public class PostgresChatRunQueueRepository {
                   AND (h.status = 'FAILED' OR h.status = 'COMPLETED' OR h.status = 'CANCELLED')
                 """
         );
+    }
+
+    private Map<String, Object> recoveryPayload(ExpiredClaim claim) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("attemptCount", claim.attemptCount());
+        payload.put("leaseOwner", claim.leaseOwner());
+        payload.put("leaseExpiresAt", claim.leaseExpiresAt().toString());
+        return payload;
     }
 
     private ChatExecutionRequest normalizedRequest(ChatMode mode, ChatExecutionRequest request) {
@@ -415,10 +518,11 @@ public class PostgresChatRunQueueRepository {
         return timestamp == null ? null : timestamp.toInstant();
     }
 
-    private record StaleClaim(
+    private record ExpiredClaim(
         UUID runId,
         int attemptCount,
-        Instant claimedAt,
+        String leaseOwner,
+        Instant leaseExpiresAt,
         Instant createdAt
     ) {
     }

@@ -138,10 +138,18 @@ export const useChatExecution = ({
   };
 
   const dismissHint = (key: RetrievalFilterKey) => {
-    setDismissedHintKeys((current) => (current.includes(key) ? current : [...current, key]));
+    const keysToDismiss: RetrievalFilterKey[] =
+      key === "documentDateFrom" || key === "documentDateTo"
+        ? ["documentDateFrom", "documentDateTo"]
+        : [key];
+    setDismissedHintKeys((current) => {
+      const next = new Set<RetrievalFilterKey>(current);
+      keysToDismiss.forEach((item) => next.add(item));
+      return Array.from(next);
+    });
     setRetrievalFilters((current) => ({
       ...current,
-      [key]: key === "tags" ? [] : null,
+      ...Object.fromEntries(keysToDismiss.map((item) => [item, item === "tags" ? [] : null])),
     }));
   };
 
