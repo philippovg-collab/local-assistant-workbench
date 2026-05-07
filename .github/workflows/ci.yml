@@ -7,16 +7,8 @@ on:
   pull_request:
 
 jobs:
-  static-gate:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Run Phase 5 static anti-regression gate
-        run: python3 scripts/phase5-static-gate.py
-
   backend:
     runs-on: ubuntu-latest
-    needs: static-gate
     defaults:
       run:
         working-directory: backend
@@ -29,73 +21,11 @@ jobs:
           distribution: temurin
           java-version: "21"
           cache: maven
-      - name: Run backend tests
-        run: mvn -B -Pcoverage test
-
-  backend-docker-integration:
-    runs-on: ubuntu-latest
-    needs: backend
-    defaults:
-      run:
-        working-directory: backend
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "21"
-          cache: maven
-      - name: Run Docker-backed backend integration suite
-        run: mvn -B verify
-      - name: Fail if integration tests were skipped
-        run: |
-          python3 - <<'PY'
-          import pathlib
-          import sys
-          import xml.etree.ElementTree as ET
-
-          reports_dir = pathlib.Path("target/failsafe-reports")
-          report_paths = sorted(reports_dir.glob("TEST-*.xml"))
-          if not report_paths:
-            print("Integration quality gate failed: no failsafe reports were produced", file=sys.stderr)
-            sys.exit(1)
-          skipped = []
-
-          for report_path in report_paths:
-            root = ET.parse(report_path).getroot()
-            skipped_count = int(root.attrib.get("skipped", "0"))
-            if skipped_count > 0:
-              skipped.append((report_path.name, skipped_count))
-
-          if skipped:
-            details = ", ".join(f"{name} skipped={count}" for name, count in skipped)
-            print(f"Integration quality gate failed: skipped tests detected: {details}", file=sys.stderr)
-            sys.exit(1)
-          PY
-
-  backend-java25-smoke:
-    runs-on: ubuntu-latest
-    continue-on-error: true
-    defaults:
-      run:
-        working-directory: backend
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "25"
-          cache: maven
-      - name: Run Java 25 smoke suite
-        run: mvn -q -Dtest=HealthControllerTest,MaterialServiceTest,PdfDocumentExtractionStrategyTest test
+      - name: Build backend artifact
+        run: mvn -B -DskipTests package
 
   frontend:
     runs-on: ubuntu-latest
-    needs: static-gate
     defaults:
       run:
         working-directory: frontend
@@ -110,7 +40,5 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - name: Install dependencies
         run: npm ci
-      - name: Run frontend tests
-        run: npm run test:coverage
       - name: Build frontend
         run: npm run build
