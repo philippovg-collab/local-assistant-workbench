@@ -29,8 +29,6 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
-      args:
-        MAVEN_EXTRA_CA_CERT_BASE64: ${MAVEN_EXTRA_CA_CERT_BASE64:-}
     restart: unless-stopped
     depends_on:
       postgres:

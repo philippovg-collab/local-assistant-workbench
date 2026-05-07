@@ -91,7 +91,6 @@ APP_CORS_ALLOWED_ORIGINS=https://your-domain.example
 POSTGRES_PASSWORD=replace-with-a-strong-password
 APP_SECURITY_ADMIN_USERNAME=admin
 APP_SECURITY_ADMIN_PASSWORD=replace-with-a-strong-admin-password
-MAVEN_EXTRA_CA_CERT_BASE64=
 
 APP_LLM_BASE_URL=http://10.9.120.3:8000
 APP_LLM_API_KEY=EMPTY
@@ -103,11 +102,6 @@ APP_EMBEDDINGS_MODEL=nomic-embed-text
 APP_SEARCH_SYNC_ENABLED=false
 APP_RAG_LEXICAL_PROVIDER=postgres
 ```
-
-If your server intercepts outbound TLS with a corporate CA and Docker builds fail
-to download Maven artifacts from `repo.maven.apache.org` with a `PKIX path building failed`
-error, put the PEM certificate into base64 and set `MAVEN_EXTRA_CA_CERT_BASE64`.
-The backend build stage will import it into both the system CA bundle and the JVM truststore.
 
 Build and start the baseline stack:
 
