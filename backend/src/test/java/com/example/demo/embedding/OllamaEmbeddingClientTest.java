@@ -10,6 +10,7 @@ import com.example.demo.llm.OllamaApiTransport;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.time.Duration;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 
@@ -23,7 +24,7 @@ class OllamaEmbeddingClientTest {
         transport.embeddingResponseJson = """
             {
               "model": "test-embed",
-              "embeddings": [[1.0, 2.0, 3.0]]
+              "data": [{"embedding": [1.0, 2.0, 3.0]}]
             }
             """;
         EmbeddingProperties embeddingProperties = embeddingProperties(3);
@@ -40,7 +41,7 @@ class OllamaEmbeddingClientTest {
         transport.embeddingResponseJson = """
             {
               "model": "test-embed",
-              "embeddings": [[1.0, 2.0, 3.0]]
+              "data": [{"embedding": [1.0, 2.0, 3.0]}]
             }
             """;
         EmbeddingProperties embeddingProperties = embeddingProperties(4);
@@ -82,6 +83,7 @@ class OllamaEmbeddingClientTest {
             String baseUrl,
             String path,
             Duration timeout,
+            Map<String, String> headers,
             Object payload,
             Class<T> responseType,
             String unavailableCode,

@@ -9,6 +9,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.Map;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
@@ -42,9 +43,43 @@ public class OllamaApiTransport {
         String invalidConfigurationCode,
         String invalidConfigurationMessage
     ) {
-        HttpRequest request = HttpRequest.newBuilder()
-            .uri(URI.create(baseUrl + path))
-            .timeout(timeout)
+        return get(
+            baseUrl,
+            path,
+            timeout,
+            Map.of(),
+            responseType,
+            unavailableCode,
+            unavailableMessage,
+            badResponseCode,
+            badResponseMessage,
+            parseFailedCode,
+            parseFailedMessage,
+            interruptedCode,
+            interruptedMessage,
+            invalidConfigurationCode,
+            invalidConfigurationMessage
+        );
+    }
+
+    public <T> T get(
+        String baseUrl,
+        String path,
+        Duration timeout,
+        Map<String, String> headers,
+        Class<T> responseType,
+        String unavailableCode,
+        String unavailableMessage,
+        String badResponseCode,
+        String badResponseMessage,
+        String parseFailedCode,
+        String parseFailedMessage,
+        String interruptedCode,
+        String interruptedMessage,
+        String invalidConfigurationCode,
+        String invalidConfigurationMessage
+    ) {
+        HttpRequest request = requestBuilder(baseUrl, path, timeout, headers)
             .GET()
             .build();
         return exchange(request, responseType, unavailableCode, unavailableMessage, badResponseCode, badResponseMessage, parseFailedCode, parseFailedMessage, interruptedCode, interruptedMessage, invalidConfigurationCode, invalidConfigurationMessage);
@@ -67,10 +102,46 @@ public class OllamaApiTransport {
         String invalidConfigurationCode,
         String invalidConfigurationMessage
     ) {
+        return postJson(
+            baseUrl,
+            path,
+            timeout,
+            Map.of(),
+            payload,
+            responseType,
+            unavailableCode,
+            unavailableMessage,
+            badResponseCode,
+            badResponseMessage,
+            parseFailedCode,
+            parseFailedMessage,
+            interruptedCode,
+            interruptedMessage,
+            invalidConfigurationCode,
+            invalidConfigurationMessage
+        );
+    }
+
+    public <T> T postJson(
+        String baseUrl,
+        String path,
+        Duration timeout,
+        Map<String, String> headers,
+        Object payload,
+        Class<T> responseType,
+        String unavailableCode,
+        String unavailableMessage,
+        String badResponseCode,
+        String badResponseMessage,
+        String parseFailedCode,
+        String parseFailedMessage,
+        String interruptedCode,
+        String interruptedMessage,
+        String invalidConfigurationCode,
+        String invalidConfigurationMessage
+    ) {
         try {
-            HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(baseUrl + path))
-                .timeout(timeout)
+            HttpRequest request = requestBuilder(baseUrl, path, timeout, headers)
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload)))
                 .build();
@@ -110,6 +181,46 @@ public class OllamaApiTransport {
         String invalidConfigurationCode,
         String invalidConfigurationMessage
     ) {
+        return postJson(
+            baseUrl,
+            path,
+            timeout,
+            Map.of(),
+            payload,
+            responseType,
+            cancellationToken,
+            unavailableCode,
+            unavailableMessage,
+            badResponseCode,
+            badResponseMessage,
+            parseFailedCode,
+            parseFailedMessage,
+            interruptedCode,
+            interruptedMessage,
+            invalidConfigurationCode,
+            invalidConfigurationMessage
+        );
+    }
+
+    public <T> T postJson(
+        String baseUrl,
+        String path,
+        Duration timeout,
+        Map<String, String> headers,
+        Object payload,
+        Class<T> responseType,
+        ChatCancellationToken cancellationToken,
+        String unavailableCode,
+        String unavailableMessage,
+        String badResponseCode,
+        String badResponseMessage,
+        String parseFailedCode,
+        String parseFailedMessage,
+        String interruptedCode,
+        String interruptedMessage,
+        String invalidConfigurationCode,
+        String invalidConfigurationMessage
+    ) {
         ChatCancellationToken effectiveToken = cancellationToken == null
             ? ChatCancellationToken.none()
             : cancellationToken;
@@ -118,6 +229,7 @@ public class OllamaApiTransport {
                 baseUrl,
                 path,
                 timeout,
+                headers,
                 payload,
                 responseType,
                 unavailableCode,
@@ -134,9 +246,7 @@ public class OllamaApiTransport {
         }
         try {
             effectiveToken.throwIfCancellationRequested();
-            HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(baseUrl + path))
-                .timeout(timeout)
+            HttpRequest request = requestBuilder(baseUrl, path, timeout, headers)
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload)))
                 .build();
@@ -168,6 +278,38 @@ public class OllamaApiTransport {
                 exception
             );
         }
+    }
+
+    private HttpRequest.Builder requestBuilder(
+        String baseUrl,
+        String path,
+        Duration timeout,
+        Map<String, String> headers
+    ) {
+        HttpRequest.Builder builder = HttpRequest.newBuilder()
+            .uri(resolveUri(baseUrl, path))
+            .timeout(timeout);
+        if (headers != null) {
+            headers.forEach((key, value) -> {
+                if (value != null && !value.isBlank()) {
+                    builder.header(key, value);
+                }
+            });
+        }
+        return builder;
+    }
+
+    private URI resolveUri(String baseUrl, String path) {
+        if (path != null && (path.startsWith("http://") || path.startsWith("https://"))) {
+            return URI.create(path);
+        }
+
+        String normalizedBaseUrl = baseUrl == null ? "" : baseUrl.trim();
+        String normalizedPath = path == null ? "" : path.trim();
+        if (normalizedBaseUrl.endsWith(normalizedPath)) {
+            return URI.create(normalizedBaseUrl);
+        }
+        return URI.create(normalizedBaseUrl + normalizedPath);
     }
 
     private <T> T exchange(

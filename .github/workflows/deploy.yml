@@ -15,52 +15,31 @@ concurrency:
 jobs:
   deploy:
     if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main')
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Prepare SSH key
+      - name: Build production env file
         env:
-          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_ENV_PRODUCTION: ${{ secrets.DEPLOY_ENV_PRODUCTION }}
         run: |
-          mkdir -p ~/.ssh
-          chmod 700 ~/.ssh
-          printf '%s' "$DEPLOY_SSH_KEY" > ~/.ssh/id_ed25519
-          chmod 600 ~/.ssh/id_ed25519
+          cp .env.production.defaults .env.production
+          if [ -n "${DEPLOY_ENV_PRODUCTION}" ]; then
+            printf '\n%s\n' "$DEPLOY_ENV_PRODUCTION" >> .env.production
+          fi
 
-      - name: Add server to known_hosts
-        env:
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-          DEPLOY_PORT: ${{ vars.DEPLOY_PORT }}
+      - name: Prepare persistent directories
         run: |
-          ssh-keyscan -p "${DEPLOY_PORT:-22}" "$DEPLOY_HOST" >> ~/.ssh/known_hosts
-
-      - name: Sync repository to server
-        env:
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
-          DEPLOY_PORT: ${{ vars.DEPLOY_PORT }}
-          DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
-        run: |
-          rsync -az --delete \
-            --exclude '.git' \
-            --exclude 'backend/target' \
-            --exclude 'frontend/node_modules' \
-            --exclude 'frontend/dist' \
-            ./ "${DEPLOY_USER}@${DEPLOY_HOST}:${DEPLOY_PATH:-/opt/local-assistant-workbench}/"
+          mkdir -p "$HOME/contextHub/postgres" "$HOME/contextHub/storage" "$HOME/contextHub/elasticsearch"
 
       - name: Deploy with docker compose
-        env:
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
-          DEPLOY_PORT: ${{ vars.DEPLOY_PORT }}
-          DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
         run: |
-          ssh -p "${DEPLOY_PORT:-22}" "${DEPLOY_USER}@${DEPLOY_HOST}" \
-            "set -euo pipefail && \
-             cd '${DEPLOY_PATH:-/opt/local-assistant-workbench}' && \
-             test -f .env.production && \
-             docker compose -f docker-compose.prod.yml up -d --build --remove-orphans && \
-             docker image prune -f"
+          docker compose --env-file .env.production -f docker-compose.prod.yml up -d --build --remove-orphans
+
+      - name: Run deployment preflight
+        run: ./scripts/linux/preflight-compose.sh
+
+      - name: Prune dangling images
+        run: docker image prune -f

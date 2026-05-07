@@ -21,7 +21,9 @@ detect_deploy_base() {
 DEPLOY_BASE="${DEPLOY_BASE:-$(detect_deploy_base)}"
 ENV_FILE="${ENV_FILE:-}"
 if [[ -z "${ENV_FILE}" ]]; then
-  if [[ -f "${ROOT_DIR}/.env" ]]; then
+  if [[ -f "${ROOT_DIR}/.env.production" ]]; then
+    ENV_FILE="${ROOT_DIR}/.env.production"
+  elif [[ -f "${ROOT_DIR}/.env" ]]; then
     ENV_FILE="${ROOT_DIR}/.env"
   elif [[ -f "${DEPLOY_BASE}/shared/.env" ]]; then
     ENV_FILE="${DEPLOY_BASE}/shared/.env"
@@ -35,13 +37,12 @@ if [[ -n "${ENV_FILE}" && -f "${ENV_FILE}" ]]; then
   set +a
 fi
 
-FRONTEND_HTTP_PORT="${FRONTEND_HTTP_PORT:-8080}"
+FRONTEND_HTTP_PORT="${FRONTEND_HTTP_PORT:-${FRONTEND_PORT:-8088}}"
 FRONTEND_CHECK_HOST="${FRONTEND_CHECK_HOST:-127.0.0.1}"
 FRONTEND_PUBLIC_URL="${FRONTEND_PUBLIC_URL:-http://${FRONTEND_CHECK_HOST}:${FRONTEND_HTTP_PORT}}"
 POSTGRES_DB="${POSTGRES_DB:-ragstudio}"
 POSTGRES_USER="${POSTGRES_USER:-ragstudio}"
 APP_LLM_MODEL="${APP_LLM_MODEL:-qwen2.5:7b}"
-APP_LLM_EXTRA_MODELS="${APP_LLM_EXTRA_MODELS:-}"
 APP_EMBEDDINGS_MODEL="${APP_EMBEDDINGS_MODEL:-nomic-embed-text}"
 APP_OCR_LANGUAGES="${APP_OCR_LANGUAGES:-kaz+rus+eng}"
 APP_SECURITY_ADMIN_USERNAME="${APP_SECURITY_ADMIN_USERNAME:-admin}"
@@ -123,7 +124,6 @@ pass "Docker and Compose are available"
 [[ -n "${APP_SECURITY_ADMIN_PASSWORD}" ]] || fail "APP_SECURITY_ADMIN_PASSWORD must be set for authenticated preflight checks"
 
 compose ps --services --status running | grep -qx postgres || fail "postgres service is not running"
-compose ps --services --status running | grep -qx ollama || fail "ollama service is not running"
 compose ps --services --status running | grep -qx backend || fail "backend service is not running"
 compose ps --services --status running | grep -qx frontend || fail "frontend service is not running"
 pass "Core services are running"
@@ -134,16 +134,6 @@ POSTGRES_VECTOR="$(
 )"
 [[ "${POSTGRES_VECTOR}" == "vector" ]] || fail "PostgreSQL vector extension is not installed in ${POSTGRES_DB}"
 pass "PostgreSQL vector extension is ready"
-
-OLLAMA_MODELS="$(compose exec -T ollama ollama list)"
-grep -Fq "${APP_LLM_MODEL}" <<<"${OLLAMA_MODELS}" || fail "Ollama model is missing: ${APP_LLM_MODEL}"
-EXTRA_MODELS_NORMALIZED="${APP_LLM_EXTRA_MODELS//,/ }"
-for model in ${EXTRA_MODELS_NORMALIZED}; do
-  [[ -n "${model}" ]] || continue
-  grep -Fq "${model}" <<<"${OLLAMA_MODELS}" || fail "Ollama extra model is missing: ${model}"
-done
-grep -Fq "${APP_EMBEDDINGS_MODEL}" <<<"${OLLAMA_MODELS}" || fail "Ollama embedding model is missing: ${APP_EMBEDDINGS_MODEL}"
-pass "Ollama models are present"
 
 TESSERACT_LANGS="$(compose exec -T backend tesseract --list-langs 2>/dev/null)"
 IFS='+' read -r -a OCR_LANG_ARRAY <<<"${APP_OCR_LANGUAGES}"
