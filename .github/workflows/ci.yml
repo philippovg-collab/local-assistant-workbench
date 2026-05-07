@@ -117,10 +117,11 @@ jobs:
 
   sonarcloud:
     runs-on: ubuntu-latest
-    if: ${{ secrets.SONAR_TOKEN != '' }}
     needs:
       - backend
       - frontend
+    env:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -144,11 +145,13 @@ jobs:
       - name: Generate backend coverage
         run: mvn -B -Pcoverage test
         working-directory: backend
+      - name: Skip SonarCloud when token is not configured
+        if: ${{ env.SONAR_TOKEN == '' }}
+        run: echo "SONAR_TOKEN is not configured; skipping SonarCloud scan."
       - name: SonarCloud Scan
+        if: ${{ env.SONAR_TOKEN != '' }}
         uses: SonarSource/sonarqube-scan-action@v7
         with:
           args: >
             -Dsonar.qualitygate.wait=true
             -Dsonar.qualitygate.timeout=600
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
