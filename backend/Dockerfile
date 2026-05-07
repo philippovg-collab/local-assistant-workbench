@@ -3,6 +3,15 @@
 FROM maven:3.9.9-eclipse-temurin-21 AS build
 
 ARG MAVEN_EXTRA_CA_CERT_BASE64=""
+ARG MAVEN_INSECURE_SSL="true"
+
+ENV MAVEN_SSL_FLAGS=""
+
+RUN if [ "$MAVEN_INSECURE_SSL" = "true" ]; then \
+      printf '%s' "-Dmaven.wagon.http.ssl.insecure=true -Dmaven.wagon.http.ssl.allowall=true -Dmaven.wagon.http.ssl.ignore.validity.dates=true" > /tmp/maven-ssl-flags; \
+    else \
+      printf '%s' "" > /tmp/maven-ssl-flags; \
+    fi
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates \
@@ -19,10 +28,10 @@ RUN apt-get update \
 
 WORKDIR /workspace/backend
 COPY backend/pom.xml ./
-RUN mvn -B -DskipTests dependency:go-offline
+RUN MAVEN_SSL_FLAGS="$(cat /tmp/maven-ssl-flags)" && mvn -B ${MAVEN_SSL_FLAGS} -DskipTests dependency:go-offline
 
 COPY backend/src ./src
-RUN mvn -B -DskipTests package
+RUN MAVEN_SSL_FLAGS="$(cat /tmp/maven-ssl-flags)" && mvn -B ${MAVEN_SSL_FLAGS} -DskipTests package
 
 FROM eclipse-temurin:21-jre-noble AS runtime
 
