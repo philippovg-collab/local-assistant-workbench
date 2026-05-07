@@ -2,6 +2,21 @@
 
 FROM maven:3.9.9-eclipse-temurin-21 AS build
 
+ARG MAVEN_EXTRA_CA_CERT_BASE64=""
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && if [ -n "$MAVEN_EXTRA_CA_CERT_BASE64" ]; then \
+        printf '%s' "$MAVEN_EXTRA_CA_CERT_BASE64" | base64 -d > /usr/local/share/ca-certificates/maven-extra-ca.crt; \
+        update-ca-certificates; \
+        keytool -importcert -noprompt \
+          -alias maven-extra-ca \
+          -file /usr/local/share/ca-certificates/maven-extra-ca.crt \
+          -keystore "$JAVA_HOME/lib/security/cacerts" \
+          -storepass changeit; \
+      fi \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /workspace/backend
 COPY backend/pom.xml ./
 RUN mvn -B -DskipTests dependency:go-offline
