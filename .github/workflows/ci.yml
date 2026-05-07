@@ -9,6 +9,9 @@ on:
 jobs:
   backend:
     runs-on: ubuntu-latest
+    env:
+      GIT_SSL_NO_VERIFY: "true"
+      MAVEN_OPTS: "-Dmaven.resolver.transport=wagon -Dmaven.wagon.http.ssl.insecure=true -Dmaven.wagon.http.ssl.allowall=true -Dmaven.wagon.http.ssl.ignore.validity.dates=true"
     defaults:
       run:
         working-directory: backend
@@ -26,6 +29,9 @@ jobs:
 
   frontend:
     runs-on: ubuntu-latest
+    env:
+      GIT_SSL_NO_VERIFY: "true"
+      NODE_TLS_REJECT_UNAUTHORIZED: "0"
     defaults:
       run:
         working-directory: frontend
@@ -38,6 +44,8 @@ jobs:
           node-version: "20"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
+      - name: Disable npm strict SSL
+        run: npm config set strict-ssl false
       - name: Install dependencies
         run: npm ci
       - name: Build frontend

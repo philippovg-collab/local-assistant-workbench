@@ -16,6 +16,10 @@ jobs:
   deploy:
     if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main')
     runs-on: self-hosted
+    env:
+      GIT_SSL_NO_VERIFY: "true"
+      MAVEN_OPTS: "-Dmaven.resolver.transport=wagon -Dmaven.wagon.http.ssl.insecure=true -Dmaven.wagon.http.ssl.allowall=true -Dmaven.wagon.http.ssl.ignore.validity.dates=true"
+      NODE_TLS_REJECT_UNAUTHORIZED: "0"
 
     steps:
       - name: Checkout
@@ -27,6 +31,9 @@ jobs:
           distribution: temurin
           java-version: "21"
           cache: maven
+
+      - name: Disable npm strict SSL
+        run: npm config set strict-ssl false
 
       - name: Build backend artifact on runner
         run: mvn -B -DskipTests package
