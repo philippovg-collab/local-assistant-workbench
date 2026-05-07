@@ -89,8 +89,8 @@ class ElasticsearchIndexAdminIT extends PostgresIntegrationTestSupport {
         indexDocument(
             "rag-chunks-admin-it-v1",
             new SearchableChunkDocument(
-                "legacy-doc",
-                "legacy-doc",
+                "material-v1:0",
+                "material-v1:0",
                 "material-v1",
                 "pricing-v1",
                 "Legacy tariff",
@@ -108,8 +108,8 @@ class ElasticsearchIndexAdminIT extends PostgresIntegrationTestSupport {
         indexDocument(
             searchSyncProperties.writeAlias(),
             new SearchableChunkDocument(
-                "next-doc",
-                "next-doc",
+                "material-v2:0",
+                "material-v2:0",
                 "material-v2",
                 "pricing-v2",
                 "Next tariff",

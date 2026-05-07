@@ -163,7 +163,9 @@ class ElasticsearchPhase5IT extends PostgresIntegrationTestSupport {
             Timestamp.from(Instant.parse("2026-04-17T09:30:00Z"))
         );
 
-        ProductionLexicalSearchRouter.LexicalRoutingDecision decision = productionLexicalSearchRouter.currentDecision();
+        ProductionLexicalSearchRouter.LexicalRoutingDecision decision = productionLexicalSearchRouter.currentDecision(
+            elasticsearchHealthService.refreshHealthSnapshot()
+        );
         MaterialRetrievalResult retrievalResult = materialRetrievalService.retrieveContext("backup dispatch channel");
 
         assertEquals("DEGRADED", decision.searchHealth().clusterStatus());
