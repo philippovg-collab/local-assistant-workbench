@@ -8,7 +8,7 @@ ARG MAVEN_INSECURE_SSL="true"
 ENV MAVEN_SSL_FLAGS=""
 
 RUN if [ "$MAVEN_INSECURE_SSL" = "true" ]; then \
-      printf '%s' "-Dmaven.wagon.http.ssl.insecure=true -Dmaven.wagon.http.ssl.allowall=true -Dmaven.wagon.http.ssl.ignore.validity.dates=true" > /tmp/maven-ssl-flags; \
+      printf '%s' "-Dmaven.resolver.transport=wagon -Dmaven.wagon.http.ssl.insecure=true -Dmaven.wagon.http.ssl.allowall=true -Dmaven.wagon.http.ssl.ignore.validity.dates=true" > /tmp/maven-ssl-flags; \
     else \
       printf '%s' "" > /tmp/maven-ssl-flags; \
     fi
