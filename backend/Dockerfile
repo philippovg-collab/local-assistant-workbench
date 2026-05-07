@@ -28,10 +28,10 @@ RUN apt-get update \
 
 WORKDIR /workspace/backend
 COPY backend/pom.xml ./
-RUN MAVEN_SSL_FLAGS="$(cat /tmp/maven-ssl-flags)" && mvn -B ${MAVEN_SSL_FLAGS} -DskipTests dependency:go-offline
+RUN sh -lc 'mvn -B $(cat /tmp/maven-ssl-flags) -DskipTests dependency:go-offline'
 
 COPY backend/src ./src
-RUN MAVEN_SSL_FLAGS="$(cat /tmp/maven-ssl-flags)" && mvn -B ${MAVEN_SSL_FLAGS} -DskipTests package
+RUN sh -lc 'mvn -B $(cat /tmp/maven-ssl-flags) -DskipTests package'
 
 FROM eclipse-temurin:21-jre-noble AS runtime
 
