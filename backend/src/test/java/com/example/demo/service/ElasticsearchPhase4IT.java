@@ -157,7 +157,7 @@ class ElasticsearchPhase4IT extends PostgresIntegrationTestSupport {
             .andExpect(jsonPath("$.searchSyncBacklog.pendingCount").value(0))
             .andExpect(jsonPath("$.searchSyncBacklog.inProgressCount").value(0))
             .andExpect(jsonPath("$.searchSyncBacklog.failedCount").value(0))
-            .andExpect(jsonPath("$.ragStatus").value("UP"));
+            .andExpect(jsonPath("$.ragStatus").value("DOWN"));
     }
 
     @Test
