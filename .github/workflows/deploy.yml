@@ -25,16 +25,23 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Build backend artifact in Maven container
+      - name: Ensure Maven is installed
         run: |
-          mkdir -p "$HOME/.m2"
-          docker run --rm \
-            -v "$PWD:/workspace" \
-            -v "$HOME/.m2:/root/.m2" \
-            -w /workspace/backend \
-            -e MAVEN_OPTS="$MAVEN_OPTS" \
-            maven:3.9.9-eclipse-temurin-21 \
-            mvn -B -DskipTests package
+          if command -v mvn >/dev/null 2>&1; then
+            mvn -version
+            exit 0
+          fi
+          if command -v sudo >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y maven
+          else
+            apt-get update
+            apt-get install -y maven
+          fi
+
+      - name: Build backend artifact on runner
+        run: mvn -B -DskipTests package
+        working-directory: backend
 
       - name: Build production env file
         env:
