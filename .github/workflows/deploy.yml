@@ -49,11 +49,38 @@ jobs:
 
       - name: Deploy with docker compose
         run: |
+          set -euo pipefail
+
+          dump_compose_state() {
+            docker compose --env-file .env.production -f docker-compose.prod.yml ps || true
+            docker compose --env-file .env.production -f docker-compose.prod.yml logs --tail=200 postgres backend frontend || true
+          }
+
+          trap dump_compose_state ERR
+
           docker compose --env-file .env.production -f docker-compose.prod.yml pull
           docker compose --env-file .env.production -f docker-compose.prod.yml up -d --remove-orphans
+          docker compose --env-file .env.production -f docker-compose.prod.yml ps
+
+          for attempt in $(seq 1 30); do
+            if docker compose --env-file .env.production -f docker-compose.prod.yml ps --services --status running | grep -qx postgres; then
+              break
+            fi
+            sleep 2
+          done
+
+          docker compose --env-file .env.production -f docker-compose.prod.yml ps --services --status running | grep -qx postgres
 
       - name: Run deployment preflight
-        run: ./scripts/linux/preflight-compose.sh
+        run: |
+          set -euo pipefail
+          dump_compose_state() {
+            docker compose --env-file .env.production -f docker-compose.prod.yml ps || true
+            docker compose --env-file .env.production -f docker-compose.prod.yml logs --tail=200 postgres backend frontend || true
+          }
+
+          trap dump_compose_state ERR
+          ./scripts/linux/preflight-compose.sh
 
       - name: Prune dangling images
         run: docker image prune -f
