@@ -57,6 +57,8 @@ APP_OCR_ENABLED="${APP_OCR_ENABLED:-false}"
 APP_OCR_LANGUAGES="${APP_OCR_LANGUAGES:-kaz+rus+eng}"
 APP_SECURITY_ADMIN_USERNAME="${APP_SECURITY_ADMIN_USERNAME:-admin}"
 APP_SECURITY_ADMIN_PASSWORD="${APP_SECURITY_ADMIN_PASSWORD:-}"
+PREFLIGHT_REQUIRE_LLM="${PREFLIGHT_REQUIRE_LLM:-true}"
+PREFLIGHT_REQUIRE_EMBEDDINGS="${PREFLIGHT_REQUIRE_EMBEDDINGS:-false}"
 BACKEND_INTERNAL_URL="http://127.0.0.1:8080"
 BACKEND_COOKIE_JAR="/tmp/ragstudio-preflight-cookies.txt"
 BACKEND_CSRF_HEADER=""
@@ -191,8 +193,24 @@ pass "Admin API login works"
 HEALTH_JSON="$(backend_get /api/health)" || fail "Authenticated backend health endpoint is not reachable"
 grep -q '"databaseStatus"[[:space:]]*:[[:space:]]*"UP"' <<<"${HEALTH_JSON}" || fail "Database status is not UP: ${HEALTH_JSON}"
 grep -q '"vectorStatus"[[:space:]]*:[[:space:]]*"UP"' <<<"${HEALTH_JSON}" || fail "Vector status is not UP: ${HEALTH_JSON}"
-grep -q '"llmStatus"[[:space:]]*:[[:space:]]*"UP"' <<<"${HEALTH_JSON}" || fail "LLM status is not UP: ${HEALTH_JSON}"
-grep -q '"embeddingStatus"[[:space:]]*:[[:space:]]*"UP"' <<<"${HEALTH_JSON}" || fail "Embedding status is not UP: ${HEALTH_JSON}"
+if [[ "${PREFLIGHT_REQUIRE_LLM}" == "true" ]]; then
+  grep -q '"llmStatus"[[:space:]]*:[[:space:]]*"UP"' <<<"${HEALTH_JSON}" || fail "LLM status is not UP: ${HEALTH_JSON}"
+else
+  if grep -q '"llmStatus"[[:space:]]*:[[:space:]]*"UP"' <<<"${HEALTH_JSON}"; then
+    pass "LLM health is UP"
+  else
+    printf 'WARN LLM readiness is degraded; continuing because PREFLIGHT_REQUIRE_LLM=false.\n'
+  fi
+fi
+if [[ "${PREFLIGHT_REQUIRE_EMBEDDINGS}" == "true" ]]; then
+  grep -q '"embeddingStatus"[[:space:]]*:[[:space:]]*"UP"' <<<"${HEALTH_JSON}" || fail "Embedding status is not UP: ${HEALTH_JSON}"
+else
+  if grep -q '"embeddingStatus"[[:space:]]*:[[:space:]]*"UP"' <<<"${HEALTH_JSON}"; then
+    pass "Embedding health is UP"
+  else
+    printf 'WARN Embedding readiness is degraded; continuing because PREFLIGHT_REQUIRE_EMBEDDINGS=false.\n'
+  fi
+fi
 if [[ "${APP_OCR_ENABLED}" == "true" ]]; then
   grep -q '"ocrStatus"[[:space:]]*:[[:space:]]*"UP"' <<<"${HEALTH_JSON}" || fail "OCR status is not UP: ${HEALTH_JSON}"
 else
