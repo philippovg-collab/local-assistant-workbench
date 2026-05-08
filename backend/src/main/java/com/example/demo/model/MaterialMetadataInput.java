@@ -59,9 +59,6 @@ public record MaterialMetadataInput(
         if (languageCode == null) {
             languageCode = parseLegacyLanguageCode(language);
         }
-        if (documentStatus == null) {
-            documentStatus = parseLegacyDocumentStatus(businessStatus);
-        }
         if (periodStart != null && periodEnd != null && periodStart.isAfter(periodEnd)) {
             throw new IllegalArgumentException("periodStart must not be after periodEnd");
         }
@@ -85,10 +82,10 @@ public record MaterialMetadataInput(
         LocalDate periodStart,
         LocalDate periodEnd
     ) {
-        this(
+            this(
             documentType,
             workspaceKey,
-            parseLegacyDocumentStatus(businessStatus),
+            null,
             null,
             documentNumber,
             parseLegacyLanguageCode(language),
@@ -172,18 +169,6 @@ public record MaterialMetadataInput(
             case "en", "eng", "english" -> MaterialLanguageCode.EN;
             default -> null;
         };
-    }
-
-    private static DocumentStatus parseLegacyDocumentStatus(String rawValue) {
-        String normalized = normalizeText(rawValue);
-        if (normalized == null) {
-            return null;
-        }
-        try {
-            return DocumentStatus.valueOf(normalized.toUpperCase(Locale.ROOT));
-        } catch (IllegalArgumentException ignored) {
-            return null;
-        }
     }
 
     private static boolean isEmpty(List<String> values) {

@@ -225,7 +225,7 @@ export const buildDirectReadinessPresentation = (
   }
 
   return {
-    helperText: `Direct-режим уйдёт в unified \`/api/chat\` через ${selectedModel} без retrieval-контекста и использует только instruction stack, временную инструкцию и пользовательский запрос.`,
+    helperText: `Direct-режим уйдёт в durable \`/api/chat-runs\` через ${selectedModel} без retrieval-контекста и использует только instruction stack, временную инструкцию и пользовательский запрос.`,
     isDirectSubmitBlocked: false,
   };
 };

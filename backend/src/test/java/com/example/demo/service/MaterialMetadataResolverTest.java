@@ -137,7 +137,7 @@ class MaterialMetadataResolverTest {
 
         assertEquals(DocumentType.POLICY, metadata.documentType());
         assertEquals(KnowledgeDocumentClass.REGULATIONS, metadata.knowledgeDocumentClass());
-        assertEquals("Dana Sarsen", metadata.author());
+        assertEquals("Manual owner", metadata.author());
         assertEquals(List.of("grid", "policy"), metadata.manualTags());
         assertEquals(List.of("energy"), metadata.autoTags());
         assertEquals(List.of("grid", "policy", "energy"), metadata.effectiveTags());
@@ -145,7 +145,7 @@ class MaterialMetadataResolverTest {
         assertEquals("Grid operations", metadata.department());
         assertEquals("v2", metadata.versionLabel());
         assertEquals(MetadataValueOrigin.MANUAL, metadata.provenance().fieldOrigins().get("documentType"));
-        assertEquals(MetadataValueOrigin.INFERRED, metadata.provenance().fieldOrigins().get("author"));
+        assertEquals(MetadataValueOrigin.MANUAL, metadata.provenance().fieldOrigins().get("author"));
         assertEquals(
             MetadataValueOrigin.INFERRED,
             metadata.provenance().fieldOrigins().get("knowledgeDocumentClass")
@@ -153,7 +153,7 @@ class MaterialMetadataResolverTest {
         assertEquals(MetadataValueOrigin.INFERRED, metadata.provenance().fieldOrigins().get("department"));
         assertEquals(MetadataValueOrigin.DEFAULT, metadata.provenance().fieldOrigins().get("sourceTrust"));
         assertFalse(metadata.provenance().fieldConfidence().containsKey("documentType"));
-        assertTrue(metadata.provenance().fieldConfidence().containsKey("author"));
+        assertFalse(metadata.provenance().fieldConfidence().containsKey("author"));
         assertTrue(metadata.provenance().fieldConfidence().containsKey("department"));
     }
 

@@ -19,7 +19,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.example.demo.api.ApiException;
 import com.example.demo.config.MaterialProperties;
 import com.example.demo.config.RolloutProperties;
+import com.example.demo.model.DocumentStatus;
 import com.example.demo.model.DocumentType;
+import com.example.demo.model.MaterialLanguageCode;
 import com.example.demo.model.MaterialLineageResponse;
 import com.example.demo.model.MaterialIndexingStatus;
 import com.example.demo.model.MaterialListResponse;
@@ -31,9 +33,11 @@ import com.example.demo.model.RechunkActiveMaterialsBatchResponse;
 import com.example.demo.model.RechunkActiveMaterialsResponse;
 import com.example.demo.model.MaterialUploadPolicyResponse;
 import com.example.demo.model.MaterialVersionState;
+import com.example.demo.model.SourceTrustLevel;
 import com.example.demo.support.InMemoryMaterialRepository;
 import com.example.demo.support.TestMaterialServices;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -374,6 +378,68 @@ class MaterialQueryServiceTest {
         assertEquals(List.of("relay", "upgrade"), updated.metadata().autoTags());
         assertEquals(List.of("manual-grid", "relay", "upgrade"), updated.metadata().effectiveTags());
         assertEquals(List.of("manual-grid", "relay", "upgrade"), updated.metadata().tags());
+    }
+
+    @Test
+    void reindexPreservesStoredCompatibilityMetadataAndDoesNotOverwriteWithResolverDefaults() {
+        MaterialProperties properties = new MaterialProperties();
+        InMemoryMaterialRepository repository = new InMemoryMaterialRepository();
+        MaterialIndexingService indexingService = org.mockito.Mockito.mock(MaterialIndexingService.class);
+        MaterialQueryService service = createService(repository, properties, indexingService);
+        MaterialMetadataSnapshot metadata = MaterialMetadataSnapshot.fromInput(new MaterialMetadataInput(
+            DocumentType.POLICY,
+            "general",
+            DocumentStatus.DRAFT,
+            null,
+            "POL-42",
+            MaterialLanguageCode.RU,
+            List.of("manual-grid"),
+            LocalDate.parse("2026-04-01"),
+            LocalDate.parse("2026-06-30"),
+            null,
+            LocalDate.parse("2026-04-17"),
+            "Stored owner",
+            "Grid operations",
+            "v1",
+            "ru",
+            List.of("manual-grid"),
+            SourceTrustLevel.HIGH,
+            "Line A Display",
+            "GridBuild LLP",
+            "APPROVED"
+        ));
+        StoredMaterialRecord failed = materialRecord(
+            "Resolver Report",
+            """
+                Автор: Resolver owner
+                Подразделение: Resolver department
+                Контрагент: Resolver LLP
+                Статус: RESOLVER
+                """,
+            "metadata-lineage",
+            MaterialVersionState.ACTIVE,
+            Instant.parse("2026-04-17T10:00:00Z"),
+            Instant.parse("2026-04-17T10:00:00Z"),
+            MaterialIndexingStatus.FAILED,
+            "embedding.provider_unavailable",
+            "Embedding недоступен"
+        ).withMetadata(metadata);
+        repository.save(failed, List.of());
+
+        service.reindex(failed.id());
+
+        MaterialMetadataSnapshot updated = repository.findById(failed.id()).orElseThrow().metadata();
+        assertEquals("Stored owner", updated.author());
+        assertEquals("Grid operations", updated.department());
+        assertEquals(SourceTrustLevel.HIGH, updated.sourceTrust());
+        assertEquals("Line A Display", updated.project());
+        assertEquals("GridBuild LLP", updated.counterparty());
+        assertEquals("APPROVED", updated.businessStatus());
+        assertEquals(LocalDate.parse("2026-04-17"), updated.documentDate());
+        assertEquals("v1", updated.versionLabel());
+        assertEquals(List.of("manual-grid"), updated.manualTags());
+        assertEquals(LocalDate.parse("2026-04-01"), updated.periodStart());
+        assertEquals(LocalDate.parse("2026-06-30"), updated.periodEnd());
     }
 
     @Test

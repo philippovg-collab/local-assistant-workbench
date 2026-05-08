@@ -113,6 +113,8 @@ export type HealthResponse = {
   indexingInProgressCount?: number;
   indexingFailedCount?: number;
   indexingNextRetryAt?: string | null;
+  indexingOldestPendingAt?: string | null;
+  indexingOldestInProgressAt?: string | null;
   qualityLayer?: {
     flags: QualityLayerFlags;
     metadataCoverage: {
@@ -204,6 +206,20 @@ export type MaterialMetadataInput = {
   periodStart?: string | null;
   periodEnd?: string | null;
   manualTags?: string[];
+};
+
+export type CompatibilityMetadataInput = {
+  knowledgeDocumentClass?: KnowledgeDocumentClass;
+  documentDate?: string | null;
+  author?: string | null;
+  department?: string | null;
+  versionLabel?: string | null;
+  language?: string | null;
+  tags?: string[];
+  sourceTrust?: SourceTrustLevel | null;
+  project?: string | null;
+  counterparty?: string | null;
+  businessStatus?: string | null;
 };
 
 export type RetrievalFilters = {

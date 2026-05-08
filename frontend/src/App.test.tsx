@@ -869,8 +869,8 @@ describe("App", () => {
     expect(screen.getByText("ПАНЕЛЬ УПРАВЛЕНИЯ")).toBeTruthy();
     expect(screen.getByText("Вход администратора")).toBeTruthy();
     expect(screen.getByAltText("Логотип KEGOC")).toBeTruthy();
-    expect(screen.getByLabelText("Логин")).toBeTruthy();
-    expect(screen.getByLabelText("Пароль")).toBeTruthy();
+    expect((screen.getByLabelText("Логин") as HTMLInputElement).value).toBe("admin");
+    expect((screen.getByLabelText("Пароль") as HTMLInputElement).value).toBe("");
     expect(screen.getByRole("button", { name: "Войти" })).toBeTruthy();
   });
 

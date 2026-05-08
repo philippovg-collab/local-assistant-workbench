@@ -2,6 +2,7 @@ package com.example.demo.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -11,14 +12,19 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.example.demo.api.ApiException;
 import com.example.demo.config.ChatExecutionProperties;
 import com.example.demo.service.audit.ChatRunQueueLease;
 import com.example.demo.service.audit.EnqueuedChatRun;
 import com.example.demo.service.audit.port.ChatRunQueueRepository;
 import com.example.demo.model.ChatExecutionRequest;
+import com.example.demo.model.ChatExecutionResponse;
 import com.example.demo.model.ChatMode;
+import com.example.demo.model.ChatRunStatusResponse;
 import com.example.demo.model.ChatRunSubmissionResponse;
 import com.example.demo.model.ChatRunTraceDetail;
+import com.example.demo.model.KnowledgeScopeResolved;
+import com.example.demo.model.RetrievalTrace;
 import com.example.demo.service.cancellation.ChatCancellationHandle;
 import com.example.demo.service.cancellation.ChatCancellationToken;
 import com.example.demo.service.cancellation.ChatRunCancelledException;
@@ -77,6 +83,83 @@ class ChatRunExecutionServiceTest {
 
         assertEquals(runId, response.id());
         verify(traceService, never()).failRun(any(), eq("QUEUE"), any());
+    }
+
+    @Test
+    void submitAndWaitReturnsPersistedResultOnCompletion() {
+        ManualExecutorService executor = new ManualExecutorService();
+        ChatRunQueueRepository queueRepository = mock(ChatRunQueueRepository.class);
+        ChatRunQueryService queryService = mock(ChatRunQueryService.class);
+        ChatRunExecutionService service = service(
+            executor,
+            queueRepository,
+            mock(ChatExecutionService.class),
+            mock(ChatRunTraceService.class),
+            queryService
+        );
+        ChatExecutionRequest request = request();
+        String runId = UUID.randomUUID().toString();
+        Instant createdAt = Instant.parse("2026-04-19T00:00:00Z");
+        ChatExecutionResponse expectedResponse = response(runId);
+        when(queueRepository.enqueue(eq(request), eq(ChatMode.DIRECT), any(Instant.class)))
+            .thenReturn(new EnqueuedChatRun(runId, createdAt));
+        when(queryService.getStatus(runId)).thenReturn(status(runId, "COMPLETED", null, null));
+        when(queryService.getResult(runId)).thenReturn(expectedResponse);
+
+        ChatExecutionResponse response = service.submitAndWait(request, Duration.ofMillis(10));
+
+        assertEquals(expectedResponse, response);
+        verify(queryService).getResult(runId);
+    }
+
+    @Test
+    void submitAndWaitMapsFailedRunToTypedError() {
+        ChatRunQueueRepository queueRepository = mock(ChatRunQueueRepository.class);
+        ChatRunQueryService queryService = mock(ChatRunQueryService.class);
+        ChatRunExecutionService service = service(
+            new ManualExecutorService(),
+            queueRepository,
+            mock(ChatExecutionService.class),
+            mock(ChatRunTraceService.class),
+            queryService
+        );
+        ChatExecutionRequest request = request();
+        String runId = UUID.randomUUID().toString();
+        when(queueRepository.enqueue(eq(request), eq(ChatMode.DIRECT), any(Instant.class)))
+            .thenReturn(new EnqueuedChatRun(runId, Instant.parse("2026-04-19T00:00:00Z")));
+        when(queryService.getStatus(runId)).thenReturn(status(runId, "FAILED", "llm.provider_unavailable", "Ollama is down"));
+
+        ApiException exception = assertThrows(ApiException.class, () -> service.submitAndWait(request, Duration.ofMillis(10)));
+
+        assertEquals("llm.provider_unavailable", exception.getCode());
+        assertEquals("Ollama is down", exception.getMessage());
+    }
+
+    @Test
+    void submitAndWaitTimesOutWithoutCancellingDurableRun() {
+        ManualExecutorService executor = new ManualExecutorService();
+        ChatRunQueueRepository queueRepository = mock(ChatRunQueueRepository.class);
+        ChatRunQueryService queryService = mock(ChatRunQueryService.class);
+        ChatRunExecutionService service = service(
+            executor,
+            queueRepository,
+            mock(ChatExecutionService.class),
+            mock(ChatRunTraceService.class),
+            queryService
+        );
+        ChatExecutionRequest request = request();
+        String runId = UUID.randomUUID().toString();
+        when(queueRepository.enqueue(eq(request), eq(ChatMode.DIRECT), any(Instant.class)))
+            .thenReturn(new EnqueuedChatRun(runId, Instant.parse("2026-04-19T00:00:00Z")));
+        when(queryService.getStatus(runId)).thenReturn(status(runId, "RECEIVED", null, null));
+
+        ApiException exception = assertThrows(ApiException.class, () -> service.submitAndWait(request, Duration.ofMillis(1)));
+
+        assertEquals("chat.run_still_processing", exception.getCode());
+        assertTrue(exception.getMessage().contains("/api/chat-runs/" + runId + "/status"));
+        assertEquals(1, executor.taskCount());
+        verify(queueRepository, never()).deleteQueueEntry(runId);
+        verify(queueRepository, never()).deleteQueueEntryIfOwned(any());
     }
 
     @Test
@@ -452,6 +535,48 @@ class ChatRunExecutionServiceTest {
             List.of(),
             null,
             List.of()
+        );
+    }
+
+    private ChatRunStatusResponse status(
+        String runId,
+        String status,
+        String failureCode,
+        String failureMessage
+    ) {
+        Instant createdAt = Instant.parse("2026-04-19T00:00:00Z");
+        return new ChatRunStatusResponse(
+            runId,
+            status,
+            createdAt,
+            "COMPLETED".equals(status) ? Instant.parse("2026-04-19T00:00:02Z") : null,
+            "FAILED".equals(status) ? Instant.parse("2026-04-19T00:00:02Z") : null,
+            null,
+            "FAILED".equals(status) ? "LLM" : null,
+            failureCode,
+            failureMessage
+        );
+    }
+
+    private ChatExecutionResponse response(String runId) {
+        return new ChatExecutionResponse(
+            ChatMode.DIRECT,
+            "qwen2.5:7b",
+            "Hello",
+            "Hi",
+            null,
+            "2026-04-19T00:00:02Z",
+            1,
+            1,
+            2,
+            null,
+            List.of(),
+            List.of(),
+            KnowledgeScopeResolved.empty(),
+            new RetrievalTrace(0, 0, 0, 0, 0, 0, 0, 0, 0),
+            null,
+            List.of(),
+            runId
         );
     }
 

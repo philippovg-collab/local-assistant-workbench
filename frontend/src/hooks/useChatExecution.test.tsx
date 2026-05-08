@@ -215,7 +215,7 @@ describe("useChatExecution", () => {
     await user.click(screen.getByRole("button", { name: "submit-direct" }));
 
     await waitFor(() => {
-      expect(apiClient.executeChat).toHaveBeenCalledWith(
+      expect(apiClient.submitChatRun).toHaveBeenCalledWith(
         expect.objectContaining({
           mode: "direct",
           model: "deepseek-r1:8b",
@@ -294,7 +294,7 @@ describe("useChatExecution", () => {
     await user.click(screen.getByText("submit-rag"));
 
     await waitFor(() => {
-      expect(apiClient.executeChat).toHaveBeenCalledWith(
+      expect(apiClient.submitChatRun).toHaveBeenCalledWith(
         {
           mode: "rag",
           model: "qwen2.5:7b",
@@ -434,7 +434,7 @@ describe("useChatExecution", () => {
     await user.click(screen.getByText("submit-rag"));
 
     await waitFor(() => {
-      expect(apiClient.executeChat).toHaveBeenCalledWith(
+      expect(apiClient.submitChatRun).toHaveBeenCalledWith(
         expect.objectContaining({
           retrievalFilters: expect.objectContaining({
             documentNumber: "KZ-2026-0415-ENERGY",
@@ -470,7 +470,7 @@ describe("useChatExecution", () => {
     await user.click(screen.getByText("submit-rag"));
 
     await waitFor(() => {
-      expect(apiClient.executeChat).toHaveBeenCalledWith(
+      expect(apiClient.submitChatRun).toHaveBeenCalledWith(
         expect.not.objectContaining({
           retrievalFilters: expect.anything(),
         }),
@@ -500,7 +500,7 @@ describe("useChatExecution", () => {
     await user.click(screen.getByText("submit-rag"));
 
     await waitFor(() => {
-      expect(apiClient.executeChat).toHaveBeenCalledWith(
+      expect(apiClient.submitChatRun).toHaveBeenCalledWith(
         expect.objectContaining({
           retrievalFilters: expect.objectContaining({
             projectKeys: ["Manual Project"],
@@ -509,7 +509,7 @@ describe("useChatExecution", () => {
         expect.any(AbortSignal),
       );
     });
-    expect(vi.mocked(apiClient.executeChat).mock.calls[0][0].retrievalFilters).not.toMatchObject({
+    expect(vi.mocked(apiClient.submitChatRun).mock.calls[0][0].retrievalFilters).not.toMatchObject({
       documentNumber: "KZ-2026-0415-ENERGY",
     });
   });
@@ -535,7 +535,7 @@ describe("useChatExecution", () => {
     await user.click(screen.getByText("submit-rag"));
 
     await waitFor(() => {
-      expect(apiClient.executeChat).toHaveBeenCalledWith(
+      expect(apiClient.submitChatRun).toHaveBeenCalledWith(
         expect.not.objectContaining({
           retrievalFilters: expect.anything(),
         }),
@@ -568,7 +568,7 @@ describe("useChatExecution", () => {
     await user.click(screen.getByText("submit-rag"));
 
     await waitFor(() => {
-      expect(apiClient.executeChat).toHaveBeenCalledWith(
+      expect(apiClient.submitChatRun).toHaveBeenCalledWith(
         expect.objectContaining({
           retrievalFilters: expect.objectContaining({
             project: null,
@@ -625,7 +625,7 @@ describe("useChatExecution", () => {
     await user.click(screen.getByText("submit-rag"));
 
     await waitFor(() => {
-      expect(apiClient.executeChat).toHaveBeenCalledWith(
+      expect(apiClient.submitChatRun).toHaveBeenCalledWith(
         expect.objectContaining({
           retrievalFilters: expect.objectContaining({
             documentDateFrom: "2026-04-01",
@@ -716,7 +716,7 @@ describe("useChatExecution", () => {
     await user.click(screen.getByText("submit-rag"));
 
     await waitFor(() => {
-      expect(apiClient.executeChat).toHaveBeenCalledWith(
+      expect(apiClient.submitChatRun).toHaveBeenCalledWith(
         expect.objectContaining({
           answerMode: "strict_sources_only",
         }),

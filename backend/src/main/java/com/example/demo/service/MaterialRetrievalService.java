@@ -1,8 +1,5 @@
 package com.example.demo.service;
 
-import com.example.demo.service.material.DocumentBlockType;
-import com.example.demo.service.material.LexicalProviderMode;
-import com.example.demo.service.material.LexicalProviderType;
 import com.example.demo.service.material.MaterialChunkSearchMatch;
 import com.example.demo.service.material.MaterialRetrievalScopeSnapshot;
 import com.example.demo.service.material.MaterialSearchScope;
@@ -16,12 +13,10 @@ import com.example.demo.api.ApiException;
 import com.example.demo.config.RolloutProperties;
 import com.example.demo.config.RagProperties;
 import com.example.demo.embedding.EmbeddingClient;
-import com.example.demo.model.ChatSource;
 import com.example.demo.model.KnowledgeScope;
 import com.example.demo.model.MaterialMetadataSnapshot;
 import com.example.demo.model.MaterialSearchDebug;
 import com.example.demo.model.MaterialSearchHit;
-import com.example.demo.model.MaterialSearchHitNeighbor;
 import com.example.demo.model.MaterialSearchRequest;
 import com.example.demo.model.MaterialSearchResponse;
 import com.example.demo.model.QualityLayerFlags;
@@ -29,7 +24,6 @@ import com.example.demo.model.RetrievalDebug;
 import com.example.demo.model.RetrievalFilters;
 import com.example.demo.model.RetrievalQueryHints;
 import com.example.demo.model.RetrievalTrace;
-import com.example.demo.model.SourceTrustLevel;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.util.ArrayList;
@@ -61,9 +55,13 @@ public class MaterialRetrievalService {
     private final RetrievalQueryHintExtractor retrievalQueryHintExtractor;
     private final LexicalShadowComparisonService lexicalShadowComparisonService;
     private final AnswerModePostProcessor answerModePostProcessor;
-    private final Map<RelevanceProfile, RelevancePolicy> relevancePolicies;
     private final RolloutProperties rolloutProperties;
     private final QualityLayerHealthService qualityLayerHealthService;
+    private final RetrievalResultMapper resultMapper;
+    private final RetrievalFallbackPolicy fallbackPolicy;
+    private final RetrievalWindowRecorder windowRecorder;
+    private final RetrievalSearchResponseBuilder searchResponseBuilder;
+    private final RetrievalRelevancePolicyResolver relevancePolicyResolver;
 
     @Autowired
     public MaterialRetrievalService(
@@ -98,11 +96,11 @@ public class MaterialRetrievalService {
         this.qualityLayerHealthService = qualityLayerHealthService == null
             ? QualityLayerHealthService.noop(this.rolloutProperties)
             : qualityLayerHealthService;
-        this.relevancePolicies = Map.of(
-            RelevanceProfile.LEGACY, new LegacyRelevancePolicy(),
-            RelevanceProfile.HYBRID_V1, new HybridV1RelevancePolicy(),
-            RelevanceProfile.HYBRID_RERANK_V1, new HybridRerankV1RelevancePolicy()
-        );
+        this.resultMapper = new RetrievalResultMapper(chunkingRepository, contentSupport, answerModePostProcessor);
+        this.fallbackPolicy = new RetrievalFallbackPolicy(productionLexicalSearchRouter);
+        this.windowRecorder = new RetrievalWindowRecorder(this.qualityLayerHealthService);
+        this.searchResponseBuilder = new RetrievalSearchResponseBuilder(this.resultMapper);
+        this.relevancePolicyResolver = new RetrievalRelevancePolicyResolver(ragProperties, this.rolloutProperties);
     }
 
     public MaterialRetrievalService(
@@ -183,8 +181,12 @@ public class MaterialRetrievalService {
             );
         }
 
-        int limit = normalizeSearchLimit(request.limit());
-        SearchExecution execution = executeSearch(
+        int limit = fallbackPolicy.normalizeSearchLimit(
+            request.limit(),
+            ragProperties.getFinalContextLimit(),
+            ragProperties.getMaxSearchLimit()
+        );
+        RetrievalSearchExecution execution = executeSearch(
             request.query(),
             KnowledgeScope.empty(),
             request.filters(),
@@ -192,44 +194,10 @@ public class MaterialRetrievalService {
             limit,
             false
         );
-        List<MaterialSearchHit> hits = buildSearchHits(
-            execution,
-            request.includeNeighborsOrDefault()
-        );
-        MaterialSearchDebug debug = request.debugOrDefault()
-            ? new MaterialSearchDebug(
-                execution.effectiveFilters(),
-                execution.manualFilters(),
-                execution.effectiveFilters(),
-                execution.queryHints(),
-                execution.semanticMatches().size(),
-                execution.lexicalSearchResult().matches().size(),
-                execution.rerankCandidateCount(),
-                execution.rankedMatches().size(),
-                execution.lexicalSearchResult().configuredMode().propertyValue(),
-                execution.lexicalSearchResult().effectiveProvider().propertyValue(),
-                execution.lexicalSearchResult().fallbackApplied(),
-                execution.lexicalSearchResult().fallbackReasonCode(),
-                execution.retrievalTrace().supportVerdict(),
-                execution.relevanceProfile() == RelevanceProfile.HYBRID_RERANK_V1,
-                execution.relevanceProfile() == RelevanceProfile.HYBRID_RERANK_V1
-                    ? RelevanceProfile.HYBRID_RERANK_V1.propertyValue()
-                    : null,
-                execution.relevanceProfile().propertyValue(),
-                execution.activeRolloutFlags(),
-                withCapability(execution.appliedCapabilities(), "search-api-v1"),
-                execution.suppressedCapabilities()
-            )
-            : null;
-
-        return new MaterialSearchResponse(
-            request.query().trim(),
-            hits,
-            debug
-        );
+        return searchResponseBuilder.build(request, execution);
     }
 
-    private SearchExecution executeSearch(
+    private RetrievalSearchExecution executeSearch(
         String prompt,
         KnowledgeScope knowledgeScope,
         RetrievalFilters retrievalFilters,
@@ -274,7 +242,8 @@ public class MaterialRetrievalService {
             suppressedCapabilities.add("query-hints-v1");
         }
         KnowledgeScope effectiveScope = knowledgeScope == null ? KnowledgeScope.empty() : knowledgeScope;
-        RelevanceProfile relevanceProfile = configuredRelevancePolicy().profile();
+        RelevancePolicy relevancePolicy = relevancePolicyResolver.configuredRelevancePolicy();
+        RelevanceProfile relevanceProfile = relevancePolicy.profile();
         ZoneId currentZone = ZoneId.systemDefault();
         Instant uploadedAfterInclusive = null;
         Instant uploadedBeforeExclusive = null;
@@ -319,7 +288,7 @@ public class MaterialRetrievalService {
             if (recordWindow) {
                 qualityLayerHealthService.recordRetrieval(List.of(), true, false, false, false, false);
             }
-            return new SearchExecution(
+            return new RetrievalSearchExecution(
                 queryTokens,
                 safeFilters,
                 effectiveFilters,
@@ -331,7 +300,7 @@ public class MaterialRetrievalService {
                 scopedActiveMaterialCount,
                 scopedReadyMaterialCount,
                 List.of(),
-                emptyLexicalResult(),
+                fallbackPolicy.emptyLexicalResult(),
                 List.of(),
                 0,
                 List.of(),
@@ -379,7 +348,7 @@ public class MaterialRetrievalService {
         int rerankPoolLimit = relevanceProfile == RelevanceProfile.HYBRID_RERANK_V1
             ? Math.max(finalLimit, ragProperties.getRerankCandidateLimit())
             : finalLimit;
-        List<HybridChunkRanker.RankedChunk> rankedMatches = configuredRelevancePolicy().filterRankedMatches(
+        List<HybridChunkRanker.RankedChunk> rankedMatches = relevancePolicy.filterRankedMatches(
             semanticMatches,
             lexicalMatches,
             hybridChunkRanker.fuse(semanticMatches, lexicalMatches, rerankPoolLimit),
@@ -427,11 +396,11 @@ public class MaterialRetrievalService {
         List<RetrievedMaterialChunk> matches = rankedMatches.stream()
             .map(chunk -> new RetrievedMaterialChunk(
                 chunk.match().chunkText(),
-                buildChatSource(chunk, queryTokens, candidateRecordsById.get(chunk.match().materialId()))
+                resultMapper.buildChatSource(chunk, queryTokens, candidateRecordsById.get(chunk.match().materialId()))
             ))
             .toList();
 
-        String supportVerdict = supportVerdictOf(semanticMatches, lexicalMatches, rankedMatches);
+        String supportVerdict = RetrievalTraceBuilder.supportVerdictOf(semanticMatches, lexicalMatches, rankedMatches);
         RetrievalTrace trace = new RetrievalTrace(
             materialCount,
             activeMaterialCount,
@@ -445,9 +414,9 @@ public class MaterialRetrievalService {
             supportVerdict
         );
         if (recordWindow) {
-            recordRetrievalWindow(matches, candidateRecordsById, preRerankMatches, rankedMatches);
+            windowRecorder.record(matches, candidateRecordsById, preRerankMatches, rankedMatches);
         }
-        return new SearchExecution(
+        return new RetrievalSearchExecution(
             queryTokens,
             safeFilters,
             effectiveFilters,
@@ -486,176 +455,6 @@ public class MaterialRetrievalService {
         );
     }
 
-    private List<MaterialSearchHit> buildSearchHits(SearchExecution execution, boolean includeNeighbors) {
-        Map<String, List<StoredMaterialChunk>> chunksByMaterialId = includeNeighbors ? new LinkedHashMap<>() : Map.of();
-        List<MaterialSearchHit> hits = new ArrayList<>();
-        for (HybridChunkRanker.RankedChunk rankedChunk : execution.rankedMatches()) {
-            MaterialChunkSearchMatch match = rankedChunk.match();
-            StoredMaterialRecord record = execution.recordsById().get(match.materialId());
-            MaterialMetadataSnapshot metadata = record == null ? MaterialMetadataSnapshot.empty() : record.metadata();
-            List<MaterialSearchHitNeighbor> neighbors = includeNeighbors
-                ? neighborsFor(match.materialId(), match.chunkIndex(), chunksByMaterialId)
-                : null;
-            hits.add(new MaterialSearchHit(
-                match.materialId(),
-                match.materialId() + ":" + match.chunkIndex(),
-                match.title(),
-                match.chunkText(),
-                match.chunkIndex(),
-                match.page(),
-                match.chunkType(),
-                rankedChunk.score(),
-                match.semanticDistance(),
-                match.lexicalScore(),
-                matchedTerms(execution.queryTokens(), match),
-                answerModePostProcessor.buildOpenSourceUrl(
-                    match.materialId(),
-                    match.materialId() + ":" + match.chunkIndex(),
-                    match.chunkIndex(),
-                    match.page()
-                ),
-                metadata,
-                neighbors,
-                execution.relevanceProfile() == RelevanceProfile.HYBRID_RERANK_V1 ? rankedChunk.scoreBreakdown() : null
-            ));
-        }
-        return List.copyOf(hits);
-    }
-
-    private List<MaterialSearchHitNeighbor> neighborsFor(
-        String materialId,
-        int chunkIndex,
-        Map<String, List<StoredMaterialChunk>> chunksByMaterialId
-    ) {
-        List<StoredMaterialChunk> chunks = chunksByMaterialId.computeIfAbsent(
-            materialId,
-            chunkingRepository::findChunks
-        );
-        if (chunks.isEmpty()) {
-            return List.of();
-        }
-
-        List<MaterialSearchHitNeighbor> neighbors = new ArrayList<>();
-        chunks.stream()
-            .filter(chunk -> chunk.index() == chunkIndex - 1)
-            .findFirst()
-            .ifPresent(chunk -> neighbors.add(toNeighbor(materialId, chunk)));
-        chunks.stream()
-            .filter(chunk -> chunk.index() == chunkIndex + 1)
-            .findFirst()
-            .ifPresent(chunk -> neighbors.add(toNeighbor(materialId, chunk)));
-        return neighbors.isEmpty() ? List.of() : List.copyOf(neighbors);
-    }
-
-    private MaterialSearchHitNeighbor toNeighbor(String materialId, StoredMaterialChunk chunk) {
-        return new MaterialSearchHitNeighbor(
-            materialId + ":" + chunk.index(),
-            chunk.index(),
-            chunk.text(),
-            chunk.page(),
-            chunk.chunkType()
-        );
-    }
-
-    private ChatSource buildChatSource(
-        HybridChunkRanker.RankedChunk rankedChunk,
-        Set<String> queryTokens,
-        StoredMaterialRecord record
-    ) {
-        MaterialChunkSearchMatch match = rankedChunk.match();
-        MaterialMetadataSnapshot metadata = record == null ? MaterialMetadataSnapshot.empty() : record.metadata();
-        return new ChatSource(
-            match.materialId(),
-            match.materialId() + ":" + match.chunkIndex(),
-            match.title(),
-            contentSupport.clip(match.chunkText(), 280),
-            rankedChunk.score(),
-            confidenceOf(match, rankedChunk.score()),
-            matchedTerms(queryTokens, match),
-            answerModePostProcessor.buildOpenSourceUrl(
-                match.materialId(),
-                match.materialId() + ":" + match.chunkIndex(),
-                match.chunkIndex(),
-                match.page()
-            ),
-            match.chunkIndex(),
-            match.page(),
-            match.extractor(),
-            match.ocrUsed(),
-            match.chunkType(),
-            metadata,
-            match.semanticDistance(),
-            match.lexicalScore(),
-            rankedChunk.scoreBreakdown()
-        );
-    }
-
-    private ProductionLexicalSearchRouter.LexicalSearchResult emptyLexicalResult() {
-        ProductionLexicalSearchRouter.LexicalRoutingDecision decision = productionLexicalSearchRouter.currentDecision();
-        if (decision == null) {
-            return new ProductionLexicalSearchRouter.LexicalSearchResult(
-                LexicalProviderMode.POSTGRES,
-                LexicalProviderType.POSTGRES,
-                false,
-                "search.sync_disabled",
-                "Elasticsearch search sync is disabled by configuration.",
-                null,
-                List.of()
-            );
-        }
-        return new ProductionLexicalSearchRouter.LexicalSearchResult(
-            decision.configuredMode(),
-            decision.effectiveProvider(),
-            decision.fallbackApplied(),
-            decision.fallbackReasonCode(),
-            decision.fallbackReasonMessage(),
-            decision.searchHealth(),
-            List.of()
-        );
-    }
-
-    private int normalizeSearchLimit(Integer limit) {
-        if (limit == null) {
-            return ragProperties.getFinalContextLimit();
-        }
-        if (limit <= 0) {
-            throw new ApiException(
-                HttpStatus.BAD_REQUEST,
-                "search.invalid_limit",
-                "Field 'limit' must be greater than zero"
-            );
-        }
-        int maxSearchLimit = Math.max(1, ragProperties.getMaxSearchLimit());
-        if (limit > maxSearchLimit) {
-            throw new ApiException(
-                HttpStatus.BAD_REQUEST,
-                "search.limit_too_large",
-                "Field 'limit' must not exceed " + maxSearchLimit
-            );
-        }
-        return limit;
-    }
-
-    private RelevancePolicy configuredRelevancePolicy() {
-        RelevanceProfile profile = configuredRelevanceProfile();
-        RelevancePolicy policy = relevancePolicies.get(profile);
-        if (policy == null) {
-            throw new IllegalArgumentException(
-                "No relevance policy registered for profile '" + profile.propertyValue() + "'."
-            );
-        }
-        return policy;
-    }
-
-    private RelevanceProfile configuredRelevanceProfile() {
-        RelevanceProfile configuredProfile = RelevanceProfile.fromProperty(ragProperties.getRelevanceProfile());
-        if (!rolloutProperties.isRerankerV1() && configuredProfile == RelevanceProfile.HYBRID_RERANK_V1) {
-            logSuppressedCapability("reranker-v1", "relevance profile forced to hybrid-v1");
-            return RelevanceProfile.HYBRID_V1;
-        }
-        return configuredProfile;
-    }
-
     private Map<String, List<StoredMaterialChunk>> loadChunksByMaterialId(List<HybridChunkRanker.RankedChunk> rankedMatches) {
         Map<String, List<StoredMaterialChunk>> chunksByMaterialId = new LinkedHashMap<>();
         for (HybridChunkRanker.RankedChunk rankedChunk : rankedMatches) {
@@ -691,176 +490,8 @@ public class MaterialRetrievalService {
             ));
     }
 
-    private double confidenceOf(MaterialChunkSearchMatch match, int score) {
-        double scoreConfidence = Math.max(0.0d, Math.min(1.0d, score / 100.0d));
-        if (match.semanticDistance() == null) {
-            return scoreConfidence;
-        }
-        double semanticConfidence = Math.max(0.0d, Math.min(1.0d, 1.0d - match.semanticDistance()));
-        return Math.max(scoreConfidence, semanticConfidence);
-    }
-
-    private String supportVerdictOf(
-        List<MaterialChunkSearchMatch> semanticMatches,
-        List<MaterialChunkSearchMatch> lexicalMatches,
-        List<HybridChunkRanker.RankedChunk> rankedMatches
-    ) {
-        if (rankedMatches == null || rankedMatches.isEmpty()) {
-            return "none";
-        }
-
-        Set<String> semanticKeys = semanticMatches.stream().map(this::chunkKeyOf).collect(Collectors.toSet());
-        Set<String> lexicalKeys = lexicalMatches.stream().map(this::chunkKeyOf).collect(Collectors.toSet());
-        HybridChunkRanker.RankedChunk topMatch = rankedMatches.getFirst();
-        String topKey = chunkKeyOf(topMatch.match());
-        boolean corroboratedByBothSearches = semanticKeys.contains(topKey) && lexicalKeys.contains(topKey);
-
-        if (corroboratedByBothSearches || topMatch.score() >= 70 || (rankedMatches.size() >= 2 && topMatch.score() >= 45)) {
-            return "sufficient";
-        }
-        return "weak";
-    }
-
-    private String chunkKeyOf(MaterialChunkSearchMatch match) {
-        return match.materialId() + ":" + match.chunkIndex();
-    }
-
-    private void recordRetrievalWindow(
-        List<RetrievedMaterialChunk> matches,
-        Map<String, StoredMaterialRecord> scopedReadyRecordsById,
-        List<HybridChunkRanker.RankedChunk> preRerankMatches,
-        List<HybridChunkRanker.RankedChunk> finalRankedMatches
-    ) {
-        HybridChunkRanker.RankedChunk preTop = preRerankMatches == null || preRerankMatches.isEmpty() ? null : preRerankMatches.getFirst();
-        HybridChunkRanker.RankedChunk finalTop = finalRankedMatches == null || finalRankedMatches.isEmpty() ? null : finalRankedMatches.getFirst();
-        boolean top1Changed = preTop != null && finalTop != null && !chunkKeyOf(preTop.match()).equals(chunkKeyOf(finalTop.match()));
-        boolean top1Improved = top1Changed
-            && finalTop.scoreBreakdown() != null
-            && finalTop.scoreBreakdown().finalScore() > preTop.score();
-        boolean appendixDemotion = top1Changed
-            && preTop != null
-            && (preTop.match().chunkType() == DocumentBlockType.APPENDIX
-                || preTop.match().chunkType() == DocumentBlockType.CAPTION);
-        boolean highTrustPromotion = top1Changed
-            && trustLevelOf(scopedReadyRecordsById.get(finalTop == null ? null : finalTop.match().materialId())) == SourceTrustLevel.HIGH
-            && trustLevelOf(scopedReadyRecordsById.get(preTop == null ? null : preTop.match().materialId())) != SourceTrustLevel.HIGH;
-        List<DocumentBlockType> finalChunkTypes = matches == null
-            ? List.of()
-            : matches.stream()
-                .map(RetrievedMaterialChunk::source)
-                .map(ChatSource::chunkType)
-                .toList();
-        qualityLayerHealthService.recordRetrieval(
-            finalChunkTypes,
-            matches == null || matches.isEmpty(),
-            top1Changed,
-            top1Improved,
-            appendixDemotion,
-            highTrustPromotion
-        );
-    }
-
-    private SourceTrustLevel trustLevelOf(StoredMaterialRecord record) {
-        if (record == null || record.metadata() == null || record.metadata().sourceTrust() == null) {
-            return SourceTrustLevel.UNKNOWN;
-        }
-        return record.metadata().sourceTrust();
-    }
-
-    private List<String> matchedTerms(Set<String> queryTokens, MaterialChunkSearchMatch match) {
-        if (queryTokens == null || queryTokens.isEmpty()) {
-            return List.of();
-        }
-
-        Set<String> contextTokens = contentSupport.tokenize(match.title() + "\n" + match.chunkText());
-        return queryTokens.stream()
-            .filter(contextTokens::contains)
-            .limit(8)
-            .toList();
-    }
-
-    private List<String> withCapability(List<String> appliedCapabilities, String capability) {
-        List<String> safeCapabilities = appliedCapabilities == null ? List.of() : appliedCapabilities;
-        if (safeCapabilities.contains(capability)) {
-            return safeCapabilities;
-        }
-        List<String> extended = new ArrayList<>(safeCapabilities);
-        extended.add(capability);
-        return List.copyOf(extended);
-    }
-
     private void logSuppressedCapability(String capability, String reason) {
         logger.info("Quality-layer capability suppressed: capability={} reason={}", capability, reason);
-    }
-
-    private record SearchExecution(
-        Set<String> queryTokens,
-        RetrievalFilters manualFilters,
-        RetrievalFilters effectiveFilters,
-        RetrievalQueryHints queryHints,
-        int materialCount,
-        int activeMaterialCount,
-        int readyMaterialCount,
-        int scopedMaterialCount,
-        int scopedActiveMaterialCount,
-        int scopedReadyMaterialCount,
-        List<MaterialChunkSearchMatch> semanticMatches,
-        ProductionLexicalSearchRouter.LexicalSearchResult lexicalSearchResult,
-        List<HybridChunkRanker.RankedChunk> rankedMatches,
-        int rerankCandidateCount,
-        List<RetrievedMaterialChunk> matches,
-        Map<String, StoredMaterialRecord> recordsById,
-        RetrievalTrace retrievalTrace,
-        RetrievalDebug retrievalDebug,
-        RelevanceProfile relevanceProfile,
-        QualityLayerFlags activeRolloutFlags,
-        List<String> appliedCapabilities,
-        List<String> suppressedCapabilities
-    ) {
-        private SearchExecution {
-            queryTokens = queryTokens == null ? Set.of() : Set.copyOf(queryTokens);
-            manualFilters = manualFilters == null ? RetrievalFilters.empty() : manualFilters;
-            effectiveFilters = effectiveFilters == null ? RetrievalFilters.empty() : effectiveFilters;
-            queryHints = queryHints == null ? RetrievalQueryHints.empty() : queryHints;
-            semanticMatches = semanticMatches == null ? List.of() : List.copyOf(semanticMatches);
-            rankedMatches = rankedMatches == null ? List.of() : List.copyOf(rankedMatches);
-            matches = matches == null ? List.of() : List.copyOf(matches);
-            recordsById = recordsById == null ? Map.of() : Map.copyOf(recordsById);
-            activeRolloutFlags = activeRolloutFlags == null ? QualityLayerFlags.none() : activeRolloutFlags;
-            appliedCapabilities = appliedCapabilities == null ? List.of() : List.copyOf(appliedCapabilities);
-            suppressedCapabilities = suppressedCapabilities == null ? List.of() : List.copyOf(suppressedCapabilities);
-            retrievalDebug = retrievalDebug == null
-                ? new RetrievalDebug(
-                    queryHints,
-                    manualFilters,
-                    effectiveFilters,
-                    semanticMatches.size(),
-                    lexicalSearchResult == null ? 0 : lexicalSearchResult.matches().size(),
-                    rerankCandidateCount,
-                    matches.size(),
-                    retrievalTrace == null ? "none" : retrievalTrace.supportVerdict(),
-                    relevanceProfile == null ? RelevanceProfile.LEGACY.propertyValue() : relevanceProfile.propertyValue(),
-                    activeRolloutFlags,
-                    appliedCapabilities,
-                    suppressedCapabilities
-                )
-                : retrievalDebug;
-            relevanceProfile = relevanceProfile == null ? RelevanceProfile.LEGACY : relevanceProfile;
-        }
-
-        private MaterialRetrievalResult toMaterialRetrievalResult() {
-            return new MaterialRetrievalResult(
-                materialCount,
-                activeMaterialCount,
-                readyMaterialCount,
-                scopedMaterialCount,
-                scopedActiveMaterialCount,
-                scopedReadyMaterialCount,
-                matches,
-                retrievalTrace,
-                retrievalDebug
-            );
-        }
     }
 
 }

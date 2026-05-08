@@ -21,6 +21,12 @@ public class AsyncInfrastructureConfig {
         return boundedExecutor("material-indexing", 2, 64);
     }
 
+    @Bean(name = "materialAutoTaggingExecutor", destroyMethod = "shutdown")
+    @ConditionalOnMissingBean(name = "materialAutoTaggingExecutor")
+    Executor materialAutoTaggingExecutor() {
+        return boundedExecutor("material-auto-tags", 2, 64);
+    }
+
     @Bean(name = "searchSyncExecutor", destroyMethod = "shutdown")
     @ConditionalOnMissingBean(name = "searchSyncExecutor")
     Executor searchSyncExecutor() {

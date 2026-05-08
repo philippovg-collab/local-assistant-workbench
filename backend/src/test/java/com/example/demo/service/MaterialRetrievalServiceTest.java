@@ -436,7 +436,7 @@ class MaterialRetrievalServiceTest {
         assertEquals(DocumentBlockType.TABLE, source.chunkType());
         assertEquals("KZ-2026-0415-ENERGY", source.metadata().documentNumber());
         assertEquals("North Upgrade", source.metadata().project());
-        assertEquals(SourceTrustLevel.UNKNOWN, source.metadata().sourceTrust());
+        assertEquals(SourceTrustLevel.HIGH, source.metadata().sourceTrust());
     }
 
     @Test

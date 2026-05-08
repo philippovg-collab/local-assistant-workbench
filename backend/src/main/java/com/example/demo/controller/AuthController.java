@@ -40,7 +40,12 @@ public class AuthController {
     }
 
     @GetMapping("/session")
-    public AuthSessionResponse session(Authentication authentication, CsrfToken csrfToken) {
+    public AuthSessionResponse session(
+        Authentication authentication,
+        CsrfToken csrfToken,
+        HttpServletResponse servletResponse
+    ) {
+        preventAuthResponseCaching(servletResponse);
         return toSessionResponse(authentication, csrfToken);
     }
 
@@ -51,6 +56,7 @@ public class AuthController {
         HttpServletResponse servletResponse,
         CsrfToken csrfToken
     ) {
+        preventAuthResponseCaching(servletResponse);
         if (request == null
             || !StringUtils.hasText(request.username())
             || !StringUtils.hasText(request.password())) {
@@ -92,8 +98,15 @@ public class AuthController {
         HttpServletResponse servletResponse,
         CsrfToken csrfToken
     ) {
+        preventAuthResponseCaching(servletResponse);
         new SecurityContextLogoutHandler().logout(servletRequest, servletResponse, authentication);
         return new AuthSessionResponse(false, null, List.of(), csrfToken.getHeaderName(), csrfToken.getToken());
+    }
+
+    private void preventAuthResponseCaching(HttpServletResponse response) {
+        response.setHeader("Cache-Control", "no-store");
+        response.setHeader("Pragma", "no-cache");
+        response.setDateHeader("Expires", 0);
     }
 
     private AuthSessionResponse toSessionResponse(Authentication authentication, CsrfToken csrfToken) {

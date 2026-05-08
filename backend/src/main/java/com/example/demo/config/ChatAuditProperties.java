@@ -10,6 +10,10 @@ public class ChatAuditProperties {
     private boolean failClosed = false;
     private int healthFailureThreshold = 1;
     private int retentionDays = 30;
+    private boolean redactionEnabled = true;
+    private boolean storeRawLlmResponse = false;
+    private boolean storeRequestMessages = true;
+    private int maxStoredTextChars = 12000;
 
     public boolean isFailClosed() {
         return failClosed;
@@ -33,5 +37,37 @@ public class ChatAuditProperties {
 
     public void setRetentionDays(int retentionDays) {
         this.retentionDays = retentionDays;
+    }
+
+    public boolean isRedactionEnabled() {
+        return redactionEnabled;
+    }
+
+    public void setRedactionEnabled(boolean redactionEnabled) {
+        this.redactionEnabled = redactionEnabled;
+    }
+
+    public boolean isStoreRawLlmResponse() {
+        return storeRawLlmResponse;
+    }
+
+    public void setStoreRawLlmResponse(boolean storeRawLlmResponse) {
+        this.storeRawLlmResponse = storeRawLlmResponse;
+    }
+
+    public boolean isStoreRequestMessages() {
+        return storeRequestMessages;
+    }
+
+    public void setStoreRequestMessages(boolean storeRequestMessages) {
+        this.storeRequestMessages = storeRequestMessages;
+    }
+
+    public int getMaxStoredTextChars() {
+        return maxStoredTextChars;
+    }
+
+    public void setMaxStoredTextChars(int maxStoredTextChars) {
+        this.maxStoredTextChars = maxStoredTextChars;
     }
 }

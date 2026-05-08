@@ -1,0 +1,133 @@
+{
+  "version": 1,
+  "budgets": {
+    "frontend-component": 300,
+    "backend-service": 500,
+    "any-file": 700
+  },
+  "files": {
+    "backend/src/main/java/com/example/demo/infrastructure/audit/PostgresChatRunTraceRepository.java": {
+      "lineCount": 1369,
+      "budgets": [
+        "any-file"
+      ],
+      "reason": "Existing audit repository god-file before Phase 6; not in this phase's split scope."
+    },
+    "backend/src/main/java/com/example/demo/service/ChatExecutionService.java": {
+      "lineCount": 902,
+      "budgets": [
+        "backend-service",
+        "any-file"
+      ],
+      "reason": "Existing chat execution god-service before Phase 6; chat lifecycle is out of scope for this phase."
+    },
+    "backend/src/main/java/com/example/demo/service/ChatRunTraceService.java": {
+      "lineCount": 517,
+      "budgets": [
+        "backend-service"
+      ],
+      "reason": "Existing trace service above service budget before Phase 6; trace lifecycle is out of split scope."
+    },
+    "backend/src/main/java/com/example/demo/service/InstructionService.java": {
+      "lineCount": 530,
+      "budgets": [
+        "backend-service"
+      ],
+      "reason": "Existing instruction service above budget before Phase 6; split only if still needed after higher-risk files."
+    },
+    "backend/src/main/java/com/example/demo/service/KnowledgePresetService.java": {
+      "lineCount": 694,
+      "budgets": [
+        "backend-service"
+      ],
+      "reason": "Existing knowledge preset service above budget before Phase 6; split only if still needed after frontend work."
+    },
+    "backend/src/main/java/com/example/demo/service/MaterialContentSupport.java": {
+      "lineCount": 721,
+      "budgets": [
+        "backend-service",
+        "any-file"
+      ],
+      "reason": "Existing material content support god-file before Phase 6; planned for careful structured content split."
+    },
+    "backend/src/main/java/com/example/demo/service/MaterialIngestionService.java": {
+      "lineCount": 985,
+      "budgets": [
+        "backend-service",
+        "any-file"
+      ],
+      "reason": "Existing ingestion god-service before Phase 6; ingestion behavior is out of scope for this phase."
+    },
+    "backend/src/main/java/com/example/demo/service/MaterialQueryService.java": {
+      "lineCount": 657,
+      "budgets": [
+        "backend-service"
+      ],
+      "reason": "Existing material query service above budget before Phase 6; not in this phase's target split list."
+    },
+    "backend/src/main/java/com/example/demo/service/StructuredChunkingStrategy.java": {
+      "lineCount": 717,
+      "budgets": [
+        "backend-service",
+        "any-file"
+      ],
+      "reason": "Existing structured chunking god-file before Phase 6; planned for chunking policy decomposition."
+    },
+    "frontend/src/components/ChatAuditPanel.tsx": {
+      "lineCount": 565,
+      "budgets": [
+        "frontend-component"
+      ],
+      "reason": "Existing audit panel above component budget before Phase 6; split only if needed for shared pattern."
+    },
+    "frontend/src/components/ChatForm.tsx": {
+      "lineCount": 335,
+      "budgets": [
+        "frontend-component"
+      ],
+      "reason": "Existing shared chat form above component budget before Phase 6; not in primary split scope."
+    },
+    "frontend/src/components/MaterialMetadataFormSection.tsx": {
+      "lineCount": 392,
+      "budgets": [
+        "frontend-component"
+      ],
+      "reason": "Existing material metadata form component above budget before Phase 6; outside target split list."
+    },
+    "frontend/src/components/StatusSummary.tsx": {
+      "lineCount": 333,
+      "budgets": [
+        "frontend-component"
+      ],
+      "reason": "Existing status summary component above budget before Phase 6; outside target split list."
+    },
+    "frontend/src/components/materials/MaterialCatalogList.tsx": {
+      "lineCount": 310,
+      "budgets": [
+        "frontend-component"
+      ],
+      "reason": "Existing material catalog component above budget before Phase 6; outside target split list."
+    },
+    "frontend/src/components/materials/MaterialUploadForm.tsx": {
+      "lineCount": 344,
+      "budgets": [
+        "frontend-component"
+      ],
+      "reason": "Existing material upload component above budget before Phase 6; outside target split list."
+    },
+    "frontend/src/components/workbench/WorkbenchShell.tsx": {
+      "lineCount": 539,
+      "budgets": [
+        "frontend-component"
+      ],
+      "reason": "Existing workbench shell above budget before Phase 6; outside primary panel split scope."
+    },
+    "frontend/src/types.ts": {
+      "lineCount": 867,
+      "budgets": [
+        "any-file"
+      ],
+      "reason": "Existing generated/shared type surface above generic budget before Phase 6; API contract changes are out of scope."
+    }
+  }
+}

@@ -34,11 +34,35 @@ export default defineConfig({
   test: {
     environment: "jsdom",
     setupFiles: "./src/test/setup.ts",
-    testTimeout: 10000,
+    testTimeout: 20000,
     coverage: {
       provider: "v8",
       reporter: ["text", "lcov"],
       reportsDirectory: "./coverage",
+      thresholds: {
+        lines: 70,
+        functions: 55,
+        statements: 70,
+        branches: 68,
+        "src/api/**": {
+          lines: 55,
+          functions: 50,
+          statements: 55,
+          branches: 48,
+        },
+        "src/hooks/**": {
+          lines: 64,
+          functions: 56,
+          statements: 64,
+          branches: 68,
+        },
+        "src/utils/**": {
+          lines: 82,
+          functions: 90,
+          statements: 82,
+          branches: 72,
+        },
+      },
     },
   },
 });

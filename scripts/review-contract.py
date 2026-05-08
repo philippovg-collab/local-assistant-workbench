@@ -16,11 +16,14 @@ from pathlib import Path
 REQUIRED_SECTIONS = (
     "risk / review focus",
     "tests / evidence",
+    "security / data / deploy impact",
     "anti-sprawl",
+    "complexity delta",
+    "rollback",
 )
 
 SPRAWL_KEYWORDS = re.compile(
-    r"\b(legacy|fallback|rollout|bestEffort|compatibility)\b",
+    r"\b(legacy|fallback|rollout|bestEffort|best-effort|compatibility)\b",
     re.IGNORECASE,
 )
 
@@ -36,15 +39,42 @@ TEST_PATH_MARKERS = (
 )
 
 HIGH_RISK_PATH_PATTERNS = (
+    re.compile(r"^scripts/"),
+    re.compile(r"^scripts/linux/"),
     re.compile(r"backend/src/main/resources/db/migration/"),
+    re.compile(r"backend/src/main/resources/application"),
+    re.compile(r"backend/src/main/java/com/example/demo/config/"),
+    re.compile(r"backend/src/main/java/.*/Auth", re.IGNORECASE),
     re.compile(r"backend/src/main/java/.*/Security", re.IGNORECASE),
-    re.compile(r"backend/src/main/java/.*/Material", re.IGNORECASE),
-    re.compile(r"backend/src/main/java/.*/Chat", re.IGNORECASE),
+    re.compile(r"backend/src/main/java/.*/MaterialMetadata", re.IGNORECASE),
+    re.compile(r"backend/src/main/java/.*/MaterialIngestion", re.IGNORECASE),
+    re.compile(r"backend/src/main/java/.*/MaterialIndexing", re.IGNORECASE),
+    re.compile(r"backend/src/main/java/.*/MaterialSearchSync", re.IGNORECASE),
+    re.compile(r"backend/src/main/java/.*/ChatRun", re.IGNORECASE),
+    re.compile(r"backend/src/main/java/.*/Queue", re.IGNORECASE),
     re.compile(r"backend/src/main/java/.*/KnowledgePreset", re.IGNORECASE),
     re.compile(r"backend/src/main/java/.*/Elasticsearch", re.IGNORECASE),
     re.compile(r"backend/src/main/java/.*/Retrieval", re.IGNORECASE),
     re.compile(r"backend/src/main/java/.*/Ocr", re.IGNORECASE),
     re.compile(r"docker-compose\.yml$"),
+    re.compile(r"\.env\.example$"),
+    re.compile(r"README\.md$"),
+    re.compile(r"^docs/"),
+    re.compile(r"^docs/ops-runbook\.md$"),
+    re.compile(r"^\.github/workflows/"),
+)
+
+BACKEND_VERIFY_PATH_PATTERNS = (
+    re.compile(r"^backend/src/main/java/"),
+    re.compile(r"^backend/src/main/resources/db/migration/"),
+    re.compile(r"^backend/pom\.xml$"),
+    re.compile(r"^docker-compose\.yml$"),
+    re.compile(r"^\.env\.example$"),
+)
+
+BACKEND_VERIFY_COMMANDS = (
+    "mvn -B clean verify -Pcoverage",
+    "mvn -B clean verify",
 )
 
 
@@ -122,6 +152,17 @@ def label_value(body: str, label: str) -> str:
     return value
 
 
+def require_labels(
+    errors: list[str],
+    section: str,
+    section_title: str,
+    labels: tuple[str, ...],
+) -> None:
+    for label in labels:
+        if not label_value(section, label):
+            errors.append(f"{section_title} is missing '{label}'.")
+
+
 def read_body(args: argparse.Namespace) -> str | None:
     if args.body_file:
         return Path(args.body_file).read_text(encoding="utf-8")
@@ -174,7 +215,7 @@ def untracked_file_diff() -> str:
     )
     chunks: list[str] = []
     for path in result.stdout.splitlines():
-        if not is_production_path(path):
+        if not (is_production_path(path) or is_high_risk_path(path)):
             continue
         file_path = Path(path)
         if not file_path.is_file():
@@ -198,10 +239,18 @@ def is_production_path(path: str) -> bool:
     return not any(marker in path for marker in TEST_PATH_MARKERS)
 
 
+def is_high_risk_path(path: str) -> bool:
+    return any(pattern.search(path) for pattern in HIGH_RISK_PATH_PATTERNS)
+
+
 def changed_files_from_diff(diff: str) -> set[str]:
     files: set[str] = set()
     for line in diff.splitlines():
-        if line.startswith("+++ b/"):
+        if line.startswith("diff --git "):
+            match = re.match(r"diff --git a/(.+?) b/(.+)$", line)
+            if match:
+                files.add(match.group(2))
+        elif line.startswith("+++ b/"):
             files.add(line.removeprefix("+++ b/"))
     return files
 
@@ -226,9 +275,21 @@ def sprawl_hits_from_diff(diff: str) -> list[SprawlHit]:
 def high_risk_files(changed_files: set[str]) -> list[str]:
     matched = []
     for path in sorted(changed_files):
-        if any(pattern.search(path) for pattern in HIGH_RISK_PATH_PATTERNS):
+        if is_high_risk_path(path):
             matched.append(path)
     return matched
+
+
+def needs_backend_verify(path: str) -> bool:
+    return any(pattern.search(path) for pattern in BACKEND_VERIFY_PATH_PATTERNS)
+
+
+def command_checked(body: str, command: str) -> bool:
+    return bool(re.search(rf"(?im)^\s*-\s*\[[xX]\]\s+`{re.escape(command)}`", body))
+
+
+def backend_verify_evidence_present(tests: str, test_evidence: str) -> bool:
+    return any(command_checked(tests, command) or command in test_evidence for command in BACKEND_VERIFY_COMMANDS)
 
 
 def validate_body(body: str, sprawl_hits: list[SprawlHit], high_risk: list[str]) -> list[str]:
@@ -242,14 +303,20 @@ def validate_body(body: str, sprawl_hits: list[SprawlHit], high_risk: list[str])
             errors.append(f"PR body section is empty: {section_name}")
 
     risk = sections.get("risk / review focus", "")
-    for label in ("Risk level", "Touched boundaries", "Review focus"):
-        if not label_value(risk, label):
-            errors.append(f"Risk / Review Focus is missing '{label}'.")
+    require_labels(errors, risk, "Risk / Review Focus", ("Risk level", "Touched boundaries", "Review focus"))
 
     tests = sections.get("tests / evidence", "")
     test_evidence = label_value(tests, "Evidence / skipped tests")
     if not any_checked(tests) and not test_evidence:
         errors.append("Tests / Evidence must check at least one command or explain skipped tests.")
+
+    impact = sections.get("security / data / deploy impact", "")
+    require_labels(errors, impact, "Security / Data / Deploy Impact", (
+        "Security impact",
+        "Data integrity impact",
+        "Migration/deploy impact",
+        "Docs/runbook impact",
+    ))
 
     anti_sprawl = sections.get("anti-sprawl", "")
     no_sprawl_checked = checked(anti_sprawl, "No new or changed")
@@ -270,13 +337,32 @@ def validate_body(body: str, sprawl_hits: list[SprawlHit], high_risk: list[str])
             if not label_value(anti_sprawl, label):
                 errors.append(f"Anti-Sprawl declaration is missing '{label}'.")
 
-    verify_checked = bool(re.search(r"(?im)^\s*-\s*\[[xX]\]\s+`mvn -B verify`", tests))
-    verify_explained = "mvn -B verify" in test_evidence
-    if high_risk and not verify_checked and not verify_explained:
+    complexity = sections.get("complexity delta", "")
+    require_labels(errors, complexity, "Complexity Delta", (
+        "Complexity before",
+        "Complexity after",
+        "Files removed from baseline",
+        "Files added to baseline",
+        "Largest file before/after",
+    ))
+
+    rollback = sections.get("rollback", "")
+    require_labels(errors, rollback, "Rollback", ("Rollback plan",))
+
+    if high_risk and not test_evidence:
         examples = ", ".join(high_risk[:3])
         errors.append(
+            "High-risk paths changed but Tests / Evidence does not include concrete evidence or a skipped-test "
+            f"explanation. Examples: {examples}"
+        )
+
+    backend_verify_paths = [path for path in high_risk if needs_backend_verify(path)]
+    if backend_verify_paths and not backend_verify_evidence_present(tests, test_evidence):
+        examples = ", ".join(backend_verify_paths[:3])
+        commands = "`mvn -B clean verify -Pcoverage` or `mvn -B clean verify`"
+        errors.append(
             "High-risk backend/deploy paths changed but Tests / Evidence does not check or explain "
-            f"`mvn -B verify`. Examples: {examples}"
+            f"{commands}. Examples: {examples}"
         )
 
     return errors
@@ -312,8 +398,10 @@ def main() -> int:
             emit_error(error)
         return 1
 
-    if sprawl_hits:
+    if sprawl_hits and body_validated:
         emit_notice(f"Anti-sprawl declaration validated for {len(sprawl_hits)} production diff hit(s).")
+    elif sprawl_hits:
+        emit_notice(f"Production anti-sprawl keyword hit(s) detected in diff: {len(sprawl_hits)}.")
     else:
         emit_notice("No new production anti-sprawl keywords detected.")
     if high_risk:

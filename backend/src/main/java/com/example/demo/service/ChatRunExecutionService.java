@@ -6,7 +6,9 @@ import com.example.demo.service.audit.ChatRunQueueLease;
 import com.example.demo.service.audit.EnqueuedChatRun;
 import com.example.demo.service.audit.port.ChatRunQueueRepository;
 import com.example.demo.model.ChatExecutionRequest;
+import com.example.demo.model.ChatExecutionResponse;
 import com.example.demo.model.ChatMode;
+import com.example.demo.model.ChatRunStatusResponse;
 import com.example.demo.model.ChatRunSubmissionResponse;
 import com.example.demo.model.ChatRunTraceDetail;
 import com.example.demo.service.cancellation.ChatCancellationHandle;
@@ -88,6 +90,28 @@ public class ChatRunExecutionService {
             "/api/chat-runs/" + run.runId() + "/trace",
             "/api/chat-runs/" + run.runId() + "/result"
         );
+    }
+
+    public ChatExecutionResponse submitAndWait(ChatExecutionRequest request, Duration timeout) {
+        ChatRunSubmissionResponse submittedRun = submit(request);
+        Instant deadline = Instant.now().plus(effectiveWaitTimeout(timeout));
+        while (true) {
+            ChatRunStatusResponse status = chatRunQueryService.getStatus(submittedRun.id());
+            if ("COMPLETED".equals(status.status())) {
+                return chatRunQueryService.getResult(submittedRun.id());
+            }
+            if ("FAILED".equals(status.status())) {
+                throw failedRunException(status);
+            }
+            if ("CANCELLED".equals(status.status())) {
+                throw cancelledRunException(status);
+            }
+            Instant now = Instant.now();
+            if (!now.isBefore(deadline)) {
+                throw stillProcessingException(submittedRun);
+            }
+            sleepUntilNextPoll(now, deadline, submittedRun);
+        }
     }
 
     public ChatRunTraceDetail cancel(String runId) {
@@ -275,6 +299,66 @@ public class ChatRunExecutionService {
 
     private boolean isTerminal(String status) {
         return "FAILED".equals(status) || "COMPLETED".equals(status) || "CANCELLED".equals(status);
+    }
+
+    private Duration effectiveWaitTimeout(Duration timeout) {
+        if (timeout == null) {
+            return Duration.ofSeconds(properties.getCompatibilityWaitTimeoutSeconds());
+        }
+        return timeout.isNegative() ? Duration.ZERO : timeout;
+    }
+
+    private void sleepUntilNextPoll(
+        Instant now,
+        Instant deadline,
+        ChatRunSubmissionResponse submittedRun
+    ) {
+        long remainingMillis = Math.max(0, Duration.between(now, deadline).toMillis());
+        long pollMillis = Math.min(remainingMillis, boundedPollIntervalMillis());
+        if (pollMillis <= 0) {
+            return;
+        }
+        try {
+            Thread.sleep(pollMillis);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new ApiException(
+                HttpStatus.SERVICE_UNAVAILABLE,
+                "chat_run.wait_interrupted",
+                "Chat run '" + submittedRun.id() + "' was submitted, but waiting for the result was interrupted. Poll "
+                    + submittedRun.statusUrl() + " or fetch " + submittedRun.resultUrl() + " when it completes.",
+                exception
+            );
+        }
+    }
+
+    private long boundedPollIntervalMillis() {
+        return Math.min(5000L, Math.max(100L, properties.getPollIntervalMillis()));
+    }
+
+    private ApiException stillProcessingException(ChatRunSubmissionResponse submittedRun) {
+        return new ApiException(
+            HttpStatus.REQUEST_TIMEOUT,
+            "chat.run_still_processing",
+            "Chat run '" + submittedRun.id() + "' is still processing. Poll "
+                + submittedRun.statusUrl() + " or fetch " + submittedRun.resultUrl() + " when it completes."
+        );
+    }
+
+    private ApiException failedRunException(ChatRunStatusResponse status) {
+        return new ApiException(
+            HttpStatus.CONFLICT,
+            StringUtils.hasText(status.failureCode()) ? status.failureCode() : "chat_run.failed",
+            StringUtils.hasText(status.failureMessage()) ? status.failureMessage() : "Chat run failed"
+        );
+    }
+
+    private ApiException cancelledRunException(ChatRunStatusResponse status) {
+        return new ApiException(
+            HttpStatus.CONFLICT,
+            "chat_run.cancelled",
+            StringUtils.hasText(status.failureMessage()) ? status.failureMessage() : "Chat run was cancelled"
+        );
     }
 
     private String buildWorkerId() {

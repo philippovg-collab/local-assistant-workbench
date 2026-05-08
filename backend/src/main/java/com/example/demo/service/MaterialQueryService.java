@@ -19,7 +19,6 @@ import com.example.demo.model.MaterialDetail;
 import com.example.demo.model.MaterialListResponse;
 import com.example.demo.model.MaterialLineageResponse;
 import com.example.demo.model.MaterialLineageVersion;
-import com.example.demo.model.MaterialMetadataInput;
 import com.example.demo.model.MaterialMetadataSnapshot;
 import com.example.demo.model.MaterialPdfUploadPolicyResponse;
 import com.example.demo.model.MaterialSummary;
@@ -215,7 +214,7 @@ public class MaterialQueryService {
         }
 
         MaterialMetadataSnapshot refreshedMetadata = metadataResolver.resolve(
-            metadataInputForReindex(record.metadata()),
+            record.metadata().toEditableInputPreservingStoredFields(),
             record.title(),
             record.sourceType(),
             record.originalFileName(),
@@ -224,32 +223,6 @@ public class MaterialQueryService {
         );
         StoredMaterialRecord updatedRecord = repository.updateMetadata(record.id(), refreshedMetadata, updatedAt);
         return updatedRecord == null ? record : updatedRecord;
-    }
-
-    private MaterialMetadataInput metadataInputForReindex(MaterialMetadataSnapshot metadata) {
-        MaterialMetadataSnapshot safeMetadata = metadata == null ? MaterialMetadataSnapshot.empty() : metadata;
-        return new MaterialMetadataInput(
-            safeMetadata.documentType(),
-            safeMetadata.workspaceKey(),
-            safeMetadata.documentStatus(),
-            safeMetadata.projectKey(),
-            safeMetadata.documentNumber(),
-            safeMetadata.languageCode(),
-            safeMetadata.manualTags(),
-            safeMetadata.periodStart(),
-            safeMetadata.periodEnd(),
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            List.of(),
-            null,
-            null,
-            null,
-            null
-        );
     }
 
     public RechunkActiveMaterialsResponse rechunkActiveMaterials() {

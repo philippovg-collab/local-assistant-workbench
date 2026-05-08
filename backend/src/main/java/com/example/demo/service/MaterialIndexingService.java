@@ -17,7 +17,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Executor;
 import java.util.concurrent.RejectedExecutionException;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -39,7 +39,7 @@ public class MaterialIndexingService {
     private final MaterialProperties properties;
     private final MaterialSearchSyncLifecycleService lifecycleService;
     private final Executor materialIndexingExecutor;
-    private final AtomicBoolean drainScheduled = new AtomicBoolean(false);
+    private final AtomicInteger scheduledWorkers = new AtomicInteger(0);
 
     public MaterialIndexingService(
         MaterialChunkingRepository chunkingRepository,
@@ -65,16 +65,28 @@ public class MaterialIndexingService {
     }
 
     public void requestProcessing() {
-        if (!drainScheduled.compareAndSet(false, true)) {
-            return;
+        int maxWorkers = Math.max(1, properties.getIndexingWorkerCount());
+        for (int slot = 0; slot < maxWorkers; slot++) {
+            int currentWorkers = scheduledWorkers.get();
+            if (currentWorkers >= maxWorkers) {
+                return;
+            }
+            if (!scheduledWorkers.compareAndSet(currentWorkers, currentWorkers + 1)) {
+                slot -= 1;
+                continue;
+            }
+            try {
+                materialIndexingExecutor.execute(this::drainQueue);
+            } catch (RejectedExecutionException exception) {
+                scheduledWorkers.decrementAndGet();
+                logger.warn("Material indexing executor rejected queue processing request; leaving jobs pending", exception);
+                return;
+            }
         }
+    }
 
-        try {
-            materialIndexingExecutor.execute(this::drainQueue);
-        } catch (RejectedExecutionException exception) {
-            drainScheduled.set(false);
-            logger.warn("Material indexing executor rejected queue processing request; leaving jobs pending", exception);
-        }
+    public int activeWorkerCount() {
+        return scheduledWorkers.get();
     }
 
     private void drainQueue() {
@@ -94,7 +106,7 @@ public class MaterialIndexingService {
                 processedJobs += 1;
             }
         } finally {
-            drainScheduled.set(false);
+            scheduledWorkers.decrementAndGet();
             if (indexingQueueRepository.hasPendingIndexing(Instant.now())) {
                 requestProcessing();
             }

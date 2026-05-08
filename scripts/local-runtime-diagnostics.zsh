@@ -7,7 +7,7 @@ BACKEND_AUTH_LOGIN_URL="${BACKEND_URL}/api/auth/login"
 BACKEND_HEALTH_URL="${BACKEND_URL}/api/health"
 BACKEND_MODELS_URL="${BACKEND_URL}/api/models"
 APP_SECURITY_ADMIN_USERNAME="${APP_SECURITY_ADMIN_USERNAME:-admin}"
-APP_SECURITY_ADMIN_PASSWORD="${APP_SECURITY_ADMIN_PASSWORD:-local-admin-password}"
+APP_SECURITY_ADMIN_PASSWORD="${APP_SECURITY_ADMIN_PASSWORD:-}"
 DEFAULT_LLM_MODEL="${APP_LLM_MODEL:-qwen2.5:7b}"
 DEEPSEEK_MODEL="${APP_LLM_DEEPSEEK_MODEL:-deepseek-r1:8b}"
 LLM_BASE_URL="${APP_LLM_BASE_URL:-http://127.0.0.1:11434}"
@@ -105,6 +105,12 @@ warn_docker_deepseek_missing() {
 
 main() {
   local models_json health_json models_error_code llm_status embedding_status default_model_present="false"
+
+  if [[ -z "$APP_SECURITY_ADMIN_PASSWORD" ]]; then
+    echo "Runtime diagnostics: APP_SECURITY_ADMIN_PASSWORD is not set; skipping authenticated model/health checks." >&2
+    warn_docker_deepseek_missing
+    return 0
+  fi
 
   if ! backend_login; then
     warn_docker_deepseek_missing

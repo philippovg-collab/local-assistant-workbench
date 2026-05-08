@@ -16,6 +16,7 @@ import com.example.demo.embedding.EmbeddingClient;
 import com.example.demo.infrastructure.material.PostgresMaterialTestRepositoryBundle;
 import com.example.demo.model.MaterialIndexingStatus;
 import com.example.demo.model.MaterialVersionState;
+import com.example.demo.support.ElasticsearchTestContainerSupport;
 import com.example.demo.support.IntegrationTestOverrides;
 import com.example.demo.support.PostgresIntegrationTestSupport;
 import java.io.IOException;
@@ -35,7 +36,6 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.testcontainers.elasticsearch.ElasticsearchContainer;
 import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.utility.DockerImageName;
 
 @SpringBootTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
@@ -44,11 +44,7 @@ class ElasticsearchIndexSyncIT extends PostgresIntegrationTestSupport {
 
     @Container
     @SuppressWarnings("resource")
-    private static final ElasticsearchContainer ELASTICSEARCH = new ElasticsearchContainer(
-        DockerImageName.parse("docker.elastic.co/elasticsearch/elasticsearch:8.13.4")
-    )
-        .withEnv("xpack.security.enabled", "false")
-        .withEnv("discovery.type", "single-node");
+    private static final ElasticsearchContainer ELASTICSEARCH = ElasticsearchTestContainerSupport.elasticsearch();
 
     @DynamicPropertySource
     static void registerElasticsearchProperties(DynamicPropertyRegistry registry) {

@@ -23,6 +23,7 @@ import com.example.demo.llm.LlmClient;
 import com.example.demo.model.MaterialIndexingStatus;
 import com.example.demo.model.MaterialVersionState;
 import com.example.demo.model.OllamaModelInfo;
+import com.example.demo.support.ElasticsearchTestContainerSupport;
 import com.example.demo.support.IntegrationTestOverrides;
 import com.example.demo.support.PostgresIntegrationTestSupport;
 import java.io.IOException;
@@ -49,7 +50,6 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.testcontainers.elasticsearch.ElasticsearchContainer;
 import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.utility.DockerImageName;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -59,11 +59,7 @@ class ElasticsearchPhase4IT extends PostgresIntegrationTestSupport {
 
     @Container
     @SuppressWarnings("resource")
-    private static final ElasticsearchContainer ELASTICSEARCH = new ElasticsearchContainer(
-        DockerImageName.parse("docker.elastic.co/elasticsearch/elasticsearch:8.13.4")
-    )
-        .withEnv("xpack.security.enabled", "false")
-        .withEnv("discovery.type", "single-node");
+    private static final ElasticsearchContainer ELASTICSEARCH = ElasticsearchTestContainerSupport.elasticsearch();
 
     @DynamicPropertySource
     static void registerElasticsearchProperties(DynamicPropertyRegistry registry) {
@@ -150,6 +146,14 @@ class ElasticsearchPhase4IT extends PostgresIntegrationTestSupport {
 
     @Test
     void exposesSearchPlaneInHealthContractWithoutChangingRagStatusSemantics() throws Exception {
+        seedReadyMaterial(
+            "Health ready material",
+            "Health contract material keeps RAG readiness true when knowledge is ready.",
+            "health-lineage",
+            Instant.parse("2026-04-17T10:00:00Z")
+        );
+        refreshIndex();
+
         mockMvc.perform(get("/api/health"))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.searchStatus").value("UP"))
@@ -157,6 +161,7 @@ class ElasticsearchPhase4IT extends PostgresIntegrationTestSupport {
             .andExpect(jsonPath("$.searchSyncBacklog.pendingCount").value(0))
             .andExpect(jsonPath("$.searchSyncBacklog.inProgressCount").value(0))
             .andExpect(jsonPath("$.searchSyncBacklog.failedCount").value(0))
+            .andExpect(jsonPath("$.knowledgeStatus").value("READY"))
             .andExpect(jsonPath("$.ragStatus").value("UP"));
     }
 

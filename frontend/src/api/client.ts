@@ -172,6 +172,24 @@ const requestVoid = async (path: string, init?: RequestInit) => {
   }
 };
 
+const refreshCsrf = async () => {
+  const session = await requestJson<AuthSession>("/api/auth/session");
+  rememberCsrf(session);
+  return session;
+};
+
+const performLogin = async (input: AuthLoginRequest) => {
+  const session = await requestJson<AuthSession>("/api/auth/login", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(input),
+  });
+  rememberCsrf(session);
+  return session;
+};
+
 export const apiClient = {
   async fetchSession(signal?: AbortSignal) {
     const session = await requestJson<AuthSession>("/api/auth/session", { signal });
@@ -179,15 +197,16 @@ export const apiClient = {
     return session;
   },
   async login(input: AuthLoginRequest) {
-    const session = await requestJson<AuthSession>("/api/auth/login", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(input),
-    });
-    rememberCsrf(session);
-    return session;
+    await refreshCsrf();
+    try {
+      return await performLogin(input);
+    } catch (error) {
+      if (error instanceof ApiClientError && error.status === 403) {
+        await refreshCsrf();
+        return performLogin(input);
+      }
+      throw error;
+    }
   },
   async logout() {
     const session = await requestJson<AuthSession>("/api/auth/logout", {
@@ -562,6 +581,9 @@ export const apiClient = {
       signal,
     });
   },
+  /**
+   * @deprecated Use submitChatRun + fetchChatRunStatus + fetchChatRunResult.
+   */
   executeChat(input: ChatExecutionRequest, signal?: AbortSignal) {
     return requestJson<ChatExecutionResponse>("/api/chat", {
       method: "POST",
@@ -575,7 +597,7 @@ export const apiClient = {
   buildCurlExample(input: ChatExecutionRequest) {
     const curlBaseUrl = resolveApiBaseUrl();
 
-    return `curl ${curlBaseUrl}/api/chat \\
+    return `curl ${curlBaseUrl}/api/chat-runs \\
   -H "Content-Type: application/json" \\
   --data-binary @- <<'JSON'
 ${JSON.stringify(input, null, 2)}

@@ -14,12 +14,80 @@ import com.example.demo.support.DeterministicEmbeddingClient;
 import com.example.demo.support.InMemoryMaterialRepository;
 import com.example.demo.support.TestMaterialServices;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.Executor;
+import java.util.concurrent.RejectedExecutionException;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 
 class MaterialIndexingServiceTest {
+
+    @Test
+    void requestProcessingSchedulesUpToConfiguredWorkerCount() {
+        InMemoryMaterialRepository repository = new InMemoryMaterialRepository();
+        MaterialProperties properties = new MaterialProperties();
+        properties.setIndexingWorkerCount(3);
+        MaterialContentSupport contentSupport = new MaterialContentSupport(properties);
+        MaterialSearchSyncLifecycleService lifecycleService = TestMaterialServices.lifecycleService(
+            repository,
+            repository,
+            repository,
+            repository,
+            repository
+        );
+        CapturingExecutor executor = new CapturingExecutor();
+        MaterialIndexingService service = new MaterialIndexingService(
+            repository,
+            repository,
+            contentSupport,
+            new DeterministicEmbeddingClient(),
+            properties,
+            lifecycleService,
+            executor
+        );
+
+        savePendingRecord(repository);
+
+        service.requestProcessing();
+        service.requestProcessing();
+
+        assertEquals(3, executor.tasks.size());
+        assertEquals(3, service.activeWorkerCount());
+    }
+
+    @Test
+    void rejectedExecutorLeavesPendingJobAndReleasesWorkerSlot() {
+        InMemoryMaterialRepository repository = new InMemoryMaterialRepository();
+        MaterialProperties properties = new MaterialProperties();
+        MaterialContentSupport contentSupport = new MaterialContentSupport(properties);
+        MaterialSearchSyncLifecycleService lifecycleService = TestMaterialServices.lifecycleService(
+            repository,
+            repository,
+            repository,
+            repository,
+            repository
+        );
+        MaterialIndexingService service = new MaterialIndexingService(
+            repository,
+            repository,
+            contentSupport,
+            new DeterministicEmbeddingClient(),
+            properties,
+            lifecycleService,
+            command -> {
+                throw new RejectedExecutionException("full");
+            }
+        );
+
+        StoredMaterialRecord record = savePendingRecord(repository);
+
+        service.requestProcessing();
+
+        assertEquals(0, service.activeWorkerCount());
+        assertEquals(MaterialIndexingStatus.PENDING, repository.findById(record.id()).orElseThrow().status());
+    }
 
     @Test
     void retriesPendingMaterialAndEventuallyMarksItReady() throws Exception {
@@ -145,6 +213,16 @@ class MaterialIndexingServiceTest {
             return inputs.stream()
                 .map(input -> new float[] { input.length(), 1.0f, 2.0f })
                 .toList();
+        }
+    }
+
+    private static final class CapturingExecutor implements Executor {
+
+        private final List<Runnable> tasks = new ArrayList<>();
+
+        @Override
+        public void execute(Runnable command) {
+            tasks.add(command);
         }
     }
 }

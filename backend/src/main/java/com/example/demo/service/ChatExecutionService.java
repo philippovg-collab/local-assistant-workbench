@@ -99,7 +99,7 @@ public class ChatExecutionService {
         );
     }
 
-    public ChatExecutionResponse execute(ChatExecutionRequest request) {
+    ChatExecutionResponse execute(ChatExecutionRequest request) {
         validateRequest(request);
         ChatMode mode = request.mode() == null ? ChatMode.DIRECT : request.mode();
         ChatExecutionContext context = startTraceContext(
@@ -196,7 +196,7 @@ public class ChatExecutionService {
         InputLimits.validateChatRequest(request);
     }
 
-    public ChatExecutionResponse execute(ChatExecutionRequest request, List<InstructionDetail> instructions) {
+    ChatExecutionResponse execute(ChatExecutionRequest request, List<InstructionDetail> instructions) {
         validateRequest(request);
 
         ChatMode mode = request.mode() == null ? ChatMode.DIRECT : request.mode();

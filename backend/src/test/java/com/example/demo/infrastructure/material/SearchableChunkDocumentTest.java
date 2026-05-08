@@ -112,7 +112,7 @@ class SearchableChunkDocumentTest {
         assertEquals("APPROVED", documents.get(0).businessStatus());
         assertEquals("ru", documents.get(0).language());
         assertEquals(List.of("dispatch", "grid"), documents.get(0).tags());
-        assertEquals("UNKNOWN", documents.get(0).sourceTrust());
+        assertEquals("HIGH", documents.get(0).sourceTrust());
         assertEquals("file", documents.get(0).sourceType());
         assertEquals(snapshot.createdAt(), documents.get(0).createdAt());
         assertEquals(snapshot.updatedAt(), documents.get(0).updatedAt());

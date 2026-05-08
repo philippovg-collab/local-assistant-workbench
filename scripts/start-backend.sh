@@ -7,10 +7,26 @@ BACKEND_HEALTH_URL="http://127.0.0.1:8080/api/liveness"
 DEFAULT_JAVA_21_HOME="/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home"
 DATASOURCE_URL="${SPRING_DATASOURCE_URL:-jdbc:postgresql://127.0.0.1:5432/ragstudio}"
 export APP_SECURITY_ADMIN_USERNAME="${APP_SECURITY_ADMIN_USERNAME:-admin}"
-export APP_SECURITY_ADMIN_PASSWORD="${APP_SECURITY_ADMIN_PASSWORD:-local-admin-password}"
 export APP_ROLLOUT_METADATA_V1="${APP_ROLLOUT_METADATA_V1:-true}"
 export APP_ROLLOUT_METADATA_FILTERS_V1="${APP_ROLLOUT_METADATA_FILTERS_V1:-true}"
 export APP_ROLLOUT_QUERY_HINTS_V1="${APP_ROLLOUT_QUERY_HINTS_V1:-true}"
+
+ensure_admin_password() {
+  if [[ -n "${APP_SECURITY_ADMIN_PASSWORD:-}" ]]; then
+    export APP_SECURITY_ADMIN_PASSWORD
+    return 0
+  fi
+
+  if ! command -v openssl >/dev/null 2>&1; then
+    echo "APP_SECURITY_ADMIN_PASSWORD is not set and openssl is unavailable." >&2
+    echo "Set APP_SECURITY_ADMIN_PASSWORD before starting backend." >&2
+    exit 1
+  fi
+
+  APP_SECURITY_ADMIN_PASSWORD="$(openssl rand -base64 24)"
+  export APP_SECURITY_ADMIN_PASSWORD
+  echo "Generated a random local admin password for this backend session." >&2
+}
 
 resolve_java_21_home() {
   if [[ -n "${JAVA_21_HOME:-}" && -x "${JAVA_21_HOME}/bin/java" ]]; then
@@ -125,6 +141,8 @@ if is_backend_healthy; then
   echo "Existing backend is incompatible with the current local startup contract. Restarting..." >&2
   "$ROOT_DIR/scripts/stop-backend.sh"
 fi
+
+ensure_admin_password
 
 JAVA21_HOME=$(resolve_java_21_home || true)
 if [[ -z "$JAVA21_HOME" ]]; then

@@ -80,7 +80,7 @@ export function DirectChatPanel({
 }: DirectChatPanelProps) {
   return (
     <StudioScaffold
-      badge="POST /api/chat mode=direct"
+      badge="POST /api/chat-runs mode=direct"
       controls={
         <ChatForm
           answerMode={answerMode}

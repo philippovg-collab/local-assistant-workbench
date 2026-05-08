@@ -25,6 +25,7 @@ public class MaterialProperties {
     private int indexingMaxAttempts = 3;
     private int indexingRetryBaseSeconds = 5;
     private int indexingRetryMaxSeconds = 60;
+    private int indexingWorkerCount = 2;
     private int indexingDrainMaxJobs = 64;
     private AutoTagsProperties autoTags = new AutoTagsProperties();
 
@@ -158,6 +159,14 @@ public class MaterialProperties {
 
     public int getIndexingDrainMaxJobs() {
         return indexingDrainMaxJobs;
+    }
+
+    public int getIndexingWorkerCount() {
+        return indexingWorkerCount;
+    }
+
+    public void setIndexingWorkerCount(int indexingWorkerCount) {
+        this.indexingWorkerCount = indexingWorkerCount;
     }
 
     public void setIndexingDrainMaxJobs(int indexingDrainMaxJobs) {

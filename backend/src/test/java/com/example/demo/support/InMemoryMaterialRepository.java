@@ -715,6 +715,8 @@ public class InMemoryMaterialRepository implements
         int inProgressCount = 0;
         int failedCount = 0;
         Instant nextRetryAt = null;
+        Instant oldestPendingAt = null;
+        Instant oldestInProgressAt = null;
 
         for (StoredMaterialRecord record : recordsById.values()) {
             if (record.versionState() != MaterialVersionState.ACTIVE) {
@@ -727,14 +729,28 @@ public class InMemoryMaterialRepository implements
                 if (candidateNextRetryAt != null && (nextRetryAt == null || candidateNextRetryAt.isBefore(nextRetryAt))) {
                     nextRetryAt = candidateNextRetryAt;
                 }
+                if (oldestPendingAt == null || record.updatedAt().isBefore(oldestPendingAt)) {
+                    oldestPendingAt = record.updatedAt();
+                }
             } else if (record.status() == MaterialIndexingStatus.IN_PROGRESS) {
                 inProgressCount += 1;
+                Instant claimedAt = claimedAtByMaterialId.getOrDefault(record.id(), record.updatedAt());
+                if (oldestInProgressAt == null || claimedAt.isBefore(oldestInProgressAt)) {
+                    oldestInProgressAt = claimedAt;
+                }
             } else if (record.status() == MaterialIndexingStatus.FAILED) {
                 failedCount += 1;
             }
         }
 
-        return new IndexingQueueSnapshot(pendingCount, inProgressCount, failedCount, nextRetryAt);
+        return new IndexingQueueSnapshot(
+            pendingCount,
+            inProgressCount,
+            failedCount,
+            nextRetryAt,
+            oldestPendingAt,
+            oldestInProgressAt
+        );
     }
 
     @Override

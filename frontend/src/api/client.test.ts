@@ -14,8 +14,8 @@ describe("apiClient", () => {
       instructionIds: [],
     });
 
-    expect(curl).toContain("http://127.0.0.1:8080/api/chat");
-    expect(curl).not.toContain("http://127.0.0.1:5173/api/chat");
+    expect(curl).toContain("http://127.0.0.1:8080/api/chat-runs");
+    expect(curl).not.toContain("http://127.0.0.1:5173/api/chat-runs");
   });
 
   it("uses the same resolved backend origin for fetch requests", async () => {
@@ -347,6 +347,23 @@ describe("apiClient", () => {
       .mockResolvedValueOnce(
         new Response(
           JSON.stringify({
+            authenticated: false,
+            username: null,
+            roles: [],
+            csrfHeaderName: "X-CSRF-TOKEN",
+            csrfToken: "csrf-before-login",
+          }),
+          {
+            status: 200,
+            headers: {
+              "Content-Type": "application/json",
+            },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
             authenticated: true,
             username: "admin",
             roles: ["ROLE_ADMIN"],
@@ -386,11 +403,16 @@ describe("apiClient", () => {
     expect(logoutSession.authenticated).toBe(false);
     expect(fetchSpy).toHaveBeenNthCalledWith(
       1,
+      "http://127.0.0.1:8080/api/auth/session",
+      expect.objectContaining({ credentials: "include" }),
+    );
+    expect(fetchSpy).toHaveBeenNthCalledWith(
+      2,
       "http://127.0.0.1:8080/api/auth/login",
       expect.objectContaining({ credentials: "include", method: "POST" }),
     );
     expect(fetchSpy).toHaveBeenNthCalledWith(
-      2,
+      3,
       "http://127.0.0.1:8080/api/auth/logout",
       expect.objectContaining({ credentials: "include", method: "POST" }),
     );

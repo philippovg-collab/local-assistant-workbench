@@ -75,7 +75,7 @@ public class SecurityConfig {
         if (!properties.isEnabled()) {
             return new InMemoryUserDetailsManager();
         }
-        return new InMemoryUserDetailsManager(User.withUsername(properties.getAdminUsername().trim())
+        return new InMemoryUserDetailsManager(User.withUsername(properties.getNormalizedAdminUsername())
             .password(passwordEncoder.encode(properties.getAdminPassword()))
             .roles("ADMIN")
             .build());

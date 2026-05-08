@@ -87,7 +87,8 @@ class MaterialServiceTest {
         assertEquals("Program Atlas", input.project());
         assertEquals("Contoso", input.counterparty());
         assertEquals("DRAFT", input.businessStatus());
-        assertEquals(DocumentStatus.DRAFT, input.documentStatus());
+        assertEquals(null, input.documentStatus());
+        assertEquals(DocumentStatus.ACTIVE, input.effectiveDocumentStatus());
     }
 
     @Test
@@ -196,7 +197,7 @@ class MaterialServiceTest {
         assertEquals(List.of("policy", "grid"), stored.metadata().tags());
         assertEquals(List.of("policy", "grid"), stored.metadata().manualTags());
         assertTrue(stored.metadata().autoTags().isEmpty());
-        assertEquals(SourceTrustLevel.UNKNOWN, stored.metadata().sourceTrust());
+        assertEquals(SourceTrustLevel.HIGH, stored.metadata().sourceTrust());
         assertEquals(MetadataValueOrigin.MANUAL, stored.metadata().provenance().fieldOrigins().get("documentType"));
         assertEquals(MetadataValueOrigin.MANUAL, stored.metadata().provenance().fieldOrigins().get("tags"));
         assertTrue(stored.metadata().provenance().fieldConfidence().isEmpty());
@@ -307,6 +308,8 @@ class MaterialServiceTest {
         );
         MaterialDetail detail = service.getDetail(summary.id());
 
+        assertFalse(summary.metadata().autoTags().contains("relay protection"));
+        assertFalse(summary.metadata().autoTags().contains("transformer automation"));
         assertEquals(1, autoTaggingService.requests.size());
         MaterialAutoTaggingService.TaggingRequest request = autoTaggingService.requests.getFirst();
         assertTrue(request.contentText().contains("релейную защиту трансформатора"));
@@ -341,6 +344,8 @@ class MaterialServiceTest {
         );
         MaterialDetail detail = service.getDetail(summary.id());
 
+        assertFalse(summary.metadata().autoTags().contains("substation automation"));
+        assertFalse(summary.metadata().autoTags().contains("emergency response"));
         assertEquals(1, autoTaggingService.requests.size());
         MaterialAutoTaggingService.TaggingRequest request = autoTaggingService.requests.getFirst();
         assertTrue(request.contentText().contains("автоматика подстанции"));
@@ -448,7 +453,7 @@ class MaterialServiceTest {
             .orElseThrow();
 
         assertEquals(DocumentType.POLICY, stored.metadata().documentType());
-        assertEquals("Dana Sarsen", stored.metadata().author());
+        assertEquals("Manual owner", stored.metadata().author());
         assertEquals(List.of("grid", "policy"), stored.metadata().manualTags());
         assertEquals(List.of("energy"), stored.metadata().autoTags());
         assertEquals(List.of("grid", "policy", "energy"), stored.metadata().effectiveTags());
@@ -456,7 +461,7 @@ class MaterialServiceTest {
         assertEquals("Grid operations", stored.metadata().department());
         assertEquals("v2", stored.metadata().versionLabel());
         assertEquals(MetadataValueOrigin.MANUAL, stored.metadata().provenance().fieldOrigins().get("documentType"));
-        assertEquals(MetadataValueOrigin.INFERRED, stored.metadata().provenance().fieldOrigins().get("author"));
+        assertEquals(MetadataValueOrigin.MANUAL, stored.metadata().provenance().fieldOrigins().get("author"));
         assertEquals(MetadataValueOrigin.INFERRED, stored.metadata().provenance().fieldOrigins().get("department"));
         assertEquals(MetadataValueOrigin.INFERRED, stored.metadata().provenance().fieldOrigins().get("versionLabel"));
     }
@@ -734,7 +739,7 @@ class MaterialServiceTest {
     }
 
     @Test
-    void controlledVersionUploadUsesProvidedMetadataAsFullReplacement() {
+    void controlledVersionUploadUsesProvidedMetadataAsPartialOverride() {
         MaterialService service = createService(new DeterministicEmbeddingClient());
 
         MaterialSummary first = service.saveText(
@@ -797,7 +802,7 @@ class MaterialServiceTest {
             .orElseThrow();
 
         assertEquals(DocumentType.REPORT, stored.metadata().documentType());
-        assertTrue(stored.metadata().manualTags().isEmpty());
+        assertEquals(List.of("manual-grid", "retained"), stored.metadata().manualTags());
     }
 
     @Test

@@ -37,6 +37,8 @@ import com.example.demo.support.DeterministicEmbeddingClient;
 import com.example.demo.support.InMemoryMaterialRepository;
 import com.example.demo.support.TestLexicalRoutingSupport;
 import com.example.demo.support.TestMaterialServices;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
@@ -45,9 +47,12 @@ import org.springframework.http.MediaType;
 import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 class MaterialControllerMetadataFlowTest {
+
+    private static final ObjectMapper JSON_MAPPER = new ObjectMapper();
 
     private MockMvc mockMvc;
 
@@ -95,12 +100,12 @@ class MaterialControllerMetadataFlowTest {
             .andExpect(jsonPath("$.metadata.documentNumber").value("POL-2026-17"))
             .andExpect(jsonPath("$.metadata.workspaceKey").value("north-upgrade"))
             .andExpect(jsonPath("$.metadata.tags", hasItem("policy")))
-            .andExpect(jsonPath("$.metadata.sourceTrust").value("UNKNOWN"))
+            .andExpect(jsonPath("$.metadata.sourceTrust").value("HIGH"))
             .andExpect(jsonPath("$.metadata.documentStatus").value("ACTIVE"))
             .andExpect(jsonPath("$.metadata.provenance.fieldOrigins.documentType").value("MANUAL"))
             .andExpect(jsonPath("$.metadata.provenance.fieldOrigins.knowledgeDocumentClass").value("INFERRED"))
             .andExpect(jsonPath("$.metadata.provenance.fieldOrigins.workspaceKey").value("MANUAL"))
-            .andExpect(jsonPath("$.metadata.provenance.fieldOrigins.sourceTrust").value("DEFAULT"));
+            .andExpect(jsonPath("$.metadata.provenance.fieldOrigins.sourceTrust").value("MANUAL"));
 
         mockMvc.perform(get("/api/materials"))
             .andExpect(status().isOk())
@@ -234,19 +239,142 @@ class MaterialControllerMetadataFlowTest {
             .andExpect(jsonPath("$.title").value("contract-KZ-2026-0415-ENERGY-v2-ru.txt"))
             .andExpect(jsonPath("$.metadata.documentType").value("POLICY"))
             .andExpect(jsonPath("$.metadata.knowledgeDocumentClass").value("regulations"))
-            .andExpect(jsonPath("$.metadata.author").value("Dana Sarsen"))
+            .andExpect(jsonPath("$.metadata.author").value("Manual owner"))
             .andExpect(jsonPath("$.metadata.department").value("Grid operations"))
             .andExpect(jsonPath("$.metadata.versionLabel").value("v2"))
             .andExpect(jsonPath("$.metadata.workspaceKey").value("manual-policy-space"))
             .andExpect(jsonPath("$.metadata.tags", hasItem("grid")))
             .andExpect(jsonPath("$.metadata.sourceTrust").value("UNKNOWN"))
             .andExpect(jsonPath("$.metadata.provenance.fieldOrigins.documentType").value("MANUAL"))
-            .andExpect(jsonPath("$.metadata.provenance.fieldOrigins.author").value("INFERRED"))
+            .andExpect(jsonPath("$.metadata.provenance.fieldOrigins.author").value("MANUAL"))
             .andExpect(jsonPath("$.metadata.provenance.fieldOrigins.knowledgeDocumentClass").value("INFERRED"))
             .andExpect(jsonPath("$.metadata.provenance.fieldOrigins.workspaceKey").value("MANUAL"))
             .andExpect(jsonPath("$.metadata.provenance.fieldOrigins.department").value("INFERRED"))
             .andExpect(jsonPath("$.metadata.provenance.fieldOrigins.versionLabel").value("INFERRED"))
             .andExpect(jsonPath("$.metadata.provenance.fieldOrigins.sourceTrust").value("DEFAULT"));
+    }
+
+    @Test
+    void versionUploadPreservesStoredMetadataWhenOverrideIsOmittedWithoutDocker() throws Exception {
+        String id = createMaterialWithStoredMetadata();
+        MockMultipartFile file = new MockMultipartFile(
+            "file",
+            "grid-policy-v2.txt",
+            "text/plain",
+            "Вторая редакция документа без metadata override.".getBytes(StandardCharsets.UTF_8)
+        );
+
+        mockMvc.perform(multipart("/api/materials/{id}/versions", id)
+                .file(file))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.metadata.documentType").value("POLICY"))
+            .andExpect(jsonPath("$.metadata.documentStatus").value("DRAFT"))
+            .andExpect(jsonPath("$.metadata.documentNumber").value("POL-42"))
+            .andExpect(jsonPath("$.metadata.languageCode").value("RU"))
+            .andExpect(jsonPath("$.metadata.documentDate", hasSize(3)))
+            .andExpect(jsonPath("$.metadata.documentDate[0]").value(2026))
+            .andExpect(jsonPath("$.metadata.documentDate[1]").value(4))
+            .andExpect(jsonPath("$.metadata.documentDate[2]").value(17))
+            .andExpect(jsonPath("$.metadata.author").value("Stored owner"))
+            .andExpect(jsonPath("$.metadata.department").value("Grid operations"))
+            .andExpect(jsonPath("$.metadata.versionLabel").value("v1"))
+            .andExpect(jsonPath("$.metadata.sourceTrust").value("HIGH"))
+            .andExpect(jsonPath("$.metadata.counterparty").value("GridBuild LLP"))
+            .andExpect(jsonPath("$.metadata.businessStatus").value("APPROVED"))
+            .andExpect(jsonPath("$.metadata.periodStart", hasSize(3)))
+            .andExpect(jsonPath("$.metadata.periodStart[0]").value(2026))
+            .andExpect(jsonPath("$.metadata.periodStart[1]").value(4))
+            .andExpect(jsonPath("$.metadata.periodStart[2]").value(1))
+            .andExpect(jsonPath("$.metadata.periodEnd", hasSize(3)))
+            .andExpect(jsonPath("$.metadata.periodEnd[0]").value(2026))
+            .andExpect(jsonPath("$.metadata.periodEnd[1]").value(6))
+            .andExpect(jsonPath("$.metadata.periodEnd[2]").value(30))
+            .andExpect(jsonPath("$.metadata.manualTags", hasItem("manual-grid")));
+    }
+
+    @Test
+    void versionUploadAppliesPartialOverrideWithoutWipingStoredMetadataWithoutDocker() throws Exception {
+        String id = createMaterialWithStoredMetadata();
+        MockMultipartFile file = new MockMultipartFile(
+            "file",
+            "grid-policy-v2.txt",
+            "text/plain",
+            """
+                Автор: Resolver owner
+                Подразделение: Resolver department
+                Вторая редакция документа.
+                """.getBytes(StandardCharsets.UTF_8)
+        );
+        MockMultipartFile metadata = new MockMultipartFile(
+            "metadata",
+            "",
+            MediaType.APPLICATION_JSON_VALUE,
+            """
+                {
+                  "documentType": "REPORT",
+                  "documentNumber": "REP-99",
+                  "manualTags": ["override"]
+                }
+                """.getBytes(StandardCharsets.UTF_8)
+        );
+
+        mockMvc.perform(multipart("/api/materials/{id}/versions", id)
+                .file(file)
+                .file(metadata))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.metadata.documentType").value("REPORT"))
+            .andExpect(jsonPath("$.metadata.documentStatus").value("DRAFT"))
+            .andExpect(jsonPath("$.metadata.documentNumber").value("REP-99"))
+            .andExpect(jsonPath("$.metadata.author").value("Stored owner"))
+            .andExpect(jsonPath("$.metadata.department").value("Grid operations"))
+            .andExpect(jsonPath("$.metadata.versionLabel").value("v1"))
+            .andExpect(jsonPath("$.metadata.sourceTrust").value("HIGH"))
+            .andExpect(jsonPath("$.metadata.counterparty").value("GridBuild LLP"))
+            .andExpect(jsonPath("$.metadata.businessStatus").value("APPROVED"))
+            .andExpect(jsonPath("$.metadata.periodStart", hasSize(3)))
+            .andExpect(jsonPath("$.metadata.periodStart[0]").value(2026))
+            .andExpect(jsonPath("$.metadata.periodStart[1]").value(4))
+            .andExpect(jsonPath("$.metadata.periodStart[2]").value(1))
+            .andExpect(jsonPath("$.metadata.periodEnd", hasSize(3)))
+            .andExpect(jsonPath("$.metadata.periodEnd[0]").value(2026))
+            .andExpect(jsonPath("$.metadata.periodEnd[1]").value(6))
+            .andExpect(jsonPath("$.metadata.periodEnd[2]").value(30))
+            .andExpect(jsonPath("$.metadata.manualTags", hasSize(1)))
+            .andExpect(jsonPath("$.metadata.manualTags", hasItem("override")));
+    }
+
+    private String createMaterialWithStoredMetadata() throws Exception {
+        MvcResult result = mockMvc.perform(post("/api/materials")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "title": "Grid policy",
+                      "content": "Первая редакция документа.",
+                      "metadata": {
+                        "documentType": "POLICY",
+                        "workspaceKey": "general",
+                        "documentStatus": "DRAFT",
+                        "documentNumber": "POL-42",
+                        "languageCode": "RU",
+                        "manualTags": ["manual-grid", "retained"],
+                        "periodStart": "2026-04-01",
+                        "periodEnd": "2026-06-30",
+                        "documentDate": "2026-04-17",
+                        "author": "Stored owner",
+                        "department": "Grid operations",
+                        "versionLabel": "v1",
+                        "sourceTrust": "HIGH",
+                        "project": "North Upgrade",
+                        "counterparty": "GridBuild LLP",
+                        "businessStatus": "APPROVED"
+                      }
+                    }
+                    """))
+            .andExpect(status().isOk())
+            .andReturn();
+
+        JsonNode json = JSON_MAPPER.readTree(result.getResponse().getContentAsString());
+        return json.get("id").asText();
     }
 
     private MaterialService createService() {

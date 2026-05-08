@@ -13,6 +13,7 @@ public class ChatExecutionProperties {
     private int claimLeaseSeconds = 300;
     private int maxAttempts = 2;
     private long heartbeatIntervalMillis = 0;
+    private int compatibilityWaitTimeoutSeconds = 30;
 
     public int getThreads() {
         return threads;
@@ -64,5 +65,13 @@ public class ChatExecutionProperties {
 
     public void setHeartbeatIntervalMillis(long heartbeatIntervalMillis) {
         this.heartbeatIntervalMillis = heartbeatIntervalMillis;
+    }
+
+    public int getCompatibilityWaitTimeoutSeconds() {
+        return Math.min(120, Math.max(1, compatibilityWaitTimeoutSeconds));
+    }
+
+    public void setCompatibilityWaitTimeoutSeconds(int compatibilityWaitTimeoutSeconds) {
+        this.compatibilityWaitTimeoutSeconds = compatibilityWaitTimeoutSeconds;
     }
 }

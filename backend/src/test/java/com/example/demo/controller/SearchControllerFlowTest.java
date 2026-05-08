@@ -95,7 +95,7 @@ class SearchControllerFlowTest {
             .andExpect(jsonPath("$.hits[0].chunkType").value("TABLE"))
             .andExpect(jsonPath("$.hits[0].metadata.documentNumber").value("KZ-2026-0415-ENERGY"))
             .andExpect(jsonPath("$.hits[0].metadata.project").value("North Upgrade"))
-            .andExpect(jsonPath("$.hits[0].metadata.sourceTrust").value("UNKNOWN"))
+            .andExpect(jsonPath("$.hits[0].metadata.sourceTrust").value("HIGH"))
             .andExpect(jsonPath("$.hits[0].neighbors[0].chunkIndex").value(0))
             .andExpect(jsonPath("$.hits[0].neighbors[1].chunkIndex").value(2))
             .andExpect(jsonPath("$.debug.appliedFilters.documentNumber").value("KZ-2026-0415-ENERGY"))

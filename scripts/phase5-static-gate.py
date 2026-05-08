@@ -42,6 +42,24 @@ def java_files(root: Path) -> list[Path]:
     return sorted(path for path in root.rglob("*.java") if path.is_file())
 
 
+def text_files(root: Path, suffixes: tuple[str, ...]) -> list[Path]:
+    if not root.exists():
+        return []
+    return sorted(path for path in root.rglob("*") if path.is_file() and path.suffix in suffixes)
+
+
+def is_test_fixture(path: Path) -> bool:
+    relative = path.relative_to(REPO_ROOT).as_posix()
+    return (
+        "/src/test/" in f"/{relative}"
+        or "/test/" in f"/{relative}"
+        or ".test." in path.name
+        or ".spec." in path.name
+        or relative.startswith("frontend/src/test")
+        or path.name == "testBuilders.ts"
+    )
+
+
 def line_number(source: str, index: int) -> int:
     return source.count("\n", 0, index) + 1
 
@@ -218,6 +236,111 @@ def check_metadata_alias_overwrites_absent() -> list[Violation]:
     return violations
 
 
+def check_weak_runtime_credentials_absent() -> list[Violation]:
+    roots = (
+        REPO_ROOT / "scripts",
+        REPO_ROOT / "frontend/src",
+        REPO_ROOT / "backend/src/main/java",
+        REPO_ROOT / "backend/src/main/resources",
+        REPO_ROOT / "docs",
+    )
+    files: list[Path] = []
+    for root in roots:
+        files.extend(text_files(root, (".java", ".js", ".jsx", ".ts", ".tsx", ".sh", ".zsh", ".yml", ".yaml", ".properties", ".py", ".md")))
+    for path in (REPO_ROOT / "README.md", REPO_ROOT / ".env.example", REPO_ROOT / "docker-compose.yml"):
+        if path.exists():
+            files.append(path)
+
+    line_patterns = (
+        (
+            re.compile(r"APP_SECURITY_ADMIN_PASSWORD[^\n]*:-admin\b"),
+            "APP_SECURITY_ADMIN_PASSWORD:-admin",
+            "Do not default the runtime admin password to `admin`; generate a local password or require an explicit value.",
+        ),
+        (
+            re.compile(r"APP_SECURITY_ADMIN_PASSWORD\s*=\s*admin\b"),
+            "APP_SECURITY_ADMIN_PASSWORD=admin",
+            "Do not ship `admin` as the runtime admin password.",
+        ),
+        (
+            re.compile(r"APP_SECURITY_ADMIN_PASSWORD[^\n]*\$\{APP_SECURITY_ADMIN_PASSWORD:-?admin\}"),
+            "${APP_SECURITY_ADMIN_PASSWORD:admin}",
+            "Do not ship `admin` as the runtime admin password fallback.",
+        ),
+        (
+            re.compile(r"\badmin\s*/\s*admin\b"),
+            "admin/admin",
+            "Do not document or ship `admin/admin` as a non-test runtime credential.",
+        ),
+    )
+    frontend_password_prefill = re.compile(
+        r"\b(password|setPassword)\b[^\n]*useState\(\s*[\"'`]admin[\"'`]\s*\)",
+        re.IGNORECASE,
+    )
+
+    violations: list[Violation] = []
+    for path in sorted(set(files)):
+        if path == REPO_ROOT / "scripts/phase5-static-gate.py" or is_test_fixture(path):
+            continue
+        source = read_text(path)
+        for line_no, line in enumerate(source.splitlines(), start=1):
+            for regex, pattern, fix in line_patterns:
+                if regex.search(line):
+                    violations.append(Violation(
+                        "weak-runtime-credentials",
+                        path,
+                        line_no,
+                        pattern,
+                        fix,
+                    ))
+            if path.as_posix().startswith((REPO_ROOT / "frontend/src").as_posix()) and frontend_password_prefill.search(line):
+                violations.append(Violation(
+                    "weak-runtime-credentials",
+                    path,
+                    line_no,
+                    "prefilled admin password",
+                    "Keep production login password fields empty; never prefill the admin password in the frontend.",
+                ))
+    return violations
+
+
+def check_controllers_do_not_use_direct_chat_executor() -> list[Violation]:
+    controller_root = REPO_ROOT / "backend/src/main/java/com/example/demo/controller"
+    violations: list[Violation] = []
+    for path in java_files(controller_root):
+        source = read_text(path)
+        for pattern in ("ChatExecutionService", ".execute("):
+            for match in re.finditer(re.escape(pattern), source):
+                if pattern == ".execute(" and "chatExecutionService" not in source[max(0, match.start() - 80):match.start()]:
+                    continue
+                violations.append(Violation(
+                    "chat-execution-lifecycle",
+                    path,
+                    line_number(source, match.start()),
+                    pattern,
+                    "HTTP controllers must submit durable chat runs through ChatRunExecutionService; keep ChatExecutionService as the internal worker executor.",
+                ))
+    return violations
+
+
+def check_frontend_production_uses_durable_chat_runs() -> list[Violation]:
+    frontend_root = REPO_ROOT / "frontend/src"
+    violations: list[Violation] = []
+    for path in text_files(frontend_root, (".ts", ".tsx")):
+        if is_test_fixture(path):
+            continue
+        source = read_text(path)
+        for match in re.finditer(r"\bapiClient\.executeChat\s*\(", source):
+            violations.append(Violation(
+                "chat-execution-lifecycle",
+                path,
+                line_number(source, match.start()),
+                "apiClient.executeChat(",
+                "Submit through apiClient.submitChatRun and poll status/result; /api/chat is compatibility-only.",
+            ))
+    return violations
+
+
 def main() -> int:
     checks = (
         check_service_layer_imports,
@@ -226,6 +349,9 @@ def main() -> int:
         check_scoped_ready_material_ids_absent,
         check_trace_snapshots_do_not_mutate_status,
         check_metadata_alias_overwrites_absent,
+        check_weak_runtime_credentials_absent,
+        check_controllers_do_not_use_direct_chat_executor,
+        check_frontend_production_uses_durable_chat_runs,
     )
     violations: list[Violation] = []
     for check in checks:

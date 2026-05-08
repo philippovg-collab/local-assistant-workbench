@@ -145,7 +145,14 @@ class HealthControllerTest {
         when(materialCatalogRepository.countActiveMaterials()).thenReturn(1);
         when(materialCatalogRepository.countReadyMaterials()).thenReturn(0);
         when(indexingQueueRepository.getIndexingQueueSnapshot()).thenReturn(
-            new MaterialIndexingQueueRepository.IndexingQueueSnapshot(1, 1, 0, Instant.parse("2026-04-17T10:05:00Z"))
+            new MaterialIndexingQueueRepository.IndexingQueueSnapshot(
+                1,
+                1,
+                0,
+                Instant.parse("2026-04-17T10:05:00Z"),
+                Instant.parse("2026-04-17T10:00:00Z"),
+                Instant.parse("2026-04-17T10:01:00Z")
+            )
         );
         stubRoutingDecision(
             LexicalProviderMode.POSTGRES,
@@ -173,7 +180,9 @@ class HealthControllerTest {
             .andExpect(jsonPath("$.knowledgeStatus").value("INDEXING"))
             .andExpect(jsonPath("$.knowledgeReasonCode").value("knowledge.indexing_in_progress"))
             .andExpect(jsonPath("$.indexingPendingCount").value(1))
-            .andExpect(jsonPath("$.indexingInProgressCount").value(1));
+            .andExpect(jsonPath("$.indexingInProgressCount").value(1))
+            .andExpect(jsonPath("$.indexingOldestPendingAt").value("2026-04-17T10:00:00Z"))
+            .andExpect(jsonPath("$.indexingOldestInProgressAt").value("2026-04-17T10:01:00Z"));
     }
 
     @Test

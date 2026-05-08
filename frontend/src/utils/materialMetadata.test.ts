@@ -1,10 +1,25 @@
 import { describe, expect, it } from "vitest";
+import type { CompatibilityMetadataInput } from "@/types";
 import {
   buildMaterialMetadataEntries,
   emptyMaterialMetadataFormState,
   toMaterialMetadataInput,
   validateMaterialMetadata,
 } from "./materialMetadata";
+
+const compatibilityOnlyFields = [
+  "knowledgeDocumentClass",
+  "documentDate",
+  "author",
+  "department",
+  "versionLabel",
+  "language",
+  "tags",
+  "sourceTrust",
+  "project",
+  "counterparty",
+  "businessStatus",
+] as const satisfies readonly (keyof CompatibilityMetadataInput)[];
 
 describe("materialMetadata utils", () => {
   it("requires canonical metadata fields", () => {
@@ -61,8 +76,9 @@ describe("materialMetadata utils", () => {
       periodEnd: "2026-12-31",
       manualTags: ["grid", "policy"],
     });
-    expect("sourceTrust" in input).toBe(false);
-    expect("author" in input).toBe(false);
+    for (const field of compatibilityOnlyFields) {
+      expect(field in input).toBe(false);
+    }
   });
 
   it("validates period boundaries when the end date is enabled", () => {

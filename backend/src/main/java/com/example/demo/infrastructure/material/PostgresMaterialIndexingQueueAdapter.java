@@ -195,14 +195,18 @@ final class PostgresMaterialIndexingQueueAdapter extends PostgresMaterialJdbcSup
                         COUNT(*) FILTER (WHERE version_state = 'ACTIVE' AND indexing_status = 'PENDING') AS pending_count,
                         COUNT(*) FILTER (WHERE version_state = 'ACTIVE' AND indexing_status = 'IN_PROGRESS') AS in_progress_count,
                         COUNT(*) FILTER (WHERE version_state = 'ACTIVE' AND indexing_status = 'FAILED') AS failed_count,
-                        MIN(next_retry_at) FILTER (WHERE version_state = 'ACTIVE' AND indexing_status = 'PENDING' AND next_retry_at IS NOT NULL) AS next_retry_at
+                        MIN(next_retry_at) FILTER (WHERE version_state = 'ACTIVE' AND indexing_status = 'PENDING' AND next_retry_at IS NOT NULL) AS next_retry_at,
+                        MIN(updated_at) FILTER (WHERE version_state = 'ACTIVE' AND indexing_status = 'PENDING') AS oldest_pending_at,
+                        MIN(COALESCE(claimed_at, updated_at)) FILTER (WHERE version_state = 'ACTIVE' AND indexing_status = 'IN_PROGRESS') AS oldest_in_progress_at
                     FROM materials
                     """,
                 (resultSet, rowNum) -> new MaterialIndexingQueueRepository.IndexingQueueSnapshot(
                     resultSet.getInt("pending_count"),
                     resultSet.getInt("in_progress_count"),
                     resultSet.getInt("failed_count"),
-                    PostgresMaterialJdbcSupport.toInstantOrNull(resultSet.getTimestamp("next_retry_at"))
+                    PostgresMaterialJdbcSupport.toInstantOrNull(resultSet.getTimestamp("next_retry_at")),
+                    PostgresMaterialJdbcSupport.toInstantOrNull(resultSet.getTimestamp("oldest_pending_at")),
+                    PostgresMaterialJdbcSupport.toInstantOrNull(resultSet.getTimestamp("oldest_in_progress_at"))
                 )
             );
         } catch (DataAccessException exception) {

@@ -44,6 +44,7 @@ app:
     indexing-max-attempts: 3
     indexing-retry-base-seconds: 5
     indexing-retry-max-seconds: 60
+    indexing-worker-count: 2
     indexing-drain-max-jobs: 64
     auto-tags:
       llm-enabled: true
@@ -94,6 +95,10 @@ app:
     fail-closed: false
     health-failure-threshold: 1
     retention-days: 30
+    redaction-enabled: "${APP_AUDIT_REDACTION_ENABLED:true}"
+    store-raw-llm-response: "${APP_AUDIT_STORE_RAW_LLM_RESPONSE:false}"
+    store-request-messages: "${APP_AUDIT_STORE_REQUEST_MESSAGES:true}"
+    max-stored-text-chars: "${APP_AUDIT_MAX_STORED_TEXT_CHARS:12000}"
   request:
     max-json-bytes: 1048576
   security:
@@ -104,6 +109,7 @@ app:
     threads: 2
     queue-capacity: 32
     poll-interval-millis: 1000
+    compatibility-wait-timeout-seconds: "${APP_CHAT_EXECUTION_COMPATIBILITY_WAIT_TIMEOUT_SECONDS:30}"
     claim-lease-seconds: 300
     max-attempts: 2
   search-sync:

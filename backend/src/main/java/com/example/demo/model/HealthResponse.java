@@ -50,6 +50,8 @@ public record HealthResponse(
     Integer indexingInProgressCount,
     Integer indexingFailedCount,
     String indexingNextRetryAt,
+    String indexingOldestPendingAt,
+    String indexingOldestInProgressAt,
     QualityLayerHealth qualityLayer,
     Map<String, ReadinessComponent> readiness
 ) {
@@ -128,6 +130,8 @@ public record HealthResponse(
             databaseReasonMessage,
             vectorStatus,
             vectorReasonMessage,
+            null,
+            null,
             null,
             null,
             null,

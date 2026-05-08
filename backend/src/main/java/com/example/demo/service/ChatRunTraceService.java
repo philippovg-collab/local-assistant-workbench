@@ -1,7 +1,7 @@
 package com.example.demo.service;
 
 import com.example.demo.api.ApiException;
-import com.example.demo.service.audit.port.ChatRunTraceRepository;
+import com.example.demo.config.ChatAuditProperties;
 import com.example.demo.llm.LlmClient;
 import com.example.demo.model.AnswerMode;
 import com.example.demo.model.ChatAuditRunDetail;
@@ -19,6 +19,7 @@ import com.example.demo.model.PromptPolicySnapshot;
 import com.example.demo.model.RetrievalDebug;
 import com.example.demo.model.RetrievalTrace;
 import com.example.demo.service.audit.ChatRunLeaseToken;
+import com.example.demo.service.audit.port.ChatRunTraceRepository;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -26,6 +27,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -34,12 +36,19 @@ public class ChatRunTraceService {
     private static final String PROVIDER_OLLAMA = "ollama";
 
     private final ChatRunTraceRepository repository;
+    private final AuditRedactionService redactionService;
     private final ChatRunStateMachine stateMachine;
     private final AtomicInteger consecutiveFailureCount = new AtomicInteger(0);
     private final AtomicReference<TraceHealth> traceHealth = new AtomicReference<>(TraceHealth.up(null));
 
     public ChatRunTraceService(ChatRunTraceRepository repository) {
+        this(repository, new AuditRedactionService(new ChatAuditProperties()));
+    }
+
+    @Autowired
+    public ChatRunTraceService(ChatRunTraceRepository repository, AuditRedactionService redactionService) {
         this.repository = repository;
+        this.redactionService = redactionService;
         this.stateMachine = new ChatRunStateMachine(repository);
     }
 
@@ -69,7 +78,11 @@ public class ChatRunTraceService {
         ChatExecutionRequest normalizedRequest
     ) {
         write(() -> {
-            repository.saveRequestSnapshot(context.id(), request, normalizedRequest);
+            repository.saveRequestSnapshot(
+                context.id(),
+                redactionService.redactRequest(request),
+                redactionService.redactRequest(normalizedRequest)
+            );
             repository.insertEventIfRunMutable(context.id(), "REQUEST_SNAPSHOT_SAVED", Map.of(), Instant.now());
             return null;
         });
@@ -85,7 +98,7 @@ public class ChatRunTraceService {
             PromptPolicySnapshot enrichedSnapshot = snapshot == null
                 ? null
                 : snapshot.withTrace(instructionTrace, knowledgeScopeResolved);
-            repository.savePromptSnapshot(context.id(), enrichedSnapshot);
+            repository.savePromptSnapshot(context.id(), redactionService.redactPromptSnapshot(enrichedSnapshot));
             repository.insertEventIfRunMutable(context.id(), "PROMPT_RESOLVED", Map.of(), Instant.now());
             return null;
         });
@@ -93,7 +106,10 @@ public class ChatRunTraceService {
 
     public void savePromptMessages(RunTraceContext context, List<LlmClient.Message> messages) {
         write(() -> {
-            repository.savePromptMessages(context.id(), toChatRunMessages(messages));
+            repository.savePromptMessages(
+                context.id(),
+                redactionService.redactRequestMessages(toChatRunMessages(messages))
+            );
             repository.insertEventIfRunMutable(context.id(), "PROMPT_MESSAGES_SAVED", Map.of(
                 "messageCount",
                 messages == null ? 0 : messages.size()
@@ -126,9 +142,9 @@ public class ChatRunTraceService {
                 UUID.randomUUID().toString(),
                 PROVIDER_OLLAMA,
                 result == null ? null : result.model(),
-                toChatRunMessages(request == null ? null : request.messages()),
-                result == null ? null : result.rawResponse(),
-                result == null ? null : result.answer(),
+                redactionService.redactRequestMessages(toChatRunMessages(request == null ? null : request.messages())),
+                redactionService.redactRawLlmText(result == null ? null : result.rawResponse()),
+                redactionService.redactRawLlmText(result == null ? null : result.answer()),
                 result == null ? null : result.promptTokens(),
                 result == null ? null : result.completionTokens(),
                 result == null ? null : result.totalTokens(),
@@ -157,7 +173,7 @@ public class ChatRunTraceService {
                 UUID.randomUUID().toString(),
                 PROVIDER_OLLAMA,
                 request == null ? null : request.model(),
-                toChatRunMessages(request == null ? null : request.messages()),
+                redactionService.redactRequestMessages(toChatRunMessages(request == null ? null : request.messages())),
                 null,
                 null,
                 null,
@@ -168,14 +184,14 @@ public class ChatRunTraceService {
                 timeoutSeconds,
                 null,
                 reasonCode(throwable),
-                rootMessage(throwable),
+                redactionService.redactStoredText(rootMessage(throwable)),
                 Instant.now()
             ));
             repository.insertEventIfRunMutable(context.id(), "LLM_FAILED", Map.of(
                 "code",
                 reasonCode(throwable),
                 "message",
-                rootMessage(throwable)
+                redactionService.redactStoredText(rootMessage(throwable))
             ), Instant.now());
             return null;
         });
@@ -192,8 +208,8 @@ public class ChatRunTraceService {
     ) {
         write(() -> {
             repository.saveOutput(context.id(), new ChatRunOutputTrace(
-                rawModelAnswer,
-                finalUserAnswer,
+                redactionService.redactRawLlmText(rawModelAnswer),
+                redactionService.redactStoredText(finalUserAnswer),
                 sources,
                 com.fasterxml.jackson.databind.json.JsonMapper.builder().findAndAddModules().build().valueToTree(postprocess == null ? Map.of() : postprocess),
                 abstained,

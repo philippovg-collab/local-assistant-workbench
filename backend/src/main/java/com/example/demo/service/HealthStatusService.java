@@ -151,6 +151,12 @@ public class HealthStatusService {
             indexingQueueSnapshot == null || indexingQueueSnapshot.nextRetryAt() == null
                 ? null
                 : indexingQueueSnapshot.nextRetryAt().toString(),
+            indexingQueueSnapshot == null || indexingQueueSnapshot.oldestPendingAt() == null
+                ? null
+                : indexingQueueSnapshot.oldestPendingAt().toString(),
+            indexingQueueSnapshot == null || indexingQueueSnapshot.oldestInProgressAt() == null
+                ? null
+                : indexingQueueSnapshot.oldestInProgressAt().toString(),
             qualityLayerHealthService.currentHealth(),
             readiness
         );

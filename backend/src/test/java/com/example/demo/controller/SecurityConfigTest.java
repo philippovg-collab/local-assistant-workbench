@@ -1,10 +1,12 @@
 package com.example.demo.controller;
 
+import static org.hamcrest.Matchers.containsString;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -39,7 +41,7 @@ import org.springframework.test.web.servlet.MockMvc;
 @TestPropertySource(properties = {
     "app.security.enabled=true",
     "app.security.admin-username=admin",
-    "app.security.admin-password=secret",
+    "app.security.admin-password=strong-test-password-123",
     "app.request.max-json-bytes=1048576"
 })
 class SecurityConfigTest {
@@ -79,13 +81,25 @@ class SecurityConfigTest {
                 .with(csrf())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
-                    {"username":"admin","password":"secret"}
+                    {"username":"admin","password":"strong-test-password-123"}
                     """))
             .andExpect(status().isOk())
+            .andExpect(header().string("Cache-Control", containsString("no-store")))
             .andExpect(jsonPath("$.authenticated").value(true))
             .andExpect(jsonPath("$.username").value("admin"))
             .andExpect(jsonPath("$.roles[0]").value("ROLE_ADMIN"))
             .andExpect(jsonPath("$.csrfToken").isString());
+    }
+
+    @Test
+    void loginRequiresCsrf() throws Exception {
+        mockMvc.perform(post("/api/auth/login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"username":"admin","password":"strong-test-password-123"}
+                    """))
+            .andExpect(status().isForbidden())
+            .andExpect(jsonPath("$.code").value("auth.forbidden"));
     }
 
     @Test

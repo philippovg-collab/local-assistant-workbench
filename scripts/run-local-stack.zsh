@@ -21,12 +21,28 @@ BACKEND_HEALTH_URL="http://127.0.0.1:8080/api/liveness"
 BACKEND_MODELS_URL="http://127.0.0.1:8080/api/models"
 FRONTEND_URL="http://127.0.0.1:5173"
 export APP_SECURITY_ADMIN_USERNAME="${APP_SECURITY_ADMIN_USERNAME:-admin}"
-export APP_SECURITY_ADMIN_PASSWORD="${APP_SECURITY_ADMIN_PASSWORD:-local-admin-password}"
 STACK_START_TIMEOUT_SECONDS="${STACK_START_TIMEOUT_SECONDS:-60}"
 BACKEND_START_TIMEOUT_SECONDS="${BACKEND_START_TIMEOUT_SECONDS:-90}"
 STACK_POLL_INTERVAL_SECONDS="${STACK_POLL_INTERVAL_SECONDS:-2}"
 REUSE_PROBE_ATTEMPTS="${REUSE_PROBE_ATTEMPTS:-3}"
 REUSE_PROBE_DELAY_SECONDS="${REUSE_PROBE_DELAY_SECONDS:-1}"
+
+ensure_admin_password() {
+  if [[ -n "${APP_SECURITY_ADMIN_PASSWORD:-}" ]]; then
+    export APP_SECURITY_ADMIN_PASSWORD
+    return 0
+  fi
+
+  if ! command -v openssl >/dev/null 2>&1; then
+    echo "APP_SECURITY_ADMIN_PASSWORD is not set and openssl is unavailable." >&2
+    echo "Set APP_SECURITY_ADMIN_PASSWORD before starting the local stack." >&2
+    exit 1
+  fi
+
+  APP_SECURITY_ADMIN_PASSWORD="$(openssl rand -base64 24)"
+  export APP_SECURITY_ADMIN_PASSWORD
+  echo "Generated a random local admin password for this stack session." >&2
+}
 
 extract_http_host() {
   local url="$1"
@@ -453,6 +469,8 @@ start_backend() {
     return 0
   fi
 
+  ensure_admin_password
+
   java21_home=$(resolve_java_21_home || true)
   if [[ -z "$java21_home" ]]; then
     echo "Java 21 not found. Install OpenJDK 21 or export JAVA_21_HOME before starting backend." >&2
@@ -552,7 +570,7 @@ echo
 echo "Local stack is ready under supervisor:"
 echo "  Frontend: $FRONTEND_URL"
 echo "  Backend:  http://127.0.0.1:8080"
-echo "  Admin:    $APP_SECURITY_ADMIN_USERNAME / $APP_SECURITY_ADMIN_PASSWORD"
+echo "  Admin:    $APP_SECURITY_ADMIN_USERNAME / ${APP_SECURITY_ADMIN_PASSWORD:-set APP_SECURITY_ADMIN_PASSWORD for reused backend auth}"
 echo "  Ollama:   $OLLAMA_URL ($OLLAMA_MODE_DESCRIPTION)"
 echo "  Postgres: $DATASOURCE_URL"
 echo "  metadata-v1: $APP_ROLLOUT_METADATA_V1"

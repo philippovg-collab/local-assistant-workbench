@@ -38,7 +38,17 @@ public interface MaterialIndexingQueueRepository {
         int pendingCount,
         int inProgressCount,
         int failedCount,
-        Instant nextRetryAt
+        Instant nextRetryAt,
+        Instant oldestPendingAt,
+        Instant oldestInProgressAt
     ) {
+        public IndexingQueueSnapshot(
+            int pendingCount,
+            int inProgressCount,
+            int failedCount,
+            Instant nextRetryAt
+        ) {
+            this(pendingCount, inProgressCount, failedCount, nextRetryAt, null, null);
+        }
     }
 }

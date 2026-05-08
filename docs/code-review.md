@@ -7,16 +7,16 @@ Use code review as a quality gate for behavior, boundaries, tests, and removal o
 1. Run the local review loop before requesting review:
 
 ```bash
-./scripts/review-local.sh
+bash scripts/quality-gates.sh fast
 ```
 
 2. For medium/high-risk backend work, include the integration proof:
 
 ```bash
-./scripts/review-local.sh --integration
+bash scripts/quality-gates.sh full
 ```
 
-3. Fill the PR template. Every PR must include a short Risk / Review Focus section and Tests / Evidence.
+3. Fill the PR template. Every PR must include risk, touched boundaries, tests/evidence, security/data/deploy impact, anti-sprawl declaration, complexity delta, and rollback plan.
 
 4. Review in this order:
 
@@ -45,7 +45,7 @@ Use code review as a quality gate for behavior, boundaries, tests, and removal o
 
 ## Automation
 
-- `.github/workflows/ci.yml` runs backend coverage, frontend coverage/build, Docker-backed integration checks, and SonarCloud Quality Gate.
-- `.github/workflows/review-contract.yml` validates that the PR body contains review focus and test evidence.
+- `.github/workflows/ci.yml` runs static gates, fast quality gates, backend coverage ratchets, frontend coverage/build, Docker-backed integration checks, and SonarCloud Quality Gate.
+- `.github/workflows/review-contract.yml` validates that the PR body contains review focus, test evidence, high-risk path proof, anti-sprawl details, complexity delta, and rollback plan.
 - `scripts/review-contract.py` flags new production-code sprawl keywords unless the PR declares the path and fills the required anti-sprawl details.
-- `scripts/review-local.sh` runs the same local review guard, coverage loop, and frontend build before review.
+- `scripts/quality-gates.sh fast|full|ci` is the primary local/CI entrypoint for Phase 7 gates.

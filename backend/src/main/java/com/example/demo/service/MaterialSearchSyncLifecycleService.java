@@ -13,6 +13,7 @@ import com.example.demo.service.material.port.MaterialLineageRepository;
 import com.example.demo.service.material.port.MaterialSearchSyncQueueRepository;
 
 import com.example.demo.model.MaterialIndexingStatus;
+import com.example.demo.model.MaterialMetadataSnapshot;
 import com.example.demo.model.MaterialVersionState;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -214,6 +215,26 @@ public class MaterialSearchSyncLifecycleService {
             updatedAt
         );
         return updatedRecord;
+    }
+
+    @Transactional
+    public StoredMaterialRecord updateMetadataAndMarkIndexingPending(
+        String materialId,
+        MaterialMetadataSnapshot metadata,
+        String reasonCode,
+        String reasonMessage,
+        Instant updatedAt
+    ) {
+        StoredMaterialRecord updatedMetadataRecord = catalogRepository.updateMetadata(materialId, metadata, updatedAt);
+        if (updatedMetadataRecord == null) {
+            return null;
+        }
+        return indexingQueueRepository.markIndexingPending(
+            materialId,
+            reasonCode,
+            reasonMessage,
+            updatedAt
+        );
     }
 
     @Transactional

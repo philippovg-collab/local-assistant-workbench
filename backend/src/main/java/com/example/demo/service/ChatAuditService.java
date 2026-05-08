@@ -19,16 +19,27 @@ public class ChatAuditService {
     private final ChatAuditRepository repository;
     private final ChatRunQueryService queryService;
     private final ChatRunTraceService traceService;
+    private final AuditRedactionService redactionService;
 
-    @Autowired
     public ChatAuditService(
         ChatAuditRepository repository,
         ChatRunQueryService queryService,
         ChatRunTraceService traceService
     ) {
+        this(repository, queryService, traceService, new AuditRedactionService(new com.example.demo.config.ChatAuditProperties()));
+    }
+
+    @Autowired
+    public ChatAuditService(
+        ChatAuditRepository repository,
+        ChatRunQueryService queryService,
+        ChatRunTraceService traceService,
+        AuditRedactionService redactionService
+    ) {
         this.repository = Objects.requireNonNull(repository, "repository");
         this.queryService = Objects.requireNonNull(queryService, "queryService");
         this.traceService = Objects.requireNonNull(traceService, "traceService");
+        this.redactionService = Objects.requireNonNull(redactionService, "redactionService");
     }
 
     public String record(ChatExecutionResponse response) {
@@ -43,8 +54,8 @@ public class ChatAuditService {
             UUID.randomUUID().toString(),
             response.mode(),
             response.model(),
-            response.prompt(),
-            response.answer(),
+            redactionService.redactStoredText(response.prompt()),
+            redactionService.redactStoredText(response.answer()),
             response.contextStatus(),
             response.answerModeApplied(),
             Instant.parse(response.createdAt()),

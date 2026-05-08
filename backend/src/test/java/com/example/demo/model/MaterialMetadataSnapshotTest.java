@@ -67,7 +67,7 @@ class MaterialMetadataSnapshotTest {
     }
 
     @Test
-    void mapsValidLegacyBusinessStatusToDocumentStatusWithoutOverwritingLegacyValue() {
+    void doesNotAliasValidLegacyBusinessStatusToDocumentStatus() {
         MaterialMetadataSnapshot metadata = MaterialMetadataSnapshot.fromInput(new MaterialMetadataInput(
             DocumentType.POLICY,
             "general",
@@ -92,7 +92,7 @@ class MaterialMetadataSnapshotTest {
         ));
 
         assertEquals("DRAFT", metadata.businessStatus());
-        assertEquals(DocumentStatus.DRAFT, metadata.documentStatus());
+        assertEquals(DocumentStatus.ACTIVE, metadata.documentStatus());
     }
 
     @Test
@@ -122,5 +122,86 @@ class MaterialMetadataSnapshotTest {
 
         assertEquals("APPROVED", metadata.businessStatus());
         assertEquals(DocumentStatus.ACTIVE, metadata.documentStatus());
+    }
+
+    @Test
+    void createsPreservationInputForCanonicalAndCompatibilityFields() {
+        MaterialMetadataSnapshot metadata = MaterialMetadataSnapshot.fromInput(new MaterialMetadataInput(
+            DocumentType.CONTRACT,
+            "general",
+            DocumentStatus.DRAFT,
+            "line-a",
+            "KZ-2026-0415-ENERGY",
+            MaterialLanguageCode.RU,
+            List.of("manual-grid"),
+            LocalDate.parse("2026-04-01"),
+            LocalDate.parse("2026-06-30"),
+            null,
+            LocalDate.parse("2026-04-17"),
+            "Legal lead",
+            "Legal",
+            "v2",
+            "ru",
+            List.of("manual-grid"),
+            SourceTrustLevel.HIGH,
+            "Line A Display",
+            "KazEnergy Service",
+            "APPROVED"
+        ));
+
+        MaterialMetadataInput input = metadata.toEditableInputPreservingStoredFields();
+
+        assertEquals(DocumentType.CONTRACT, input.documentType());
+        assertEquals("general", input.workspaceKey());
+        assertEquals(DocumentStatus.DRAFT, input.documentStatus());
+        assertEquals("line-a", input.projectKey());
+        assertEquals("KZ-2026-0415-ENERGY", input.documentNumber());
+        assertEquals(MaterialLanguageCode.RU, input.languageCode());
+        assertEquals(List.of("manual-grid"), input.manualTags());
+        assertEquals(LocalDate.parse("2026-04-01"), input.periodStart());
+        assertEquals(LocalDate.parse("2026-06-30"), input.periodEnd());
+        assertEquals(LocalDate.parse("2026-04-17"), input.documentDate());
+        assertEquals("Legal lead", input.author());
+        assertEquals("Legal", input.department());
+        assertEquals("v2", input.versionLabel());
+        assertEquals(SourceTrustLevel.HIGH, input.sourceTrust());
+        assertEquals("Line A Display", input.project());
+        assertEquals("KazEnergy Service", input.counterparty());
+        assertEquals("APPROVED", input.businessStatus());
+    }
+
+    @Test
+    void preservationInputKeepsManualTagsSeparateFromAutoTagsAndDoesNotAliasLegacyFields() {
+        MaterialMetadataSnapshot metadata = MaterialMetadataSnapshot.fromInput(new MaterialMetadataInput(
+            DocumentType.POLICY,
+            "general",
+            null,
+            "line-a",
+            null,
+            null,
+            List.of("manual-grid"),
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            List.of("manual-grid"),
+            null,
+            "Line A Display",
+            null,
+            "DRAFT"
+        )).withTagLayers(List.of("manual-grid"), List.of("auto-grid"));
+
+        MaterialMetadataInput input = metadata.toEditableInputPreservingStoredFields();
+
+        assertEquals(List.of("manual-grid"), input.manualTags());
+        assertEquals(List.of("manual-grid"), input.tags());
+        assertEquals("DRAFT", input.businessStatus());
+        assertEquals(DocumentStatus.ACTIVE, input.effectiveDocumentStatus());
+        assertEquals("Line A Display", input.project());
+        assertEquals("line-a", input.projectKey());
     }
 }

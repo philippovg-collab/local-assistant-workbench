@@ -27,13 +27,19 @@ import com.example.demo.model.MaterialVersionState;
 import java.io.IOException;
 import java.time.Instant;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
+import java.util.concurrent.Executor;
+import java.util.concurrent.RejectedExecutionException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -50,6 +56,26 @@ public class MaterialIngestionService {
         ALLOW_NEW_VERSION
     }
 
+    private record PersistMaterialResult(
+        MaterialSummary summary,
+        boolean autoTagEligible
+    ) {
+    }
+
+    private record AutoTaggingContext(
+        String materialId,
+        String title,
+        String sourceType,
+        String originalFileName,
+        String mediaType,
+        String contentText,
+        MaterialMetadataHints parserHints
+    ) {
+        AutoTaggingContext {
+            parserHints = parserHints == null ? MaterialMetadataHints.empty() : parserHints;
+        }
+    }
+
     private final MaterialCatalogRepository catalogRepository;
     private final MaterialLineageRepository lineageRepository;
     private final DocumentTextExtractor extractor;
@@ -61,6 +87,8 @@ public class MaterialIngestionService {
     private final AfterCommitExecutor afterCommitExecutor;
     private final RolloutProperties rolloutProperties;
     private final MaterialAutoTaggingService autoTaggingService;
+    private final TransactionTemplate persistenceTransactionTemplate;
+    private final Executor autoTaggingExecutor;
 
     @Autowired
     public MaterialIngestionService(
@@ -74,7 +102,9 @@ public class MaterialIngestionService {
         MaterialIndexingService indexingService,
         AfterCommitExecutor afterCommitExecutor,
         RolloutProperties rolloutProperties,
-        MaterialAutoTaggingService autoTaggingService
+        MaterialAutoTaggingService autoTaggingService,
+        PlatformTransactionManager transactionManager,
+        @Qualifier("materialAutoTaggingExecutor") Executor autoTaggingExecutor
     ) {
         this.catalogRepository = catalogRepository;
         this.lineageRepository = lineageRepository;
@@ -87,6 +117,38 @@ public class MaterialIngestionService {
         this.afterCommitExecutor = afterCommitExecutor;
         this.rolloutProperties = rolloutProperties == null ? new RolloutProperties() : rolloutProperties;
         this.autoTaggingService = autoTaggingService;
+        this.persistenceTransactionTemplate = transactionManager == null ? null : new TransactionTemplate(transactionManager);
+        this.autoTaggingExecutor = autoTaggingExecutor == null ? Runnable::run : autoTaggingExecutor;
+    }
+
+    public MaterialIngestionService(
+        MaterialCatalogRepository catalogRepository,
+        MaterialLineageRepository lineageRepository,
+        DocumentTextExtractor extractor,
+        MaterialProperties properties,
+        MaterialContentSupport contentSupport,
+        MaterialMetadataResolver metadataResolver,
+        MaterialSearchSyncLifecycleService lifecycleService,
+        MaterialIndexingService indexingService,
+        AfterCommitExecutor afterCommitExecutor,
+        RolloutProperties rolloutProperties,
+        MaterialAutoTaggingService autoTaggingService
+    ) {
+        this(
+            catalogRepository,
+            lineageRepository,
+            extractor,
+            properties,
+            contentSupport,
+            metadataResolver,
+            lifecycleService,
+            indexingService,
+            afterCommitExecutor,
+            rolloutProperties,
+            autoTaggingService,
+            null,
+            Runnable::run
+        );
     }
 
     public MaterialIngestionService(
@@ -112,7 +174,9 @@ public class MaterialIngestionService {
             indexingService,
             afterCommitExecutor,
             rolloutProperties,
-            null
+            null,
+            null,
+            Runnable::run
         );
     }
 
@@ -138,11 +202,12 @@ public class MaterialIngestionService {
             indexingService,
             afterCommitExecutor,
             RolloutProperties.enabledForTests(),
-            null
+            null,
+            null,
+            Runnable::run
         );
     }
 
-    @Transactional
     public MaterialSummary saveText(String title, String content, MaterialMetadataInput metadataInput) {
         InputLimits.validateMaterialMetadata(metadataInput);
         if (!StringUtils.hasText(content)) {
@@ -174,7 +239,8 @@ public class MaterialIngestionService {
             DocumentParserProfile.RICH_TEXT
         );
         try {
-            return persistMaterial(
+            String contentText = contentSupport.joinBlocks(parseResult);
+            PersistMaterialResult result = persistMaterial(
                 resolvedTitle,
                 "text",
                 null,
@@ -187,11 +253,21 @@ public class MaterialIngestionService {
                     null,
                     "text/plain",
                     contentSupport.headerTextForHints(parseResult),
-                    contentSupport.joinBlocks(parseResult),
+                    contentText,
                     parseResult.metadataHints()
                 ),
                 parseResult
             );
+            scheduleAutoTagging(result, new AutoTaggingContext(
+                result.summary().id(),
+                resolvedTitle,
+                "text",
+                null,
+                "text/plain",
+                contentText,
+                parseResult.metadataHints()
+            ));
+            return result.summary();
         } catch (ApiException exception) {
             logKnownMaterialFailure("persist", "text", resolvedTitle, null, "text/plain", exception);
             throw exception;
@@ -201,7 +277,6 @@ public class MaterialIngestionService {
         }
     }
 
-    @Transactional
     public MaterialSummary saveUpload(String title, MultipartFile file, MaterialMetadataInput metadataInput) {
         return saveUploadInternal(
             title,
@@ -214,7 +289,6 @@ public class MaterialIngestionService {
         );
     }
 
-    @Transactional
     public MaterialSummary saveUploadVersion(
         String materialId,
         String title,
@@ -241,9 +315,8 @@ public class MaterialIngestionService {
             );
         }
 
-        MaterialMetadataInput effectiveMetadataInput = metadataInput == null
-            ? editableMetadataInputFrom(targetRecord.metadata())
-            : metadataInput;
+        MaterialMetadataInput effectiveMetadataInput = targetRecord.metadata()
+            .toEditableInputPreservingStoredFields(metadataInput);
         return saveUploadInternal(
             title,
             file,
@@ -255,7 +328,6 @@ public class MaterialIngestionService {
         );
     }
 
-    @Transactional
     public MaterialSummary editMaterial(
         String materialId,
         String title,
@@ -309,21 +381,22 @@ public class MaterialIngestionService {
             false,
             DocumentParserProfile.RICH_TEXT
         );
+        String contentText = contentSupport.joinBlocks(parseResult);
         MaterialMetadataSnapshot metadata = rolloutProperties.isMetadataV1()
             ? resolveMetadata(
-                metadataInput == null ? editableMetadataInputFrom(targetRecord.metadata()) : metadataInput,
+                targetRecord.metadata().toEditableInputPreservingStoredFields(metadataInput),
                 resolvedTitle,
                 targetRecord.sourceType(),
                 targetRecord.originalFileName(),
                 targetRecord.mediaType(),
                 contentSupport.headerTextForHints(parseResult),
-                contentSupport.joinBlocks(parseResult),
+                contentText,
                 parseResult.metadataHints()
             )
             : targetRecord.metadata();
 
         try {
-            return persistMaterial(
+            PersistMaterialResult result = persistMaterial(
                 resolvedTitle,
                 targetRecord.sourceType(),
                 targetRecord.originalFileName(),
@@ -335,6 +408,16 @@ public class MaterialIngestionService {
                 false,
                 DuplicateContentBehavior.ALLOW_NEW_VERSION
             );
+            scheduleAutoTagging(result, new AutoTaggingContext(
+                result.summary().id(),
+                resolvedTitle,
+                targetRecord.sourceType(),
+                targetRecord.originalFileName(),
+                targetRecord.mediaType(),
+                contentText,
+                parseResult.metadataHints()
+            ));
+            return result.summary();
         } catch (ApiException exception) {
             logKnownMaterialFailure(
                 "edit",
@@ -407,7 +490,8 @@ public class MaterialIngestionService {
             }
 
             try {
-                return persistMaterial(
+                String contentText = contentSupport.joinBlocks(document);
+                PersistMaterialResult result = persistMaterial(
                     resolvedTitle,
                     "file",
                     originalFileName,
@@ -420,7 +504,7 @@ public class MaterialIngestionService {
                         originalFileName,
                         mediaType,
                         contentSupport.headerTextForHints(document),
-                        contentSupport.joinBlocks(document),
+                        contentText,
                         document.metadataHints()
                     ),
                     document,
@@ -428,6 +512,16 @@ public class MaterialIngestionService {
                     inheritManualTagsWhenEmpty,
                     duplicateContentBehavior
                 );
+                scheduleAutoTagging(result, new AutoTaggingContext(
+                    result.summary().id(),
+                    resolvedTitle,
+                    "file",
+                    originalFileName,
+                    mediaType,
+                    contentText,
+                    document.metadataHints()
+                ));
+                return result.summary();
             } catch (ApiException exception) {
                 logKnownMaterialFailure("persist", "file", resolvedTitle, originalFileName, mediaType, exception);
                 throw exception;
@@ -451,32 +545,6 @@ public class MaterialIngestionService {
                 exception
             );
         }
-    }
-
-    private MaterialMetadataInput editableMetadataInputFrom(MaterialMetadataSnapshot metadata) {
-        MaterialMetadataSnapshot safeMetadata = metadata == null ? MaterialMetadataSnapshot.empty() : metadata;
-        return new MaterialMetadataInput(
-            safeMetadata.documentType(),
-            safeMetadata.workspaceKey(),
-            safeMetadata.documentStatus(),
-            safeMetadata.projectKey(),
-            safeMetadata.documentNumber(),
-            safeMetadata.languageCode(),
-            safeMetadata.manualTags(),
-            safeMetadata.periodStart(),
-            safeMetadata.periodEnd(),
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            List.of(),
-            null,
-            null,
-            null,
-            null
-        );
     }
 
     @Transactional
@@ -515,7 +583,7 @@ public class MaterialIngestionService {
         return imported;
     }
 
-    private MaterialSummary persistMaterial(
+    private PersistMaterialResult persistMaterial(
         String title,
         String sourceType,
         String originalFileName,
@@ -538,7 +606,7 @@ public class MaterialIngestionService {
         );
     }
 
-    private MaterialSummary persistMaterial(
+    private PersistMaterialResult persistMaterial(
         String title,
         String sourceType,
         String originalFileName,
@@ -570,23 +638,60 @@ public class MaterialIngestionService {
 
         String normalizedContent = contentSupport.normalizeForHash(storedContent);
         String contentHash = contentSupport.sha256(normalizedContent);
-        String sourceKey;
-        if (StringUtils.hasText(forcedSourceKey)) {
-            sourceKey = forcedSourceKey.trim();
-        } else {
-            MaterialLineageIdentity lineageIdentity = contentSupport.buildLineageIdentity(
+        MaterialLineageIdentity lineageIdentity = StringUtils.hasText(forcedSourceKey)
+            ? null
+            : contentSupport.buildLineageIdentity(
                 sourceType,
                 lineageTitle,
                 originalFileName,
                 storedContent
             );
-            sourceKey = lineageRepository.resolveSourceKey(lineageIdentity);
-        }
         ChunkProfile chunkProfile = contentSupport.configuredChunkProfile(rolloutProperties.isStructuredV1());
         List<StoredMaterialChunk> initialChunks = contentSupport.buildChunks(document, chunkProfile);
         List<StoredMaterialChunk> rawChunks = initialChunks.isEmpty()
             ? contentSupport.buildChunks(normalizedSegments, chunkProfile)
             : initialChunks;
+        return inPersistenceTransaction(() -> persistPreparedMaterial(
+            title,
+            sourceType,
+            originalFileName,
+            mediaType,
+            storedContent,
+            normalizedContent,
+            contentHash,
+            forcedSourceKey,
+            lineageIdentity,
+            metadata,
+            document,
+            chunkProfile,
+            rawChunks,
+            normalizedSegments,
+            inheritManualTagsWhenEmpty,
+            duplicateContentBehavior
+        ));
+    }
+
+    private PersistMaterialResult persistPreparedMaterial(
+        String title,
+        String sourceType,
+        String originalFileName,
+        String mediaType,
+        String storedContent,
+        String normalizedContent,
+        String contentHash,
+        String forcedSourceKey,
+        MaterialLineageIdentity lineageIdentity,
+        MaterialMetadataSnapshot metadata,
+        DocumentParseResult document,
+        ChunkProfile chunkProfile,
+        List<StoredMaterialChunk> rawChunks,
+        List<StoredMaterialSegment> normalizedSegments,
+        boolean inheritManualTagsWhenEmpty,
+        DuplicateContentBehavior duplicateContentBehavior
+    ) {
+        String sourceKey = StringUtils.hasText(forcedSourceKey)
+            ? forcedSourceKey.trim()
+            : lineageRepository.resolveSourceKey(Objects.requireNonNull(lineageIdentity, "lineageIdentity"));
         lineageRepository.lockLineage(sourceKey);
 
         java.util.Optional<StoredMaterialRecord> existingRecord =
@@ -651,7 +756,7 @@ public class MaterialIngestionService {
             .orElse(metadata);
     }
 
-    private MaterialSummary saveNewMaterial(
+    private PersistMaterialResult saveNewMaterial(
         String title,
         String sourceType,
         String originalFileName,
@@ -702,7 +807,7 @@ public class MaterialIngestionService {
         if (savedRecord.id().equals(record.id())) {
             afterCommitExecutor.afterCommit(indexingService::requestProcessing);
         }
-        return contentSupport.toSummary(savedRecord);
+        return new PersistMaterialResult(contentSupport.toSummary(savedRecord), savedRecord.id().equals(record.id()));
     }
 
     private MaterialMetadataSnapshot resolveMetadata(
@@ -718,15 +823,6 @@ public class MaterialIngestionService {
         if (!rolloutProperties.isMetadataV1()) {
             return MaterialMetadataSnapshot.empty();
         }
-        MaterialMetadataHints resolvedParserHints = enrichAutoTags(
-            metadataInput,
-            title,
-            sourceType,
-            originalFileName,
-            mediaType,
-            contentText,
-            parserHints
-        );
         return metadataResolver.resolve(
             metadataInput,
             title,
@@ -734,40 +830,11 @@ public class MaterialIngestionService {
             originalFileName,
             mediaType,
             headerText,
-            resolvedParserHints
+            parserHints == null ? MaterialMetadataHints.empty() : parserHints
         );
     }
 
-    private MaterialMetadataHints enrichAutoTags(
-        MaterialMetadataInput metadataInput,
-        String title,
-        String sourceType,
-        String originalFileName,
-        String mediaType,
-        String contentText,
-        MaterialMetadataHints parserHints
-    ) {
-        MaterialMetadataHints safeParserHints = parserHints == null ? MaterialMetadataHints.empty() : parserHints;
-        if (autoTaggingService == null) {
-            return safeParserHints;
-        }
-
-        List<String> manualTags = metadataInput == null ? List.of() : metadataInput.effectiveManualTags();
-        List<String> llmTags = autoTaggingService.suggestTags(new MaterialAutoTaggingService.TaggingRequest(
-            title,
-            sourceType,
-            originalFileName,
-            mediaType,
-            contentText,
-            manualTags,
-            safeParserHints
-        ));
-        return llmTags.isEmpty()
-            ? safeParserHints
-            : safeParserHints.withTags(llmTags, MaterialAutoTaggingService.LLM_TAG_CONFIDENCE);
-    }
-
-    private MaterialSummary handleExistingMaterial(StoredMaterialRecord existingRecord, String sourceKey) {
+    private PersistMaterialResult handleExistingMaterial(StoredMaterialRecord existingRecord, String sourceKey) {
         Instant now = Instant.now();
         StoredMaterialRecord resolvedRecord = existingRecord;
 
@@ -788,10 +855,91 @@ public class MaterialIngestionService {
                 now
             );
             afterCommitExecutor.afterCommit(indexingService::requestProcessing);
-            return contentSupport.toSummary(requeuedRecord);
+            return new PersistMaterialResult(contentSupport.toSummary(requeuedRecord), false);
         }
 
-        return contentSupport.toSummary(resolvedRecord);
+        return new PersistMaterialResult(contentSupport.toSummary(resolvedRecord), false);
+    }
+
+    private PersistMaterialResult inPersistenceTransaction(java.util.function.Supplier<PersistMaterialResult> action) {
+        if (persistenceTransactionTemplate == null) {
+            return action.get();
+        }
+        return persistenceTransactionTemplate.execute(status -> action.get());
+    }
+
+    private void scheduleAutoTagging(PersistMaterialResult result, AutoTaggingContext context) {
+        if (!rolloutProperties.isMetadataV1()
+            || autoTaggingService == null
+            || result == null
+            || !result.autoTagEligible()
+            || context == null) {
+            return;
+        }
+
+        try {
+            autoTaggingExecutor.execute(() -> applyAutoTagsBestEffort(context));
+        } catch (RejectedExecutionException exception) {
+            logger.warn(
+                "Material auto-tagging executor rejected enrichment task; material remains saved: materialId={}",
+                context.materialId(),
+                exception
+            );
+        }
+    }
+
+    private void applyAutoTagsBestEffort(AutoTaggingContext context) {
+        try {
+            StoredMaterialRecord record = catalogRepository.findById(context.materialId()).orElse(null);
+            if (record == null || record.versionState() != MaterialVersionState.ACTIVE) {
+                return;
+            }
+
+            MaterialMetadataSnapshot currentMetadata = record.metadata();
+            List<String> llmTags = autoTaggingService.suggestTags(new MaterialAutoTaggingService.TaggingRequest(
+                context.title(),
+                context.sourceType(),
+                context.originalFileName(),
+                context.mediaType(),
+                context.contentText(),
+                currentMetadata.manualTags(),
+                context.parserHints()
+            ));
+            if (llmTags.isEmpty()) {
+                return;
+            }
+
+            StoredMaterialRecord latestRecord = catalogRepository.findById(context.materialId()).orElse(null);
+            if (latestRecord == null || latestRecord.versionState() != MaterialVersionState.ACTIVE) {
+                return;
+            }
+
+            MaterialMetadataSnapshot latestMetadata = latestRecord.metadata();
+            MaterialMetadataSnapshot enrichedMetadata = latestMetadata.withInferredAutoTags(
+                llmTags,
+                MaterialAutoTaggingService.LLM_TAG_CONFIDENCE
+            );
+            if (latestMetadata.effectiveTags().equals(enrichedMetadata.effectiveTags())
+                && latestMetadata.autoTags().equals(enrichedMetadata.autoTags())) {
+                return;
+            }
+
+            lifecycleService.updateMetadataAndMarkIndexingPending(
+                latestRecord.id(),
+                enrichedMetadata,
+                "material.auto_tags_updated",
+                "Material auto-tags were enriched after save.",
+                Instant.now()
+            );
+            indexingService.requestProcessing();
+        } catch (RuntimeException exception) {
+            logger.warn(
+                "Material auto-tagging failed after save; material remains saved: materialId={} cause={}",
+                context.materialId(),
+                exception.getMessage(),
+                exception
+            );
+        }
     }
 
     private void logKnownMaterialFailure(

@@ -10,6 +10,7 @@ import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import co.elastic.clients.elasticsearch.indices.GetAliasResponse;
 import com.example.demo.config.SearchSyncProperties;
 import com.example.demo.infrastructure.material.ElasticsearchLexicalSearchProvider;
+import com.example.demo.support.ElasticsearchTestContainerSupport;
 import com.example.demo.support.IntegrationTestOverrides;
 import com.example.demo.support.PostgresIntegrationTestSupport;
 import java.io.IOException;
@@ -26,7 +27,6 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.elasticsearch.ElasticsearchContainer;
 import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.utility.DockerImageName;
 
 @SpringBootTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
@@ -35,11 +35,7 @@ class ElasticsearchIndexAdminIT extends PostgresIntegrationTestSupport {
 
     @Container
     @SuppressWarnings("resource")
-    private static final ElasticsearchContainer ELASTICSEARCH = new ElasticsearchContainer(
-        DockerImageName.parse("docker.elastic.co/elasticsearch/elasticsearch:8.13.4")
-    )
-        .withEnv("xpack.security.enabled", "false")
-        .withEnv("discovery.type", "single-node");
+    private static final ElasticsearchContainer ELASTICSEARCH = ElasticsearchTestContainerSupport.elasticsearch();
 
     @DynamicPropertySource
     static void registerElasticsearchProperties(DynamicPropertyRegistry registry) {
@@ -83,8 +79,8 @@ class ElasticsearchIndexAdminIT extends PostgresIntegrationTestSupport {
         indexDocument(
             "rag-chunks-admin-it-v1",
             new SearchableChunkDocument(
-                "legacy-doc",
-                "legacy-doc",
+                "material-v1:0",
+                "material-v1:0",
                 "material-v1",
                 "pricing-v1",
                 "Legacy tariff",
@@ -102,8 +98,8 @@ class ElasticsearchIndexAdminIT extends PostgresIntegrationTestSupport {
         indexDocument(
             searchSyncProperties.writeAlias(),
             new SearchableChunkDocument(
-                "next-doc",
-                "next-doc",
+                "material-v2:0",
+                "material-v2:0",
                 "material-v2",
                 "pricing-v2",
                 "Next tariff",

@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "backend": {
+    "report": "backend/target/site/jacoco/jacoco.csv",
+    "ratchetPolicy": "minimums are current Phase 7 baseline with a small buffer; do not lower without explicit debt approval",
+    "global": {
+      "line": 0.68
+    },
+    "packages": {
+      "com.example.demo.controller": {
+        "line": 0.66
+      },
+      "com.example.demo.config": {
+        "line": 0.78
+      },
+      "com.example.demo.service": {
+        "line": 0.74
+      },
+      "com.example.demo.infrastructure.audit": {
+        "line": 0.5
+      },
+      "com.example.demo.infrastructure.material": {
+        "line": 0.52
+      }
+    }
+  },
+  "frontend": {
+    "report": "frontend/coverage/lcov.info",
+    "ratchetPolicy": "minimums are current Phase 7 baseline with a small buffer; behavior-level component coverage is tracked globally only",
+    "global": {
+      "lines": 70,
+      "functions": 55,
+      "branches": 68
+    },
+    "groups": {
+      "src/api/**": {
+        "lines": 55,
+        "functions": 50,
+        "branches": 48
+      },
+      "src/hooks/**": {
+        "lines": 64,
+        "functions": 56,
+        "branches": 68
+      },
+      "src/utils/**": {
+        "lines": 82,
+        "functions": 90,
+        "branches": 72
+      }
+    }
+  }
+}

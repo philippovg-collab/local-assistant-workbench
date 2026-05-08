@@ -6,6 +6,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 
 public record MaterialMetadataSnapshot(
     DocumentType documentType,
@@ -88,7 +89,6 @@ public record MaterialMetadataSnapshot(
         workspaceKey = normalizeText(rawWorkspaceKey);
         counterparty = normalizeText(counterparty);
         businessStatus = normalizeText(businessStatus);
-        documentStatus = documentStatus == null ? parseLegacyDocumentStatus(businessStatus) : documentStatus;
         documentStatus = documentStatus == null ? DocumentStatus.ACTIVE : documentStatus;
         provenance = withDerivedOrigins(provenance, rawDocumentType, rawWorkspaceKey, workspaceKey, documentStatus);
     }
@@ -132,7 +132,7 @@ public record MaterialMetadataSnapshot(
             workspaceKey,
             counterparty,
             businessStatus,
-            parseLegacyDocumentStatus(businessStatus),
+            null,
             periodStart,
             periodEnd,
             provenance
@@ -183,7 +183,7 @@ public record MaterialMetadataSnapshot(
         Map<String, MetadataValueOrigin> origins = new LinkedHashMap<>();
         DocumentType resolvedDocumentType = input.documentType() == null ? DocumentType.OTHER : input.documentType();
         DocumentStatus resolvedDocumentStatus = input.effectiveDocumentStatus();
-        SourceTrustLevel resolvedSourceTrust = SourceTrustLevel.UNKNOWN;
+        SourceTrustLevel resolvedSourceTrust = input.sourceTrust() == null ? SourceTrustLevel.UNKNOWN : input.sourceTrust();
 
         origins.put(DOCUMENT_TYPE, input.documentType() == null ? MetadataValueOrigin.DEFAULT : MetadataValueOrigin.MANUAL);
         origins.put(
@@ -191,7 +191,7 @@ public record MaterialMetadataSnapshot(
             input.documentType() == null ? MetadataValueOrigin.DEFAULT : MetadataValueOrigin.INFERRED
         );
         origins.put(DOCUMENT_STATUS, input.documentStatus() == null ? MetadataValueOrigin.DEFAULT : MetadataValueOrigin.MANUAL);
-        origins.put(SOURCE_TRUST, MetadataValueOrigin.DEFAULT);
+        origins.put(SOURCE_TRUST, input.sourceTrust() == null ? MetadataValueOrigin.DEFAULT : MetadataValueOrigin.MANUAL);
         putIfPresent(origins, DOCUMENT_DATE, input.documentDate());
         putIfPresent(origins, DOCUMENT_NUMBER, input.documentNumber());
         putIfPresent(origins, AUTHOR, input.author());
@@ -239,6 +239,62 @@ public record MaterialMetadataSnapshot(
         );
     }
 
+    public MaterialMetadataInput toEditableInputPreservingStoredFields() {
+        return toEditableInputPreservingStoredFields(null);
+    }
+
+    public MaterialMetadataInput toEditableInputPreservingStoredFields(MaterialMetadataInput explicitInput) {
+        MaterialMetadataInput storedInput = new MaterialMetadataInput(
+            preservedValue(DOCUMENT_TYPE, documentType, DocumentType.OTHER),
+            preservedText(WORKSPACE_KEY, workspaceKey),
+            preservedValue(DOCUMENT_STATUS, documentStatus, DocumentStatus.ACTIVE),
+            preservedText(PROJECT_KEY, projectKey),
+            preservedText(DOCUMENT_NUMBER, documentNumber),
+            preservedValue(LANGUAGE_CODE, languageCode, null),
+            preservedTags(MANUAL_TAGS, manualTags),
+            preservedValue(PERIOD_START, periodStart, null),
+            preservedValue(PERIOD_END, periodEnd, null),
+            preservedValue(KNOWLEDGE_DOCUMENT_CLASS, knowledgeDocumentClass, KnowledgeDocumentClass.OTHER),
+            preservedValue(DOCUMENT_DATE, documentDate, null),
+            preservedText(AUTHOR, author),
+            preservedText(DEPARTMENT, department),
+            preservedText(VERSION_LABEL, versionLabel),
+            preservedText(LANGUAGE, language),
+            preservedTags(MANUAL_TAGS, manualTags),
+            preservedValue(SOURCE_TRUST, sourceTrust, SourceTrustLevel.UNKNOWN),
+            preservedText(PROJECT, project),
+            preservedText(COUNTERPARTY, counterparty),
+            preservedText(BUSINESS_STATUS, businessStatus)
+        );
+
+        if (explicitInput == null) {
+            return storedInput;
+        }
+
+        return new MaterialMetadataInput(
+            chooseExplicit(explicitInput.documentType(), storedInput.documentType()),
+            chooseExplicit(explicitInput.workspaceKey(), storedInput.workspaceKey()),
+            chooseExplicit(explicitInput.documentStatus(), storedInput.documentStatus()),
+            chooseExplicit(explicitInput.projectKey(), storedInput.projectKey()),
+            chooseExplicit(explicitInput.documentNumber(), storedInput.documentNumber()),
+            chooseExplicit(explicitInput.languageCode(), storedInput.languageCode()),
+            chooseExplicitTags(explicitInput.manualTags(), storedInput.manualTags()),
+            chooseExplicit(explicitInput.periodStart(), storedInput.periodStart()),
+            chooseExplicit(explicitInput.periodEnd(), storedInput.periodEnd()),
+            chooseExplicit(explicitInput.knowledgeDocumentClass(), storedInput.knowledgeDocumentClass()),
+            chooseExplicit(explicitInput.documentDate(), storedInput.documentDate()),
+            chooseExplicit(explicitInput.author(), storedInput.author()),
+            chooseExplicit(explicitInput.department(), storedInput.department()),
+            chooseExplicit(explicitInput.versionLabel(), storedInput.versionLabel()),
+            chooseExplicit(explicitInput.language(), storedInput.language()),
+            chooseExplicitTags(explicitInput.tags(), storedInput.tags()),
+            chooseExplicit(explicitInput.sourceTrust(), storedInput.sourceTrust()),
+            chooseExplicit(explicitInput.project(), storedInput.project()),
+            chooseExplicit(explicitInput.counterparty(), storedInput.counterparty()),
+            chooseExplicit(explicitInput.businessStatus(), storedInput.businessStatus())
+        );
+    }
+
     public MaterialMetadataSnapshot withTags(List<String> newTags) {
         List<String> normalizedTags = normalizeTags(newTags);
         List<String> nextManualTags = !MetadataValueOrigin.INFERRED.equals(provenance.fieldOrigins().get(TAGS))
@@ -252,6 +308,51 @@ public record MaterialMetadataSnapshot(
 
     public MaterialMetadataSnapshot withManualTags(List<String> newManualTags) {
         return withTagLayers(newManualTags, autoTags);
+    }
+
+    public MaterialMetadataSnapshot withInferredAutoTags(List<String> newAutoTags, double confidence) {
+        List<String> nextManualTags = normalizeTags(manualTags);
+        List<String> nextAutoTags = normalizeAutoTags(newAutoTags, nextManualTags);
+        List<String> nextEffectiveTags = unionTags(nextManualTags, nextAutoTags);
+        Map<String, MetadataValueOrigin> origins = new LinkedHashMap<>(provenance.fieldOrigins());
+        Map<String, Double> confidenceByField = new LinkedHashMap<>(provenance.fieldConfidence());
+        if (!nextAutoTags.isEmpty()) {
+            origins.put(AUTO_TAGS, MetadataValueOrigin.INFERRED);
+            if (nextManualTags.isEmpty()) {
+                origins.put(TAGS, MetadataValueOrigin.INFERRED);
+                origins.put(EFFECTIVE_TAGS, MetadataValueOrigin.INFERRED);
+            } else {
+                origins.putIfAbsent(TAGS, MetadataValueOrigin.MANUAL);
+                origins.putIfAbsent(EFFECTIVE_TAGS, MetadataValueOrigin.MANUAL);
+            }
+            confidenceByField.put(AUTO_TAGS, confidence);
+            confidenceByField.put(TAGS, confidence);
+        }
+        return new MaterialMetadataSnapshot(
+            documentType,
+            knowledgeDocumentClass,
+            documentDate,
+            documentNumber,
+            author,
+            department,
+            versionLabel,
+            language,
+            languageCode,
+            nextEffectiveTags,
+            nextManualTags,
+            nextAutoTags,
+            nextEffectiveTags,
+            sourceTrust,
+            project,
+            projectKey,
+            workspaceKey,
+            counterparty,
+            businessStatus,
+            documentStatus,
+            periodStart,
+            periodEnd,
+            new MaterialMetadataProvenance(origins, confidenceByField)
+        );
     }
 
     public MaterialMetadataSnapshot withTagLayers(List<String> newManualTags, List<String> newAutoTags) {
@@ -391,18 +492,6 @@ public record MaterialMetadataSnapshot(
         };
     }
 
-    private static DocumentStatus parseLegacyDocumentStatus(String rawValue) {
-        String normalized = normalizeText(rawValue);
-        if (normalized == null) {
-            return null;
-        }
-        try {
-            return DocumentStatus.valueOf(normalized.toUpperCase(Locale.ROOT));
-        } catch (IllegalArgumentException ignored) {
-            return null;
-        }
-    }
-
     private static String normalizeText(String value) {
         if (value == null) {
             return null;
@@ -448,5 +537,62 @@ public record MaterialMetadataSnapshot(
         union.addAll(normalizeTags(manualTags));
         union.addAll(normalizeAutoTags(autoTags, List.copyOf(union)));
         return List.copyOf(union);
+    }
+
+    private <T> T preservedValue(String fieldName, T value, T defaultValue) {
+        if (!hasMeaningfulStoredValue(fieldName, value, defaultValue)) {
+            return null;
+        }
+        return value;
+    }
+
+    private String preservedText(String fieldName, String value) {
+        String normalized = normalizeText(value);
+        if (!hasMeaningfulStoredValue(fieldName, normalized, null)) {
+            return null;
+        }
+        return normalized;
+    }
+
+    private List<String> preservedTags(String fieldName, List<String> values) {
+        List<String> normalized = normalizeTags(values);
+        if (normalized.isEmpty()) {
+            return List.of();
+        }
+        MetadataValueOrigin origin = provenance.fieldOrigins().get(fieldName);
+        return MetadataValueOrigin.DEFAULT.equals(origin) ? List.of() : normalized;
+    }
+
+    private boolean hasMeaningfulStoredValue(String fieldName, Object value, Object defaultValue) {
+        if (!isPresent(value)) {
+            return false;
+        }
+        MetadataValueOrigin origin = provenance.fieldOrigins().get(fieldName);
+        if (MetadataValueOrigin.DEFAULT.equals(origin)) {
+            return false;
+        }
+        return origin != null || !Objects.equals(value, defaultValue);
+    }
+
+    private static <T> T chooseExplicit(T explicitValue, T storedValue) {
+        return isPresent(explicitValue) ? explicitValue : storedValue;
+    }
+
+    private static List<String> chooseExplicitTags(List<String> explicitValues, List<String> storedValues) {
+        List<String> normalizedExplicit = normalizeTags(explicitValues);
+        return normalizedExplicit.isEmpty() ? normalizeTags(storedValues) : normalizedExplicit;
+    }
+
+    private static boolean isPresent(Object value) {
+        if (value == null) {
+            return false;
+        }
+        if (value instanceof String stringValue) {
+            return normalizeText(stringValue) != null;
+        }
+        if (value instanceof List<?> listValue) {
+            return !listValue.isEmpty();
+        }
+        return true;
     }
 }
