@@ -56,8 +56,8 @@ services:
       JAVA_OPTS: ${BACKEND_JAVA_OPTS:--Xms512m -Xmx2g}
     volumes:
       - ${HOME}/contextHub/storage:/app/storage
-    ports:
-      - "127.0.0.1:8080:8080"
+    expose:
+      - "8080"
 
   frontend:
     image: ${FRONTEND_IMAGE:-ghcr.io/kazinsys-ai/rag-frontend:latest}
