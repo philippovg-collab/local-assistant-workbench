@@ -8,6 +8,8 @@
 !.env.example
 
 backend/target
+!backend/target/
+!backend/target/backend-0.0.1-SNAPSHOT.jar
 backend/storage
 backend/*.log
 
