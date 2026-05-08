@@ -45,7 +45,9 @@ public class SecurityConfig {
         }
 
         http
-            .csrf(csrf -> csrf.csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse()))
+            .csrf(csrf -> csrf
+                .csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
+                .ignoringRequestMatchers("/api/auth/login", "/api/auth/logout"))
             .cors(cors -> {
             })
             .httpBasic(AbstractHttpConfigurer::disable)

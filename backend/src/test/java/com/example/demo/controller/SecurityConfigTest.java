@@ -1,7 +1,6 @@
 package com.example.demo.controller;
 
 import static org.mockito.Mockito.when;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -76,7 +75,6 @@ class SecurityConfigTest {
     @Test
     void logsInWithJsonCredentialsAndExposesAuthenticatedSession() throws Exception {
         mockMvc.perform(post("/api/auth/login")
-                .with(csrf())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {"username":"admin","password":"secret"}
@@ -91,7 +89,6 @@ class SecurityConfigTest {
     @Test
     void rejectsInvalidLoginCredentials() throws Exception {
         mockMvc.perform(post("/api/auth/login")
-                .with(csrf())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {"username":"admin","password":"wrong"}
