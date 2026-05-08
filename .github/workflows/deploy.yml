@@ -25,16 +25,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Java 21
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "21"
-          cache: maven
-
-      - name: Build backend artifact on runner
-        run: mvn -B -DskipTests package
-        working-directory: backend
+      - name: Build backend artifact in Maven container
+        run: |
+          mkdir -p "$HOME/.m2"
+          docker run --rm \
+            -v "$PWD:/workspace" \
+            -v "$HOME/.m2:/root/.m2" \
+            -w /workspace/backend \
+            -e MAVEN_OPTS="$MAVEN_OPTS" \
+            maven:3.9.9-eclipse-temurin-21 \
+            mvn -B -DskipTests package
 
       - name: Build production env file
         env:
