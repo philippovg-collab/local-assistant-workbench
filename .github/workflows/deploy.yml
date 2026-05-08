@@ -32,9 +32,6 @@ jobs:
           java-version: "21"
           cache: maven
 
-      - name: Disable npm strict SSL
-        run: npm config set strict-ssl false
-
       - name: Build backend artifact on runner
         run: mvn -B -DskipTests package
         working-directory: backend
