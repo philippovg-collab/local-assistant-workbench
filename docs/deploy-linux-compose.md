@@ -8,7 +8,7 @@ This guide deploys Ragstudio as a single-server Docker Compose stack on Ubuntu
 - Backend, PostgreSQL, and Elasticsearch are not published to the host.
 - PostgreSQL/pgvector remains the production retrieval path.
 - Elasticsearch remains disabled unless a separate controlled rollout enables it.
-- Chat and embeddings are expected from an external OpenAI-compatible gateway.
+- Chat and embeddings are expected from an external vLLM or other OpenAI-compatible gateway.
 
 ## Architecture
 
@@ -95,10 +95,11 @@ APP_SECURITY_ADMIN_USERNAME=admin
 APP_SECURITY_ADMIN_PASSWORD=replace-with-a-strong-admin-password
 
 APP_LLM_BASE_URL=http://10.9.120.3:8000
-APP_LLM_API_KEY=EMPTY
+APP_LLM_API_KEY=replace-with-ai-gateway-api-key
 APP_LLM_MODEL=qwen
+APP_LLM_TOP_P=0.9
 APP_EMBEDDINGS_BASE_URL=http://10.9.120.3:8000
-APP_EMBEDDINGS_API_KEY=EMPTY
+APP_EMBEDDINGS_API_KEY=replace-with-ai-gateway-api-key
 APP_EMBEDDINGS_MODEL=nomic-embed-text
 
 APP_SEARCH_SYNC_ENABLED=false
@@ -317,8 +318,11 @@ docker compose up -d frontend
 External LLM gateway is unavailable:
 
 ```bash
-curl -fsS http://10.9.120.3:8000/v1/models
-curl -fsS -H 'Authorization: Bearer EMPTY' http://10.9.120.3:8000/v1/models
+curl -fsS -H 'Authorization: Bearer <AI_GATEWAY_API_KEY>' http://10.9.120.3:8000/v1/models
+curl -fsS -X POST http://10.9.120.3:8000/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer <AI_GATEWAY_API_KEY>' \
+  -d '{"model":"qwen","messages":[{"role":"user","content":"ping"}],"temperature":0.2,"top_p":0.9,"stream":false}'
 docker compose logs -f backend
 ```
 

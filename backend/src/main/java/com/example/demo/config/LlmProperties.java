@@ -11,6 +11,7 @@ public class LlmProperties {
     private String model = "qwen2.5:7b";
     private String apiKey;
     private double temperature = 0.2;
+    private double topP = 0.9;
     private int timeoutSeconds = 120;
     private String systemPrompt = "Ты локальная LLM модель. Отвечай по делу и понятно на русском языке.";
 
@@ -44,6 +45,14 @@ public class LlmProperties {
 
     public void setTemperature(double temperature) {
         this.temperature = temperature;
+    }
+
+    public double getTopP() {
+        return topP;
+    }
+
+    public void setTopP(double topP) {
+        this.topP = topP;
     }
 
     public int getTimeoutSeconds() {

@@ -91,6 +91,7 @@ public class OllamaLlmClient implements LlmClient {
                 .map(message -> new OpenAiMessage(message.role(), message.content()))
                 .toList(),
             properties.getTemperature(),
+            properties.getTopP(),
             false
         );
 
@@ -198,6 +199,7 @@ public class OllamaLlmClient implements LlmClient {
         String model,
         List<OpenAiMessage> messages,
         double temperature,
+        @JsonProperty("top_p") double topP,
         boolean stream
     ) {
     }
