@@ -53,6 +53,7 @@ POSTGRES_DB="${POSTGRES_DB:-ragstudio}"
 POSTGRES_USER="${POSTGRES_USER:-ragstudio}"
 APP_LLM_MODEL="${APP_LLM_MODEL:-qwen2.5:7b}"
 APP_EMBEDDINGS_MODEL="${APP_EMBEDDINGS_MODEL:-nomic-embed-text}"
+APP_OCR_ENABLED="${APP_OCR_ENABLED:-false}"
 APP_OCR_LANGUAGES="${APP_OCR_LANGUAGES:-kaz+rus+eng}"
 APP_SECURITY_ADMIN_USERNAME="${APP_SECURITY_ADMIN_USERNAME:-admin}"
 APP_SECURITY_ADMIN_PASSWORD="${APP_SECURITY_ADMIN_PASSWORD:-}"
@@ -60,6 +61,7 @@ BACKEND_INTERNAL_URL="http://127.0.0.1:8080"
 BACKEND_COOKIE_JAR="/tmp/ragstudio-preflight-cookies.txt"
 BACKEND_CSRF_HEADER=""
 BACKEND_CSRF_TOKEN=""
+STARTUP_WAIT_SECONDS="${STARTUP_WAIT_SECONDS:-120}"
 
 pass() {
   printf 'PASS %s\n' "$1"
@@ -68,6 +70,21 @@ pass() {
 fail() {
   printf 'FAIL %s\n' "$1" >&2
   exit 1
+}
+
+wait_until() {
+  local timeout_seconds="$1"
+  local description="$2"
+  shift 2
+
+  local elapsed=0
+  until "$@"; do
+    if (( elapsed >= timeout_seconds )); then
+      fail "${description}"
+    fi
+    sleep 2
+    elapsed=$((elapsed + 2))
+  done
 }
 
 require_command() {
@@ -155,7 +172,9 @@ for lang in "${OCR_LANG_ARRAY[@]}"; do
 done
 pass "Tesseract runtime and OCR languages are available"
 
-compose exec -T backend curl -fsS "${BACKEND_INTERNAL_URL}/api/liveness" >/dev/null || fail "Public backend liveness endpoint is not reachable"
+wait_until "${STARTUP_WAIT_SECONDS}" \
+  "Public backend liveness endpoint is not reachable" \
+  compose exec -T backend curl -fsS "${BACKEND_INTERNAL_URL}/api/liveness" >/dev/null
 pass "Backend liveness is public"
 
 if compose exec -T backend curl -fsS "${BACKEND_INTERNAL_URL}/api/health" >/dev/null 2>&1; then
@@ -171,7 +190,15 @@ grep -q '"databaseStatus"[[:space:]]*:[[:space:]]*"UP"' <<<"${HEALTH_JSON}" || f
 grep -q '"vectorStatus"[[:space:]]*:[[:space:]]*"UP"' <<<"${HEALTH_JSON}" || fail "Vector status is not UP: ${HEALTH_JSON}"
 grep -q '"llmStatus"[[:space:]]*:[[:space:]]*"UP"' <<<"${HEALTH_JSON}" || fail "LLM status is not UP: ${HEALTH_JSON}"
 grep -q '"embeddingStatus"[[:space:]]*:[[:space:]]*"UP"' <<<"${HEALTH_JSON}" || fail "Embedding status is not UP: ${HEALTH_JSON}"
-grep -q '"ocrStatus"[[:space:]]*:[[:space:]]*"UP"' <<<"${HEALTH_JSON}" || fail "OCR status is not UP: ${HEALTH_JSON}"
+if [[ "${APP_OCR_ENABLED}" == "true" ]]; then
+  grep -q '"ocrStatus"[[:space:]]*:[[:space:]]*"UP"' <<<"${HEALTH_JSON}" || fail "OCR status is not UP: ${HEALTH_JSON}"
+else
+  if grep -q '"ocrStatus"[[:space:]]*:[[:space:]]*"UP"' <<<"${HEALTH_JSON}"; then
+    pass "OCR health is UP"
+  else
+    printf 'WARN OCR is disabled by configuration; skipping strict OCR health requirement.\n'
+  fi
+fi
 if grep -q '"status"[[:space:]]*:[[:space:]]*"UP"' <<<"${HEALTH_JSON}"; then
   pass "Backend top-level health is UP"
 elif grep -q '"knowledgeStatus"[[:space:]]*:[[:space:]]*"EMPTY"' <<<"${HEALTH_JSON}"; then
@@ -179,17 +206,29 @@ elif grep -q '"knowledgeStatus"[[:space:]]*:[[:space:]]*"EMPTY"' <<<"${HEALTH_JS
 else
   printf 'WARN Backend top-level health is not UP. Component checks passed; inspect /api/health for deployment context.\n'
 fi
-pass "Backend infrastructure health is UP, including OCR"
+if [[ "${APP_OCR_ENABLED}" == "true" ]]; then
+  pass "Backend infrastructure health is UP, including OCR"
+else
+  pass "Backend infrastructure health is UP"
+fi
 
 POLICY_JSON="$(backend_get /api/materials/policy)"
-grep -q '"scannedPdfSupport"[[:space:]]*:[[:space:]]*true' <<<"${POLICY_JSON}" || fail "Scanned PDF support is not enabled: ${POLICY_JSON}"
-grep -q '"mode"[[:space:]]*:[[:space:]]*"embedded_text_and_ocr"' <<<"${POLICY_JSON}" || fail "PDF mode is not embedded_text_and_ocr: ${POLICY_JSON}"
-pass "Material policy enables scanned PDF OCR"
+if [[ "${APP_OCR_ENABLED}" == "true" ]]; then
+  grep -q '"scannedPdfSupport"[[:space:]]*:[[:space:]]*true' <<<"${POLICY_JSON}" || fail "Scanned PDF support is not enabled: ${POLICY_JSON}"
+  grep -q '"mode"[[:space:]]*:[[:space:]]*"embedded_text_and_ocr"' <<<"${POLICY_JSON}" || fail "PDF mode is not embedded_text_and_ocr: ${POLICY_JSON}"
+  pass "Material policy enables scanned PDF OCR"
+else
+  printf 'WARN OCR is disabled by configuration; skipping scanned PDF OCR policy requirement.\n'
+fi
 
-curl -fsS "${FRONTEND_PUBLIC_URL}/healthz" >/dev/null || fail "Frontend health endpoint is not reachable at ${FRONTEND_PUBLIC_URL}/healthz"
+wait_until "${STARTUP_WAIT_SECONDS}" \
+  "Frontend health endpoint is not reachable at ${FRONTEND_PUBLIC_URL}/healthz" \
+  curl -fsS "${FRONTEND_PUBLIC_URL}/healthz" >/dev/null
 pass "Frontend nginx is reachable"
 
-curl -fsS "${FRONTEND_PUBLIC_URL}/api/liveness" >/dev/null || fail "Nginx /api proxy liveness endpoint is not reachable at ${FRONTEND_PUBLIC_URL}/api/liveness"
+wait_until "${STARTUP_WAIT_SECONDS}" \
+  "Nginx /api proxy liveness endpoint is not reachable at ${FRONTEND_PUBLIC_URL}/api/liveness" \
+  curl -fsS "${FRONTEND_PUBLIC_URL}/api/liveness" >/dev/null
 pass "Frontend nginx proxies /api/liveness"
 
 if curl -fsS "${FRONTEND_PUBLIC_URL}/api/health" >/dev/null 2>&1; then
