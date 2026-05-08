@@ -26,9 +26,7 @@ services:
       - ${HOME}/contextHub/elasticsearch:/usr/share/elasticsearch/data
 
   backend:
-    build:
-      context: .
-      dockerfile: backend/Dockerfile
+    image: ${BACKEND_IMAGE:-ghcr.io/kazinsys-ai/rag-backend:latest}
     restart: unless-stopped
     depends_on:
       postgres:
@@ -62,9 +60,7 @@ services:
       - "127.0.0.1:8080:8080"
 
   frontend:
-    build:
-      context: .
-      dockerfile: frontend/Dockerfile
+    image: ${FRONTEND_IMAGE:-ghcr.io/kazinsys-ai/rag-frontend:latest}
     restart: unless-stopped
     depends_on:
       - backend

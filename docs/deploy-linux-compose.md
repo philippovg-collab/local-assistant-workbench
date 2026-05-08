@@ -89,6 +89,8 @@ FRONTEND_HTTP_PORT=8088
 APP_CORS_ALLOWED_ORIGINS=https://your-domain.example
 
 POSTGRES_PASSWORD=replace-with-a-strong-password
+BACKEND_IMAGE=ghcr.io/kazinsys-ai/rag-backend:latest
+FRONTEND_IMAGE=ghcr.io/kazinsys-ai/rag-frontend:latest
 APP_SECURITY_ADMIN_USERNAME=admin
 APP_SECURITY_ADMIN_PASSWORD=replace-with-a-strong-admin-password
 
@@ -103,11 +105,12 @@ APP_SEARCH_SYNC_ENABLED=false
 APP_RAG_LEXICAL_PROVIDER=postgres
 ```
 
-Build and start the baseline stack:
+Pull and start the baseline stack:
 
 ```bash
 cd /opt/ragstudio/current
-docker compose build
+docker login ghcr.io
+docker compose pull
 docker compose up -d postgres backend frontend
 ```
 
@@ -233,11 +236,12 @@ ln -sfn /opt/ragstudio/shared/.env /opt/ragstudio/releases/1.0.1/.env
 ln -sfn /opt/ragstudio/releases/1.0.1 /opt/ragstudio/current
 ```
 
-3. Rebuild, restart, and preflight:
+3. Pull, restart, and preflight:
 
 ```bash
 cd /opt/ragstudio/current
-docker compose build
+docker login ghcr.io
+docker compose pull
 docker compose up -d postgres backend frontend
 scripts/linux/preflight-compose.sh
 ```
