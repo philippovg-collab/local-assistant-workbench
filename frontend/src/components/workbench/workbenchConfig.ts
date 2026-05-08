@@ -7,8 +7,9 @@ import {
   Radar,
   type LucideIcon,
 } from "lucide-react";
+import kegocLogoAsset from "@/assets/logo-kegoc.png";
 
-export const kegocLogo = "https://ai.kegoc.kz/assets/kegoc-logo-new-nY5PHfMg.svg";
+export const kegocLogo = kegocLogoAsset;
 export const ACTIVE_RAG_PROJECT_STORAGE_KEY = "kegoc.activeRagProjectKey";
 
 export type WorkspaceTab = "overview" | "materials" | "instructions" | "references" | "rag" | "direct";

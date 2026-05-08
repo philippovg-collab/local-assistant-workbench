@@ -39,26 +39,52 @@ import type {
 const API_URL = (import.meta.env.VITE_API_URL ?? "").trim().replace(/\/$/, "");
 const BACKEND_ORIGIN = (import.meta.env.VITE_BACKEND_ORIGIN ?? "").trim().replace(/\/$/, "");
 const DEFAULT_BACKEND_ORIGIN = "http://127.0.0.1:8080";
+const FRONTEND_SAME_ORIGIN_PORTS = new Set(["8088"]);
+const FRONTEND_DEV_PORTS = new Set(["5173", "4173"]);
+const LOCAL_HOSTNAMES = new Set(["127.0.0.1", "localhost"]);
 
 const resolveApiBaseUrl = () => {
+  if (typeof window === "undefined") {
+    if (API_URL) {
+      return API_URL;
+    }
+
+    if (BACKEND_ORIGIN) {
+      return BACKEND_ORIGIN;
+    }
+
+    return DEFAULT_BACKEND_ORIGIN;
+  }
+
+  const { hostname, origin, port, protocol } = window.location;
+  const isLocalHostname = LOCAL_HOSTNAMES.has(hostname);
+
+  if (!port || FRONTEND_SAME_ORIGIN_PORTS.has(port)) {
+    return origin;
+  }
+
+  if (!isLocalHostname || protocol === "https:") {
+    return origin;
+  }
+
+  if (FRONTEND_DEV_PORTS.has(port)) {
+    if (API_URL) {
+      return API_URL;
+    }
+
+    if (BACKEND_ORIGIN) {
+      return BACKEND_ORIGIN;
+    }
+
+    return `${protocol}//${hostname}:8080`;
+  }
+
   if (API_URL) {
     return API_URL;
   }
 
   if (BACKEND_ORIGIN) {
     return BACKEND_ORIGIN;
-  }
-
-  if (typeof window === "undefined") {
-    return DEFAULT_BACKEND_ORIGIN;
-  }
-
-  if (!window.location.port || window.location.port === "8080") {
-    return window.location.origin;
-  }
-
-  if (window.location.port === "5173" || window.location.port === "4173") {
-    return `${window.location.protocol}//${window.location.hostname}:8080`;
   }
 
   return DEFAULT_BACKEND_ORIGIN;
