@@ -60,7 +60,13 @@ class ElasticsearchIndexAdminIT extends PostgresIntegrationTestSupport {
     @BeforeEach
     void resetState() throws Exception {
         if (elasticsearchClient.indices().exists(request -> request.index("rag-chunks-admin-it-*")).value()) {
-            elasticsearchClient.indices().delete(delete -> delete.index("rag-chunks-admin-it-*"));
+            var existingIndices = elasticsearchClient.indices()
+                .get(get -> get.index("rag-chunks-admin-it-*"))
+                .result()
+                .keySet();
+            for (String indexName : existingIndices) {
+                elasticsearchClient.indices().delete(delete -> delete.index(indexName));
+            }
         }
     }
 

@@ -111,7 +111,9 @@ class ElasticsearchPhase5IT extends PostgresIntegrationTestSupport {
         );
         refreshIndex();
 
-        ProductionLexicalSearchRouter.LexicalRoutingDecision decision = productionLexicalSearchRouter.currentDecision();
+        ProductionLexicalSearchRouter.LexicalRoutingDecision decision = productionLexicalSearchRouter.currentDecision(
+            elasticsearchHealthService.refreshHealthSnapshot()
+        );
         MaterialRetrievalResult retrievalResult = materialRetrievalService.retrieveContext("backup dispatch channel");
 
         assertEquals("auto", decision.configuredMode().propertyValue());
@@ -158,7 +160,9 @@ class ElasticsearchPhase5IT extends PostgresIntegrationTestSupport {
         );
         elasticsearchHealthService.refreshHealthSnapshot();
 
-        ProductionLexicalSearchRouter.LexicalRoutingDecision decision = productionLexicalSearchRouter.currentDecision();
+        ProductionLexicalSearchRouter.LexicalRoutingDecision decision = productionLexicalSearchRouter.currentDecision(
+            elasticsearchHealthService.refreshHealthSnapshot()
+        );
         MaterialRetrievalResult retrievalResult = materialRetrievalService.retrieveContext("backup dispatch channel");
 
         assertEquals("DEGRADED", decision.searchHealth().clusterStatus());

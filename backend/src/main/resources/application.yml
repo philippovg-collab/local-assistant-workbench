@@ -22,8 +22,9 @@ app:
   cors:
     allowed-origins: http://127.0.0.1:5173,http://localhost:5173,http://127.0.0.1:4173,http://localhost:4173
   llm:
-    base-url: http://127.0.0.1:11434
-    model: qwen2.5:7b
+    base-url: "${APP_LLM_BASE_URL:http://127.0.0.1:11434}"
+    model: "${APP_LLM_MODEL:qwen2.5:7b}"
+    api-key: "${APP_LLM_API_KEY:}"
     temperature: 0.2
     timeout-seconds: 600
     system-prompt: Ты локальная LLM модель. Отвечай по делу и понятно на русском языке.
@@ -66,9 +67,11 @@ app:
     max-rendered-image-bytes: 15000000
     max-temp-file-bytes: 15000000
   embeddings:
-    model: nomic-embed-text
-    timeout-seconds: 60
-    expected-dimension: 768
+    base-url: "${APP_EMBEDDINGS_BASE_URL:}"
+    api-key: "${APP_EMBEDDINGS_API_KEY:}"
+    model: "${APP_EMBEDDINGS_MODEL:nomic-embed-text}"
+    timeout-seconds: "${APP_EMBEDDINGS_TIMEOUT_SECONDS:60}"
+    expected-dimension: "${APP_EMBEDDINGS_EXPECTED_DIMENSION:768}"
   rag:
     semantic-candidate-limit: 12
     lexical-candidate-limit: 12

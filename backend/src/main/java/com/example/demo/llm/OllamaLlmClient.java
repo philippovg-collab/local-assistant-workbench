@@ -11,8 +11,10 @@ import com.fasterxml.jackson.databind.json.JsonMapper;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
 
 @Component
 public class OllamaLlmClient implements LlmClient {
@@ -30,13 +32,14 @@ public class OllamaLlmClient implements LlmClient {
     @Override
     public List<OllamaModelInfo> listModels() {
         try {
-            OllamaTagsResponse payload = transport.get(
+            OpenAiModelsResponse payload = transport.get(
                 properties.getBaseUrl(),
-                "/api/tags",
+                "/v1/models",
                 Duration.ofSeconds(properties.getTimeoutSeconds()),
-                OllamaTagsResponse.class,
+                authorizationHeaders(),
+                OpenAiModelsResponse.class,
                 "llm.provider_unavailable",
-                "Unable to reach the local LLM provider",
+                "Unable to reach the configured LLM provider",
                 "llm.provider_bad_response",
                 "LLM provider returned an invalid status while listing models",
                 "llm.provider_parse_failed",
@@ -46,13 +49,20 @@ public class OllamaLlmClient implements LlmClient {
                 "llm.invalid_configuration",
                 "Invalid LLM configuration"
             );
-            if (payload == null || payload.models() == null) {
-                return List.of();
+            if (payload == null || payload.data() == null || payload.data().isEmpty()) {
+                return fallbackConfiguredModel();
             }
 
-            return payload.models().stream()
+            return payload.data().stream()
                 .map(model -> new OllamaModelInfo(model.name()))
                 .toList();
+        } catch (ApiException exception) {
+            if ("llm.provider_bad_response".equals(exception.getCode())
+                && exception.getMessage() != null
+                && (exception.getMessage().contains(": 404:") || exception.getMessage().contains(": 405:"))) {
+                return fallbackConfiguredModel();
+            }
+            throw exception;
         } catch (IllegalArgumentException exception) {
             throw new ApiException(
                 HttpStatus.INTERNAL_SERVER_ERROR,
@@ -89,11 +99,12 @@ public class OllamaLlmClient implements LlmClient {
                 properties.getBaseUrl(),
                 "/v1/chat/completions",
                 chatTimeout(request),
+                authorizationHeaders(),
                 payload,
                 OpenAiChatCompletionResponse.class,
                 effectiveToken,
                 "llm.provider_unavailable",
-                "Unable to reach the local LLM provider",
+                "Unable to reach the configured LLM provider",
                 "llm.provider_bad_response",
                 "LLM provider returned an invalid status",
                 "llm.provider_parse_failed",
@@ -141,6 +152,20 @@ public class OllamaLlmClient implements LlmClient {
         }
     }
 
+    private Map<String, String> authorizationHeaders() {
+        if (!StringUtils.hasText(properties.getApiKey())) {
+            return Map.of();
+        }
+        return Map.of("Authorization", "Bearer " + properties.getApiKey().trim());
+    }
+
+    private List<OllamaModelInfo> fallbackConfiguredModel() {
+        if (!StringUtils.hasText(properties.getModel())) {
+            return List.of();
+        }
+        return List.of(new OllamaModelInfo(properties.getModel().trim()));
+    }
+
     private Duration chatTimeout(ChatRequest request) {
         Integer requestTimeoutSeconds = request == null ? null : request.timeoutSeconds();
         int timeoutSeconds = requestTimeoutSeconds != null && requestTimeoutSeconds > 0
@@ -157,10 +182,16 @@ public class OllamaLlmClient implements LlmClient {
         }
     }
 
-    private record OllamaTagsResponse(List<OllamaTagModel> models) {
+    private record OpenAiModelsResponse(List<OpenAiModel> data) {
     }
 
-    private record OllamaTagModel(String name) {
+    private record OpenAiModel(
+        String id,
+        @JsonProperty("name") String nameAlias
+    ) {
+        private String name() {
+            return StringUtils.hasText(id) ? id : nameAlias;
+        }
     }
 
     private record OpenAiChatCompletionRequest(

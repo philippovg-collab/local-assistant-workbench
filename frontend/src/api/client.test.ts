@@ -4,6 +4,85 @@ import { apiClient, isApiClientError } from "./client";
 describe("apiClient", () => {
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("uses same-origin API calls when the app is served from port 8088", async () => {
+    vi.stubGlobal(
+      "window",
+      Object.create(window, {
+        location: {
+          value: {
+            origin: "http://127.0.0.1:8088",
+            port: "8088",
+            protocol: "http:",
+            hostname: "127.0.0.1",
+          },
+        },
+      }),
+    );
+
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          application: "spring-backend",
+          status: "UP",
+          timestamp: "2026-04-17T10:00:00Z",
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        },
+      ),
+    );
+
+    await apiClient.fetchHealth();
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "http://127.0.0.1:8088/api/health",
+      expect.objectContaining({ credentials: "include", signal: undefined }),
+    );
+  });
+
+  it("uses same-origin API calls on production hosts without falling back to localhost", async () => {
+    vi.stubGlobal(
+      "window",
+      Object.create(window, {
+        location: {
+          value: {
+            origin: "https://ai.kegoc.kz",
+            port: "",
+            protocol: "https:",
+            hostname: "ai.kegoc.kz",
+          },
+        },
+      }),
+    );
+
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          application: "spring-backend",
+          status: "UP",
+          timestamp: "2026-04-17T10:00:00Z",
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        },
+      ),
+    );
+
+    await apiClient.fetchHealth();
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "https://ai.kegoc.kz/api/health",
+      expect.objectContaining({ credentials: "include", signal: undefined }),
+    );
   });
 
   it("builds curl examples against the backend origin instead of the vite dev server", () => {

@@ -4,23 +4,21 @@ This guide deploys Ragstudio as a single-server Docker Compose stack on Ubuntu
 24.04. The production baseline is intentionally conservative:
 
 - HTTPS is terminated by the customer's reverse proxy.
-- Compose binds the frontend nginx only to `127.0.0.1:8080`.
-- Backend, PostgreSQL, Ollama, and Elasticsearch are not published to the host.
+- Compose binds the frontend nginx only to `127.0.0.1:8088` by default.
+- Backend, PostgreSQL, and Elasticsearch are not published to the host.
 - PostgreSQL/pgvector remains the production retrieval path.
 - Elasticsearch remains disabled unless a separate controlled rollout enables it.
-- Required models are `qwen2.5:7b` and `nomic-embed-text`.
+- Chat and embeddings are expected from an external OpenAI-compatible gateway.
 
 ## Architecture
 
 - `frontend`: nginx serving the built React app and proxying `/api` to `backend:8080`.
 - `backend`: Spring Boot Java 21 app with PDFBox and Tesseract OCR packages.
 - `postgres`: PostgreSQL 16 with pgvector.
-- `ollama`: local Ollama service with persistent model storage.
-- `ollama-init`: one-shot model pull for the configured chat and embedding models.
 - `elasticsearch`: optional `search` profile, disabled by default.
 
 The browser should talk to the public HTTPS domain. The reverse proxy forwards to
-`http://127.0.0.1:8080`, and frontend nginx handles the internal `/api` hop.
+`http://127.0.0.1:8088`, and frontend nginx handles the internal `/api` hop.
 
 ## Server Bootstrap
 
@@ -87,34 +85,34 @@ Edit `/opt/ragstudio/shared/.env` before starting services:
 
 ```dotenv
 FRONTEND_BIND_ADDRESS=127.0.0.1
-FRONTEND_HTTP_PORT=8080
+FRONTEND_HTTP_PORT=8088
 APP_CORS_ALLOWED_ORIGINS=https://your-domain.example
 
 POSTGRES_PASSWORD=replace-with-a-strong-password
+BACKEND_IMAGE=ghcr.io/kazinsys-ai/rag-backend:latest
+FRONTEND_IMAGE=ghcr.io/kazinsys-ai/rag-frontend:latest
 APP_SECURITY_ADMIN_USERNAME=admin
 APP_SECURITY_ADMIN_PASSWORD=replace-with-a-strong-admin-password
 
-APP_LLM_MODEL=qwen2.5:7b
-APP_LLM_EXTRA_MODELS=
+APP_LLM_BASE_URL=http://10.9.120.3:8000
+APP_LLM_API_KEY=EMPTY
+APP_LLM_MODEL=qwen
+APP_EMBEDDINGS_BASE_URL=http://10.9.120.3:8000
+APP_EMBEDDINGS_API_KEY=EMPTY
 APP_EMBEDDINGS_MODEL=nomic-embed-text
 
 APP_SEARCH_SYNC_ENABLED=false
 APP_RAG_LEXICAL_PROVIDER=postgres
 ```
 
-Build and start the baseline stack:
+Pull and start the baseline stack:
 
 ```bash
 cd /opt/ragstudio/current
-docker compose build
-docker compose up -d postgres ollama ollama-init backend frontend
+docker login ghcr.io
+docker compose pull
+docker compose up -d postgres backend frontend
 ```
-
-The first Ollama startup can take a while because `ollama-init` downloads:
-
-- `qwen2.5:7b`
-- any opt-in `APP_LLM_EXTRA_MODELS`
-- `nomic-embed-text`
 
 Run the preflight checks after services start:
 
@@ -129,7 +127,7 @@ frontend port:
 
 ```nginx
 location / {
-    proxy_pass http://127.0.0.1:8080;
+    proxy_pass http://127.0.0.1:8088;
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -139,32 +137,32 @@ location / {
 ```
 
 Keep `APP_CORS_ALLOWED_ORIGINS` aligned with the public HTTPS origin. Do not
-publish backend, PostgreSQL, Ollama, or Elasticsearch ports to the internet.
+publish backend, PostgreSQL, or Elasticsearch ports to the internet.
 
 ## Health Checks
 
 Public liveness through frontend nginx:
 
 ```bash
-curl -fsS http://127.0.0.1:8080/healthz
-curl -fsS http://127.0.0.1:8080/api/liveness
+curl -fsS http://127.0.0.1:8088/healthz
+curl -fsS http://127.0.0.1:8088/api/liveness
 ```
 
 Authenticated backend health:
 
 ```bash
 COOKIE_JAR=/tmp/ragstudio-cookies.txt
-SESSION_JSON="$(curl -fsS -c "$COOKIE_JAR" http://127.0.0.1:8080/api/auth/session)"
+SESSION_JSON="$(curl -fsS -c "$COOKIE_JAR" http://127.0.0.1:8088/api/auth/session)"
 CSRF_HEADER="$(printf '%s' "$SESSION_JSON" | sed -nE 's/.*"csrfHeaderName"[[:space:]]*:[[:space:]]*"([^"]*)".*/\1/p')"
 CSRF_TOKEN="$(printf '%s' "$SESSION_JSON" | sed -nE 's/.*"csrfToken"[[:space:]]*:[[:space:]]*"([^"]*)".*/\1/p')"
 curl -fsS -b "$COOKIE_JAR" -c "$COOKIE_JAR" \
   -H "Content-Type: application/json" \
   -H "$CSRF_HEADER: $CSRF_TOKEN" \
   --data-binary @- \
-  http://127.0.0.1:8080/api/auth/login <<JSON
+  http://127.0.0.1:8088/api/auth/login <<JSON
 {"username":"${APP_SECURITY_ADMIN_USERNAME:-admin}","password":"$APP_SECURITY_ADMIN_PASSWORD"}
 JSON
-curl -fsS -b "$COOKIE_JAR" http://127.0.0.1:8080/api/health
+curl -fsS -b "$COOKIE_JAR" http://127.0.0.1:8088/api/health
 ```
 
 Expected infrastructure fields:
@@ -216,8 +214,8 @@ contains:
 - `backend-storage.tgz`
 - `manifest.txt`
 
-Ollama model data is intentionally not part of the required backup because
-models can be downloaded again by `ollama-init`.
+External gateway model state is intentionally not part of the required backup
+because it lives outside this stack.
 
 ## Upgrade
 
@@ -238,12 +236,13 @@ ln -sfn /opt/ragstudio/shared/.env /opt/ragstudio/releases/1.0.1/.env
 ln -sfn /opt/ragstudio/releases/1.0.1 /opt/ragstudio/current
 ```
 
-3. Rebuild, restart, and preflight:
+3. Pull, restart, and preflight:
 
 ```bash
 cd /opt/ragstudio/current
-docker compose build
-docker compose up -d postgres ollama ollama-init backend frontend
+docker login ghcr.io
+docker compose pull
+docker compose up -d postgres backend frontend
 scripts/linux/preflight-compose.sh
 ```
 
@@ -315,11 +314,12 @@ Then restart frontend:
 docker compose up -d frontend
 ```
 
-Ollama models missing:
+External LLM gateway is unavailable:
 
 ```bash
-docker compose up -d ollama ollama-init
-docker compose logs ollama-init
+curl -fsS http://10.9.120.3:8000/v1/models
+curl -fsS -H 'Authorization: Bearer EMPTY' http://10.9.120.3:8000/v1/models
+docker compose logs -f backend
 ```
 
 OCR status is down:

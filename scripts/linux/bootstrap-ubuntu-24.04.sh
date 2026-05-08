@@ -75,6 +75,6 @@ Next steps:
   2. Copy .env.example to ${DEPLOY_DIR}/shared/.env and set production secrets.
   3. Point ${DEPLOY_DIR}/current at the selected release and link shared/.env into it.
   4. Run from ${DEPLOY_DIR}/current: docker compose build
-  5. Run: docker compose up -d postgres ollama ollama-init backend frontend
+  5. Run: docker compose up -d postgres backend frontend
   6. Run: scripts/linux/preflight-compose.sh
 EOF

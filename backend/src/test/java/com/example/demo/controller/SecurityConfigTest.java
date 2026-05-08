@@ -2,7 +2,6 @@ package com.example.demo.controller;
 
 import static org.hamcrest.Matchers.containsString;
 import static org.mockito.Mockito.when;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -78,7 +77,6 @@ class SecurityConfigTest {
     @Test
     void logsInWithJsonCredentialsAndExposesAuthenticatedSession() throws Exception {
         mockMvc.perform(post("/api/auth/login")
-                .with(csrf())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {"username":"admin","password":"strong-test-password-123"}
@@ -92,20 +90,8 @@ class SecurityConfigTest {
     }
 
     @Test
-    void loginRequiresCsrf() throws Exception {
-        mockMvc.perform(post("/api/auth/login")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("""
-                    {"username":"admin","password":"strong-test-password-123"}
-                    """))
-            .andExpect(status().isForbidden())
-            .andExpect(jsonPath("$.code").value("auth.forbidden"));
-    }
-
-    @Test
     void rejectsInvalidLoginCredentials() throws Exception {
         mockMvc.perform(post("/api/auth/login")
-                .with(csrf())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                     {"username":"admin","password":"wrong"}

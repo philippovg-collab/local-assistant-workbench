@@ -81,7 +81,7 @@ compose run --rm --no-deps -T --entrypoint sh backend -c \
   < "${BACKUP_DIR}/backend-storage.tgz"
 
 echo "Starting application services..."
-compose up -d postgres ollama ollama-init backend frontend
+compose up -d postgres backend frontend
 
 echo "Running post-restore preflight..."
 "${ROOT_DIR}/scripts/linux/preflight-compose.sh"

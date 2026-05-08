@@ -1,14 +1,5 @@
 # syntax=docker/dockerfile:1
 
-FROM maven:3.9.9-eclipse-temurin-21 AS build
-
-WORKDIR /workspace/backend
-COPY backend/pom.xml ./
-RUN mvn -B -DskipTests dependency:go-offline
-
-COPY backend/src ./src
-RUN mvn -B -DskipTests package
-
 FROM eclipse-temurin:21-jre-noble AS runtime
 
 RUN apt-get update \
@@ -27,7 +18,7 @@ RUN groupadd --system app \
     && chown -R app:app /app
 
 WORKDIR /app
-COPY --from=build --chown=app:app /workspace/backend/target/backend-0.0.1-SNAPSHOT.jar /app/app.jar
+COPY --chown=app:app backend/target/backend-0.0.1-SNAPSHOT.jar /app/app.jar
 
 ENV JAVA_TOOL_OPTIONS="-Djava.awt.headless=true"
 ENV APP_STORAGE_DIR="/app/storage"

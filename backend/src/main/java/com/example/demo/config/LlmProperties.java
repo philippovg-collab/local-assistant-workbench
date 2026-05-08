@@ -9,6 +9,7 @@ public class LlmProperties {
 
     private String baseUrl = "http://127.0.0.1:11434";
     private String model = "qwen2.5:7b";
+    private String apiKey;
     private double temperature = 0.2;
     private int timeoutSeconds = 120;
     private String systemPrompt = "Ты локальная LLM модель. Отвечай по делу и понятно на русском языке.";
@@ -27,6 +28,14 @@ public class LlmProperties {
 
     public void setModel(String model) {
         this.model = model;
+    }
+
+    public String getApiKey() {
+        return apiKey;
+    }
+
+    public void setApiKey(String apiKey) {
+        this.apiKey = apiKey;
     }
 
     public double getTemperature() {

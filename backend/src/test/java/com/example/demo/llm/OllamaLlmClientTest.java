@@ -15,6 +15,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 
@@ -155,16 +156,16 @@ class OllamaLlmClientTest {
         RecordingTransport transport = new RecordingTransport(objectMapper);
         transport.tagsResponseJson = """
             {
-              "models": [
-                { "name": "qwen2.5:7b" },
-                { "name": "deepseek-r1:8b" }
+              "data": [
+                { "id": "qwen2.5:7b" },
+                { "id": "deepseek-r1:8b" }
               ]
             }
             """;
 
         OllamaLlmClient client = new OllamaLlmClient(transport, defaultProperties());
 
-        assertEquals("/api/tags", transport.captureNextGetPath(() -> client.listModels()));
+        assertEquals("/v1/models", transport.captureNextGetPath(() -> client.listModels()));
         List<OllamaModelInfo> models = client.listModels();
         assertEquals(2, models.size());
         assertEquals("qwen2.5:7b", models.get(0).name());
@@ -174,6 +175,7 @@ class OllamaLlmClientTest {
     private LlmProperties defaultProperties() {
         LlmProperties properties = new LlmProperties();
         properties.setBaseUrl("http://127.0.0.1:11434");
+        properties.setApiKey("EMPTY");
         properties.setTimeoutSeconds(5);
         return properties;
     }
@@ -222,6 +224,7 @@ class OllamaLlmClientTest {
             String baseUrl,
             String path,
             Duration timeout,
+            Map<String, String> headers,
             Class<T> responseType,
             String unavailableCode,
             String unavailableMessage,
@@ -252,6 +255,7 @@ class OllamaLlmClientTest {
             String baseUrl,
             String path,
             Duration timeout,
+            Map<String, String> headers,
             Object payload,
             Class<T> responseType,
             String unavailableCode,
@@ -289,6 +293,7 @@ class OllamaLlmClientTest {
             String baseUrl,
             String path,
             Duration timeout,
+            Map<String, String> headers,
             Object payload,
             Class<T> responseType,
             ChatCancellationToken cancellationToken,
@@ -309,6 +314,7 @@ class OllamaLlmClientTest {
                 baseUrl,
                 path,
                 timeout,
+                headers,
                 payload,
                 responseType,
                 unavailableCode,

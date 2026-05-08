@@ -7,9 +7,27 @@ import org.springframework.stereotype.Component;
 @ConfigurationProperties(prefix = "app.embeddings")
 public class EmbeddingProperties {
 
+    private String baseUrl;
+    private String apiKey;
     private String model = "nomic-embed-text";
     private int timeoutSeconds = 60;
     private int expectedDimension = 768;
+
+    public String getBaseUrl() {
+        return baseUrl;
+    }
+
+    public void setBaseUrl(String baseUrl) {
+        this.baseUrl = baseUrl;
+    }
+
+    public String getApiKey() {
+        return apiKey;
+    }
+
+    public void setApiKey(String apiKey) {
+        this.apiKey = apiKey;
+    }
 
     public String getModel() {
         return model;

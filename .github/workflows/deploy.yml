@@ -1,0 +1,86 @@
+name: Deploy
+
+on:
+  workflow_run:
+    workflows:
+      - CI
+    types:
+      - completed
+  workflow_dispatch:
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  deploy:
+    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main')
+    runs-on: self-hosted
+    env:
+      GIT_SSL_NO_VERIFY: "true"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build production env file
+        env:
+          DEPLOY_ENV_PRODUCTION: ${{ secrets.DEPLOY_ENV_PRODUCTION }}
+        run: |
+          cp .env.production.defaults .env.production
+          if [ -n "${DEPLOY_ENV_PRODUCTION}" ]; then
+            printf '\n%s\n' "$DEPLOY_ENV_PRODUCTION" >> .env.production
+          fi
+
+      - name: Prepare persistent directories
+        run: |
+          mkdir -p "$HOME/contextHub/postgres" "$HOME/contextHub/storage" "$HOME/contextHub/elasticsearch"
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Deploy with docker compose
+        run: |
+          set -euo pipefail
+
+          dump_compose_state() {
+            docker compose --env-file .env.production -f docker-compose.prod.yml ps || true
+            docker compose --env-file .env.production -f docker-compose.prod.yml logs --tail=200 postgres backend frontend || true
+          }
+
+          trap dump_compose_state ERR
+
+          docker compose --env-file .env.production -f docker-compose.prod.yml pull
+          docker compose --env-file .env.production -f docker-compose.prod.yml up -d --remove-orphans
+          docker compose --env-file .env.production -f docker-compose.prod.yml ps
+
+          for attempt in $(seq 1 30); do
+            if docker compose --env-file .env.production -f docker-compose.prod.yml ps --services --status running | grep -qx postgres; then
+              break
+            fi
+            sleep 2
+          done
+
+          docker compose --env-file .env.production -f docker-compose.prod.yml ps --services --status running | grep -qx postgres
+
+      - name: Run deployment preflight
+        run: |
+          set -euo pipefail
+          dump_compose_state() {
+            docker compose --env-file .env.production -f docker-compose.prod.yml ps || true
+            docker compose --env-file .env.production -f docker-compose.prod.yml logs --tail=200 postgres backend frontend || true
+          }
+
+          trap dump_compose_state ERR
+          ./scripts/linux/preflight-compose.sh
+
+      - name: Prune dangling images
+        run: docker image prune -f

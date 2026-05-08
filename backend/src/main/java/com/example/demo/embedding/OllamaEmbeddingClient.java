@@ -66,16 +66,17 @@ public class OllamaEmbeddingClient implements EmbeddingClient {
 
         try {
             EmbedResponse payload = transport.postJson(
-                llmProperties.getBaseUrl(),
-                "/api/embed",
+                resolveBaseUrl(),
+                "/v1/embeddings",
                 Duration.ofSeconds(embeddingProperties.getTimeoutSeconds()),
+                authorizationHeaders(),
                 Map.of(
                     "model", embeddingProperties.getModel(),
                     "input", input
                 ),
                 EmbedResponse.class,
                 "embedding.provider_unavailable",
-                "Unable to reach the local embedding provider",
+                "Unable to reach the configured embedding provider",
                 "embedding.provider_bad_response",
                 "Embedding provider returned an invalid status",
                 "embedding.provider_parse_failed",
@@ -85,7 +86,7 @@ public class OllamaEmbeddingClient implements EmbeddingClient {
                 "embedding.invalid_configuration",
                 "Invalid embedding configuration"
             );
-            if (payload.embeddings() == null || payload.embeddings().isEmpty()) {
+            if (payload.data() == null || payload.data().isEmpty()) {
                 throw new ApiException(
                     HttpStatus.BAD_GATEWAY,
                     "embedding.provider_empty_embedding",
@@ -93,7 +94,8 @@ public class OllamaEmbeddingClient implements EmbeddingClient {
                 );
             }
 
-            return payload.embeddings().stream()
+            return payload.data().stream()
+                .map(EmbedData::embedding)
                 .map(this::toFloatArray)
                 .toList();
         } catch (IllegalArgumentException exception) {
@@ -133,9 +135,31 @@ public class OllamaEmbeddingClient implements EmbeddingClient {
         return embedding;
     }
 
+    private String resolveBaseUrl() {
+        if (StringUtils.hasText(embeddingProperties.getBaseUrl())) {
+            return embeddingProperties.getBaseUrl().trim();
+        }
+        return llmProperties.getBaseUrl();
+    }
+
+    private Map<String, String> authorizationHeaders() {
+        String apiKey = StringUtils.hasText(embeddingProperties.getApiKey())
+            ? embeddingProperties.getApiKey().trim()
+            : StringUtils.hasText(llmProperties.getApiKey()) ? llmProperties.getApiKey().trim() : null;
+        if (!StringUtils.hasText(apiKey)) {
+            return Map.of();
+        }
+        return Map.of("Authorization", "Bearer " + apiKey);
+    }
+
     private record EmbedResponse(
         String model,
-        List<List<Double>> embeddings
+        List<EmbedData> data
+    ) {
+    }
+
+    private record EmbedData(
+        List<Double> embedding
     ) {
     }
 }
