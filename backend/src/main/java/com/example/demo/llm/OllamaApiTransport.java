@@ -24,7 +24,11 @@ public class OllamaApiTransport {
 
     public OllamaApiTransport(ObjectMapper objectMapper) {
         this.objectMapper = objectMapper;
-        this.httpClient = HttpClient.newBuilder().build();
+        // Some OpenAI-compatible gateways mis-handle Java's default protocol
+        // negotiation and intermittently treat POST bodies as missing.
+        this.httpClient = HttpClient.newBuilder()
+            .version(HttpClient.Version.HTTP_1_1)
+            .build();
     }
 
     public <T> T get(
