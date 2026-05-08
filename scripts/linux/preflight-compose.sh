@@ -4,6 +4,15 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "${ROOT_DIR}"
 
+COMPOSE_FILE_PATH="${COMPOSE_FILE_PATH:-}"
+if [[ -z "${COMPOSE_FILE_PATH}" ]]; then
+  if [[ -f "${ROOT_DIR}/docker-compose.prod.yml" ]]; then
+    COMPOSE_FILE_PATH="${ROOT_DIR}/docker-compose.prod.yml"
+  elif [[ -f "${ROOT_DIR}/docker-compose.yml" ]]; then
+    COMPOSE_FILE_PATH="${ROOT_DIR}/docker-compose.yml"
+  fi
+fi
+
 detect_deploy_base() {
   local root_parent
   root_parent="$(basename "$(dirname "${ROOT_DIR}")")"
@@ -66,11 +75,15 @@ require_command() {
 }
 
 compose() {
+  local compose_args=()
+  if [[ -n "${COMPOSE_FILE_PATH}" ]]; then
+    compose_args+=(-f "${COMPOSE_FILE_PATH}")
+  fi
   if [[ -n "${ENV_FILE}" && -f "${ENV_FILE}" ]]; then
-    docker compose --env-file "${ENV_FILE}" "$@"
+    docker compose "${compose_args[@]}" --env-file "${ENV_FILE}" "$@"
     return
   fi
-  docker compose "$@"
+  docker compose "${compose_args[@]}" "$@"
 }
 
 json_escape() {
