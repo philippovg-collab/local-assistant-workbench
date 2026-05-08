@@ -121,7 +121,8 @@ extract_json_string() {
 backend_login() {
   local session_json login_json username_json password_json login_payload
 
-  session_json="$(compose exec -T backend curl -fsS -c "${BACKEND_COOKIE_JAR}" "${BACKEND_INTERNAL_URL}/api/auth/session")"
+  session_json="$(compose exec -T backend curl -fsS -c "${BACKEND_COOKIE_JAR}" "${BACKEND_INTERNAL_URL}/api/auth/session")" \
+    || fail "Could not reach /api/auth/session"
   BACKEND_CSRF_HEADER="$(printf '%s' "${session_json}" | extract_json_string "csrfHeaderName")"
   BACKEND_CSRF_TOKEN="$(printf '%s' "${session_json}" | extract_json_string "csrfToken")"
   [[ -n "${BACKEND_CSRF_HEADER}" && -n "${BACKEND_CSRF_TOKEN}" ]] || fail "Could not obtain CSRF token from /api/auth/session"
@@ -137,7 +138,7 @@ backend_login() {
       -H "${BACKEND_CSRF_HEADER}: ${BACKEND_CSRF_TOKEN}" \
       --data-binary @- \
       "${BACKEND_INTERNAL_URL}/api/auth/login"
-  )"
+  )" || fail "Could not complete admin login request"
   grep -q '"authenticated"[[:space:]]*:[[:space:]]*true' <<<"${login_json}" || fail "Admin login failed"
 }
 
@@ -182,10 +183,12 @@ if compose exec -T backend curl -fsS "${BACKEND_INTERNAL_URL}/api/health" >/dev/
 fi
 pass "Backend health endpoint requires authentication"
 
-backend_login
+wait_until "${STARTUP_WAIT_SECONDS}" \
+  "Admin API login is not ready" \
+  backend_login
 pass "Admin API login works"
 
-HEALTH_JSON="$(backend_get /api/health)"
+HEALTH_JSON="$(backend_get /api/health)" || fail "Authenticated backend health endpoint is not reachable"
 grep -q '"databaseStatus"[[:space:]]*:[[:space:]]*"UP"' <<<"${HEALTH_JSON}" || fail "Database status is not UP: ${HEALTH_JSON}"
 grep -q '"vectorStatus"[[:space:]]*:[[:space:]]*"UP"' <<<"${HEALTH_JSON}" || fail "Vector status is not UP: ${HEALTH_JSON}"
 grep -q '"llmStatus"[[:space:]]*:[[:space:]]*"UP"' <<<"${HEALTH_JSON}" || fail "LLM status is not UP: ${HEALTH_JSON}"
@@ -212,7 +215,7 @@ else
   pass "Backend infrastructure health is UP"
 fi
 
-POLICY_JSON="$(backend_get /api/materials/policy)"
+POLICY_JSON="$(backend_get /api/materials/policy)" || fail "Authenticated material policy endpoint is not reachable"
 if [[ "${APP_OCR_ENABLED}" == "true" ]]; then
   grep -q '"scannedPdfSupport"[[:space:]]*:[[:space:]]*true' <<<"${POLICY_JSON}" || fail "Scanned PDF support is not enabled: ${POLICY_JSON}"
   grep -q '"mode"[[:space:]]*:[[:space:]]*"embedded_text_and_ocr"' <<<"${POLICY_JSON}" || fail "PDF mode is not embedded_text_and_ocr: ${POLICY_JSON}"
