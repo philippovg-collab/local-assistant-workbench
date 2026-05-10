@@ -1,20 +1,72 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { apiClient } from "@/api/client";
 import { MaterialsPanel } from "./MaterialsPanel";
 import { buildMaterialSummary } from "../testBuilders";
 import { buildRagReadinessPresentation, deriveRagReadiness } from "../utils/readiness";
-import type { HealthResponse, ReferenceProject, ReferenceWorkspace } from "../types";
+import type { HealthResponse, MaterialDetail, ReferenceProject, ReferenceWorkspace } from "../types";
+import type { MaterialMetadataFormState, MaterialMetadataValidation } from "../utils/materialMetadata";
 
-vi.mock("@/api/client", async () => {
-  const actual = await vi.importActual<typeof import("@/api/client")>("@/api/client");
+const materialEditorMock = vi.hoisted(() => ({
+  detail: null as MaterialDetail | null,
+  loadError: null as string | null,
+  isLoadingDetail: false,
+}));
 
+vi.mock("@/hooks/useMaterialEditorDialog", async () => {
+  const React = await vi.importActual<typeof import("react")>("react");
+  const metadata = await vi.importActual<typeof import("@/utils/materialMetadata")>("@/utils/materialMetadata");
   return {
-    ...actual,
-    apiClient: {
-      ...actual.apiClient,
-      fetchMaterial: vi.fn(),
+    useMaterialEditorDialog: (material: { id: string } | null, activeWorkspaceKey?: string | null) => {
+      const detail = material ? materialEditorMock.detail : null;
+      const [title, setTitle] = React.useState("");
+      const [content, setContent] = React.useState("");
+      const [formMetadata, setMetadata] = React.useState(metadata.emptyMaterialMetadataFormState());
+      const [metadataValidation, setMetadataValidation] =
+        React.useState<MaterialMetadataValidation | null>(null);
+      const [submitError, setSubmitError] = React.useState<string | null>(null);
+      const normalizedActiveWorkspaceKey = (activeWorkspaceKey ?? "").trim();
+
+      React.useEffect(() => {
+        if (!detail) {
+          setTitle("");
+          setContent("");
+          setMetadata(metadata.emptyMaterialMetadataFormState());
+          setMetadataValidation(null);
+          setSubmitError(null);
+          return;
+        }
+        setTitle(detail.title);
+        setContent(detail.content);
+        setMetadata({
+          ...metadata.toMaterialMetadataFormState(detail.metadata),
+          workspaceKey: normalizedActiveWorkspaceKey,
+          projectKey: "",
+        });
+        setMetadataValidation(null);
+        setSubmitError(null);
+      }, [detail?.id, normalizedActiveWorkspaceKey]);
+
+      return {
+        detail,
+        title,
+        setTitle,
+        content,
+        setContent,
+        metadata: formMetadata,
+        setMetadata,
+        metadataValidation,
+        setMetadataValidation,
+        loadError: material ? materialEditorMock.loadError : null,
+        submitError,
+        setSubmitError,
+        isLoadingDetail: material ? materialEditorMock.isLoadingDetail : false,
+        withActiveWorkspace: (current: MaterialMetadataFormState) => ({
+          ...current,
+          workspaceKey: normalizedActiveWorkspaceKey,
+          projectKey: "",
+        }),
+      };
     },
   };
 });
@@ -143,6 +195,9 @@ const chooseSelectOption = async (
 
 describe("MaterialsPanel", () => {
   afterEach(() => {
+    materialEditorMock.detail = null;
+    materialEditorMock.loadError = null;
+    materialEditorMock.isLoadingDetail = false;
     cleanup();
     vi.clearAllMocks();
   });
@@ -524,7 +579,7 @@ describe("MaterialsPanel", () => {
   it("opens material edit dialog, loads detail, and submits a new revision", async () => {
     const user = userEvent.setup();
     const onEditMaterial = vi.fn().mockResolvedValue(undefined);
-    vi.mocked(apiClient.fetchMaterial).mockResolvedValue({
+    materialEditorMock.detail = {
       id: "active-ready",
       title: "Ready tariff",
       sourceType: "file",
@@ -536,7 +591,7 @@ describe("MaterialsPanel", () => {
       createdAt: "2026-04-16T10:00:00Z",
       metadata: buildMaterialSummary().metadata,
       chunks: [],
-    });
+    };
     renderPanel({
       onEditMaterial,
       materials: [
@@ -580,7 +635,7 @@ describe("MaterialsPanel", () => {
   it("keeps the material edit dialog open when saving fails", async () => {
     const user = userEvent.setup();
     const onEditMaterial = vi.fn().mockRejectedValue(new Error("boom"));
-    vi.mocked(apiClient.fetchMaterial).mockResolvedValue({
+    materialEditorMock.detail = {
       id: "active-ready",
       title: "Ready tariff",
       sourceType: "text",
@@ -591,7 +646,7 @@ describe("MaterialsPanel", () => {
       createdAt: "2026-04-16T10:00:00Z",
       metadata: buildMaterialSummary().metadata,
       chunks: [],
-    });
+    };
     renderPanel({
       onEditMaterial,
       materials: [

@@ -1,5 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { apiClient } from "@/api/client";
+import { useEffect, useMemo, type ReactNode } from "react";
 import { buildKnowledgeScopeControls } from "@/components/KnowledgeScopeControls";
 import { RagChatFormSection } from "@/components/RagChatFormSection";
 import { RagResponsePanel } from "@/components/RagResponsePanel";
@@ -13,16 +12,14 @@ import type {
   InstructionSummary,
   KnowledgePresetSummary,
   KnowledgeScope,
-  MaterialDetail,
   ModelInfo,
   RetrievalFilters,
   RetrievalQueryHints,
 } from "@/types";
+import type { MaterialSourceDialogState } from "@/hooks/useMaterialSourceDialog";
 import type { RetrievalFilterKey } from "@/utils/retrievalHints";
 import {
   buildScopeSummary,
-  parseSourceTarget,
-  type SourceTarget,
 } from "@/components/ragChatPresentation";
 
 type RagChatPanelProps = {
@@ -60,14 +57,21 @@ type RagChatPanelProps = {
   helperText: string;
   isBlocked: boolean;
   isSubmitting: boolean;
+  isCancelling?: boolean;
+  currentRunId?: string | null;
   currentRunStatus?: string | null;
+  useLongTermMemory?: boolean;
   error: string | null;
   response: ChatExecutionResponse | null;
   chatRuns: ChatAuditRunSummary[];
   selectedChatRun: ChatAuditRunDetail | null;
   chatRunsError: string | null;
+  sourceDialog: MaterialSourceDialogState;
   onLoadChatRun: (runId: string) => Promise<ChatAuditRunDetail | null>;
   onSubmit: () => Promise<unknown>;
+  onCancelCurrentRun?: () => Promise<unknown>;
+  onUseLongTermMemoryChange?: (value: boolean) => void;
+  conversationPanel?: ReactNode;
 };
 
 export function RagChatPanel({
@@ -104,20 +108,22 @@ export function RagChatPanel({
   helperText,
   isBlocked,
   isSubmitting,
+  isCancelling,
+  currentRunId,
   currentRunStatus,
+  useLongTermMemory,
   error,
   response,
   chatRuns,
   selectedChatRun,
   chatRunsError,
+  sourceDialog,
   onLoadChatRun,
   onSubmit,
+  onCancelCurrentRun,
+  onUseLongTermMemoryChange,
+  conversationPanel,
 }: RagChatPanelProps) {
-  const [openedMaterial, setOpenedMaterial] = useState<MaterialDetail | null>(null);
-  const [isLoadingMaterial, setIsLoadingMaterial] = useState(false);
-  const [materialError, setMaterialError] = useState<string | null>(null);
-  const [openedSourceTarget, setOpenedSourceTarget] = useState<SourceTarget | null>(null);
-  const highlightedChunkRef = useRef<HTMLDivElement | null>(null);
   const normalizedActiveRagProjectKey = (activeRagProjectKey ?? "").trim();
   const normalizedActiveRagProjectName = activeRagProjectName ?? "";
 
@@ -167,35 +173,6 @@ export function RagChatPanel({
     [knowledgeScope, normalizedActiveRagProjectKey, normalizedActiveRagProjectName, visibleKnowledgeFacets, visibleKnowledgePresets],
   );
 
-  useEffect(() => {
-    if (!openedMaterial || !openedSourceTarget || !highlightedChunkRef.current) {
-      return;
-    }
-
-    highlightedChunkRef.current.scrollIntoView({
-      behavior: "smooth",
-      block: "center",
-    });
-  }, [openedMaterial, openedSourceTarget]);
-
-  const openSource = async (materialId: string, openSourceUrl?: string | null) => {
-    const target = parseSourceTarget(materialId, openSourceUrl);
-    setIsLoadingMaterial(true);
-    setMaterialError(null);
-    setOpenedSourceTarget(target);
-
-    try {
-      const detail = normalizedActiveRagProjectKey
-        ? await apiClient.fetchMaterial(target.materialId, { workspaceKey: normalizedActiveRagProjectKey })
-        : await apiClient.fetchMaterial(target.materialId);
-      setOpenedMaterial(detail);
-    } catch {
-      setMaterialError("Не удалось загрузить источник. Проверь доступность backend и попробуй ещё раз.");
-    } finally {
-      setIsLoadingMaterial(false);
-    }
-  };
-
   const knowledgeControls = useMemo(
     () => buildKnowledgeScopeControls({
       knowledgeScope,
@@ -209,51 +186,53 @@ export function RagChatPanel({
     [knowledgeScope, normalizedActiveRagProjectKey, normalizedActiveRagProjectName, onKnowledgeScopeChange, scopeSummary, visibleKnowledgeFacets, visibleKnowledgePresets],
   );
 
-  const closeSourceDialog = () => {
-    setOpenedMaterial(null);
-    setOpenedSourceTarget(null);
-    setMaterialError(null);
-  };
-
   return (
     <>
       <StudioScaffold
         badge="POST /api/chat-runs mode=rag"
         layout="stacked"
         controls={
-          <RagChatFormSection
-            activeProjectLabel={normalizedActiveRagProjectName || normalizedActiveRagProjectKey || "general"}
-            answerMode={answerMode}
-            currentRunStatus={currentRunStatus}
-            dismissedHintKeys={dismissedHintKeys}
-            effectiveRetrievalFilters={effectiveRetrievalFilters}
-            error={error}
-            helperText={helperText}
-            hintOwnedFields={hintOwnedFields}
-            instructions={instructions}
-            isBlocked={isBlocked}
-            isSubmitting={isSubmitting}
-            knowledgeControls={knowledgeControls}
-            manualOwnedFields={manualOwnedFields}
-            metadataFiltersEnabled={metadataFiltersEnabled}
-            models={models}
-            modelsError={modelsError}
-            prompt={prompt}
-            queryHintsEnabled={queryHintsEnabled}
-            retrievalFilters={retrievalFilters}
-            selectedInstructionIds={selectedInstructionIds}
-            selectedModel={selectedModel}
-            temporaryInstruction={temporaryInstruction}
-            onAnswerModeChange={onAnswerModeChange}
-            onClearRetrievalFilter={onClearRetrievalFilter}
-            onDismissHint={onDismissHint}
-            onModelChange={onModelChange}
-            onPromptChange={onPromptChange}
-            onResetDismissedHints={onResetDismissedHints}
-            onSubmit={onSubmit}
-            onTemporaryInstructionChange={onTemporaryInstructionChange}
-            onToggleInstruction={onToggleInstruction}
-          />
+          <div className="space-y-5">
+            {conversationPanel}
+            <RagChatFormSection
+              activeProjectLabel={normalizedActiveRagProjectName || normalizedActiveRagProjectKey || "general"}
+              answerMode={answerMode}
+              currentRunStatus={currentRunStatus}
+              currentRunId={currentRunId}
+              dismissedHintKeys={dismissedHintKeys}
+              effectiveRetrievalFilters={effectiveRetrievalFilters}
+              error={error}
+              helperText={helperText}
+              hintOwnedFields={hintOwnedFields}
+              instructions={instructions}
+              isBlocked={isBlocked}
+              isCancelling={isCancelling}
+              isSubmitting={isSubmitting}
+              knowledgeControls={knowledgeControls}
+              manualOwnedFields={manualOwnedFields}
+              metadataFiltersEnabled={metadataFiltersEnabled}
+              models={models}
+              modelsError={modelsError}
+              prompt={prompt}
+              queryHintsEnabled={queryHintsEnabled}
+              retrievalFilters={retrievalFilters}
+              selectedInstructionIds={selectedInstructionIds}
+              selectedModel={selectedModel}
+              temporaryInstruction={temporaryInstruction}
+              useLongTermMemory={useLongTermMemory}
+              onAnswerModeChange={onAnswerModeChange}
+              onCancelCurrentRun={onCancelCurrentRun}
+              onClearRetrievalFilter={onClearRetrievalFilter}
+              onDismissHint={onDismissHint}
+              onModelChange={onModelChange}
+              onPromptChange={onPromptChange}
+              onResetDismissedHints={onResetDismissedHints}
+              onSubmit={onSubmit}
+              onTemporaryInstructionChange={onTemporaryInstructionChange}
+              onToggleInstruction={onToggleInstruction}
+              onUseLongTermMemoryChange={onUseLongTermMemoryChange}
+            />
+          </div>
         }
         description="RAG-режим теперь показывает не только ответ, но и instruction trace, knowledge scope, retrieval trace и конкретные чанки, из которых он был собран."
         eyebrow="RAG Studio"
@@ -269,19 +248,19 @@ export function RagChatPanel({
             response={response}
             selectedChatRun={selectedChatRun}
             onLoadChatRun={onLoadChatRun}
-            onOpenSource={(materialId, openSourceUrl) => void openSource(materialId, openSourceUrl)}
+            onOpenSource={(materialId, openSourceUrl) => void sourceDialog.openSource(materialId, openSourceUrl)}
           />
         }
         title="Запрос по материалам"
       />
 
       <RagSourceDialog
-        highlightedChunkRef={highlightedChunkRef}
-        isLoadingMaterial={isLoadingMaterial}
-        materialError={materialError}
-        openedMaterial={openedMaterial}
-        openedSourceTarget={openedSourceTarget}
-        onClose={closeSourceDialog}
+        highlightedChunkRef={sourceDialog.highlightedChunkRef}
+        isLoadingMaterial={sourceDialog.isLoadingMaterial}
+        materialError={sourceDialog.materialError}
+        openedMaterial={sourceDialog.openedMaterial}
+        openedSourceTarget={sourceDialog.openedSourceTarget}
+        onClose={sourceDialog.closeSourceDialog}
       />
     </>
   );

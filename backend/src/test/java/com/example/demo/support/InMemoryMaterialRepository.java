@@ -2,6 +2,9 @@ package com.example.demo.support;
 
 import com.example.demo.service.material.ChunkProfile;
 import com.example.demo.service.material.LexicalProviderType;
+import com.example.demo.service.material.MaterialAutoTaggingLease;
+import com.example.demo.service.material.MaterialAutoTaggingStatus;
+import com.example.demo.service.material.MaterialAutoTaggingTask;
 import com.example.demo.service.material.MaterialChunkSearchMatch;
 import com.example.demo.service.material.MaterialIndexingLease;
 import com.example.demo.service.material.MaterialLineageIdentity;
@@ -18,6 +21,7 @@ import com.example.demo.service.material.StoredMaterialChunk;
 import com.example.demo.service.material.StoredMaterialRecord;
 import com.example.demo.service.material.StoredMaterialSegment;
 import com.example.demo.service.material.port.LexicalSearchProvider;
+import com.example.demo.service.material.port.MaterialAutoTaggingTaskRepository;
 import com.example.demo.service.material.port.MaterialCatalogRepository;
 import com.example.demo.service.material.port.MaterialChunkingRepository;
 import com.example.demo.service.material.port.MaterialIndexingQueueRepository;
@@ -47,6 +51,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import java.util.regex.Pattern;
 
 /**
@@ -60,6 +65,7 @@ public class InMemoryMaterialRepository implements
     SemanticSearchRepository,
     LexicalSearchProvider,
     MaterialIndexingQueueRepository,
+    MaterialAutoTaggingTaskRepository,
     MaterialSearchSyncQueueRepository,
     MaterialSearchableSnapshotRepository,
     QualityLayerMetricsRepository {
@@ -79,6 +85,7 @@ public class InMemoryMaterialRepository implements
     private final Map<String, MaterialSearchSyncQueueEntry> searchSyncQueueByMaterialId = new LinkedHashMap<>();
     private final Map<String, Long> searchSyncIntentVersionByMaterialId = new LinkedHashMap<>();
     private final Map<String, Long> claimedSearchSyncIntentVersionByMaterialId = new LinkedHashMap<>();
+    private final Map<String, MaterialAutoTaggingTask> autoTaggingTasksById = new LinkedHashMap<>();
 
     @Override
     public synchronized List<StoredMaterialRecord> findAll() {
@@ -201,6 +208,24 @@ public class InMemoryMaterialRepository implements
     @Override
     public synchronized List<StoredMaterialChunk> findChunks(String materialId) {
         return rawChunksByMaterialId.getOrDefault(materialId, List.of());
+    }
+
+    @Override
+    public synchronized Map<String, List<StoredMaterialChunk>> findChunksByMaterialIds(Collection<String> materialIds) {
+        if (materialIds == null || materialIds.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, List<StoredMaterialChunk>> result = new LinkedHashMap<>();
+        materialIds.stream()
+            .filter(id -> id != null && !id.isBlank())
+            .distinct()
+            .forEach(id -> {
+                List<StoredMaterialChunk> chunks = rawChunksByMaterialId.get(id);
+                if (chunks != null) {
+                    result.put(id, chunks);
+                }
+            });
+        return Map.copyOf(result);
     }
 
     @Override
@@ -660,6 +685,23 @@ public class InMemoryMaterialRepository implements
     }
 
     @Override
+    public synchronized int markActiveMaterialsIndexingPending(String reasonCode, String reasonMessage, Instant updatedAt) {
+        int updatedCount = 0;
+        for (Map.Entry<String, StoredMaterialRecord> entry : recordsById.entrySet()) {
+            StoredMaterialRecord record = entry.getValue();
+            if (record.versionState() != MaterialVersionState.ACTIVE) {
+                continue;
+            }
+            String materialId = entry.getKey();
+            claimedAtByMaterialId.put(materialId, null);
+            nextRetryAtByMaterialId.put(materialId, updatedAt);
+            entry.setValue(copyWithStatus(record, MaterialIndexingStatus.PENDING, reasonCode, reasonMessage, updatedAt));
+            updatedCount += 1;
+        }
+        return updatedCount;
+    }
+
+    @Override
     public synchronized void resetExpiredIndexingClaims(Instant staleBefore, Instant now) {
         for (Map.Entry<String, StoredMaterialRecord> entry : recordsById.entrySet()) {
             String materialId = entry.getKey();
@@ -751,6 +793,173 @@ public class InMemoryMaterialRepository implements
             oldestPendingAt,
             oldestInProgressAt
         );
+    }
+
+    @Override
+    public synchronized MaterialAutoTaggingTask enqueue(String materialId, String contentHash, Instant now) {
+        Optional<MaterialAutoTaggingTask> existing = autoTaggingTasksById.values().stream()
+            .filter(task -> task.materialId().equals(materialId) && task.contentHash().equals(contentHash))
+            .findFirst();
+        if (existing.isPresent()) {
+            return existing.get();
+        }
+
+        MaterialAutoTaggingTask task = new MaterialAutoTaggingTask(
+            UUID.randomUUID().toString(),
+            materialId,
+            contentHash,
+            MaterialAutoTaggingStatus.PENDING,
+            0,
+            now,
+            null,
+            null,
+            null,
+            null,
+            now,
+            now,
+            null
+        );
+        autoTaggingTasksById.put(task.id(), task);
+        return task;
+    }
+
+    @Override
+    public synchronized Optional<MaterialAutoTaggingTask> findLatestByMaterialId(String materialId) {
+        return autoTaggingTasksById.values().stream()
+            .filter(task -> task.materialId().equals(materialId))
+            .sorted(Comparator
+                .comparing(MaterialAutoTaggingTask::createdAt)
+                .thenComparing(MaterialAutoTaggingTask::updatedAt)
+                .reversed())
+            .findFirst();
+    }
+
+    @Override
+    public synchronized Map<String, MaterialAutoTaggingTask> findLatestByMaterialIds(Collection<String> materialIds) {
+        if (materialIds == null || materialIds.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, MaterialAutoTaggingTask> latest = new LinkedHashMap<>();
+        for (String materialId : materialIds) {
+            findLatestByMaterialId(materialId).ifPresent(task -> latest.put(materialId, task));
+        }
+        return latest;
+    }
+
+    @Override
+    public synchronized Optional<MaterialAutoTaggingLease> claimNext(Instant now) {
+        return autoTaggingTasksById.values().stream()
+            .filter(task -> task.status() == MaterialAutoTaggingStatus.PENDING)
+            .filter(task -> task.nextRetryAt() == null || !task.nextRetryAt().isAfter(now))
+            .sorted(Comparator
+                .comparing((MaterialAutoTaggingTask task) -> task.nextRetryAt() == null ? task.createdAt() : task.nextRetryAt())
+                .thenComparing(MaterialAutoTaggingTask::createdAt))
+            .findFirst()
+            .map(task -> {
+                MaterialAutoTaggingTask claimed = copyAutoTaggingTask(
+                    task,
+                    MaterialAutoTaggingStatus.RUNNING,
+                    task.attemptCount() + 1,
+                    null,
+                    now,
+                    task.failureCode(),
+                    task.failureMessage(),
+                    null,
+                    now,
+                    null
+                );
+                autoTaggingTasksById.put(claimed.id(), claimed);
+                return new MaterialAutoTaggingLease(claimed, claimed.attemptCount());
+            });
+    }
+
+    @Override
+    public synchronized void resetExpiredClaims(Instant staleBefore, Instant now) {
+        for (MaterialAutoTaggingTask task : new ArrayList<>(autoTaggingTasksById.values())) {
+            if (task.status() == MaterialAutoTaggingStatus.RUNNING
+                && task.claimedAt() != null
+                && task.claimedAt().isBefore(staleBefore)) {
+                autoTaggingTasksById.put(task.id(), copyAutoTaggingTask(
+                    task,
+                    MaterialAutoTaggingStatus.PENDING,
+                    task.attemptCount(),
+                    task.nextRetryAt(),
+                    null,
+                    task.failureCode(),
+                    task.failureMessage(),
+                    task.resultCode(),
+                    now,
+                    null
+                ));
+            }
+        }
+    }
+
+    @Override
+    public synchronized void markDone(String taskId, String resultCode, Instant now) {
+        MaterialAutoTaggingTask task = autoTaggingTasksById.get(taskId);
+        if (task == null) {
+            return;
+        }
+        autoTaggingTasksById.put(taskId, copyAutoTaggingTask(
+            task,
+            MaterialAutoTaggingStatus.DONE,
+            task.attemptCount(),
+            null,
+            null,
+            null,
+            null,
+            resultCode,
+            now,
+            now
+        ));
+    }
+
+    @Override
+    public synchronized void markRetry(String taskId, String failureCode, String failureMessage, Instant now, Instant nextRetryAt) {
+        MaterialAutoTaggingTask task = autoTaggingTasksById.get(taskId);
+        if (task == null) {
+            return;
+        }
+        autoTaggingTasksById.put(taskId, copyAutoTaggingTask(
+            task,
+            MaterialAutoTaggingStatus.PENDING,
+            task.attemptCount(),
+            nextRetryAt,
+            null,
+            failureCode,
+            failureMessage,
+            null,
+            now,
+            null
+        ));
+    }
+
+    @Override
+    public synchronized void markFailed(String taskId, String failureCode, String failureMessage, Instant now) {
+        MaterialAutoTaggingTask task = autoTaggingTasksById.get(taskId);
+        if (task == null) {
+            return;
+        }
+        autoTaggingTasksById.put(taskId, copyAutoTaggingTask(
+            task,
+            MaterialAutoTaggingStatus.FAILED,
+            task.attemptCount(),
+            null,
+            null,
+            failureCode,
+            failureMessage,
+            failureCode,
+            now,
+            now
+        ));
+    }
+
+    @Override
+    public synchronized boolean hasPending(Instant now) {
+        return autoTaggingTasksById.values().stream()
+            .filter(task -> task.status() == MaterialAutoTaggingStatus.PENDING)
+            .anyMatch(task -> task.nextRetryAt() == null || !task.nextRetryAt().isAfter(now));
     }
 
     @Override
@@ -1481,6 +1690,35 @@ public class InMemoryMaterialRepository implements
             record.supersedeReason(),
             record.lineageVersion(),
             metadata == null ? MaterialMetadataSnapshot.empty() : metadata
+        );
+    }
+
+    private MaterialAutoTaggingTask copyAutoTaggingTask(
+        MaterialAutoTaggingTask task,
+        MaterialAutoTaggingStatus status,
+        int attemptCount,
+        Instant nextRetryAt,
+        Instant claimedAt,
+        String failureCode,
+        String failureMessage,
+        String resultCode,
+        Instant updatedAt,
+        Instant completedAt
+    ) {
+        return new MaterialAutoTaggingTask(
+            task.id(),
+            task.materialId(),
+            task.contentHash(),
+            status,
+            attemptCount,
+            nextRetryAt,
+            claimedAt,
+            failureCode,
+            failureMessage,
+            resultCode,
+            task.createdAt(),
+            updatedAt,
+            completedAt
         );
     }
 

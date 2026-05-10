@@ -4,6 +4,8 @@
 
 Rag Studio is currently a single-admin internal deployment. It is intended to run behind a customer-controlled network or reverse proxy, with one administrative operator account.
 
+The security boundary decision is recorded in [ADR 0010](adr/0010-single-admin-security-boundary.md). RBAC, user management, tenant isolation, and per-workspace authorization are out of scope until a separate roadmap defines ownership, service-layer authorization, migration, and audit policy.
+
 The following concepts are product filters, not authorization boundaries:
 
 - workspaces;
@@ -11,14 +13,14 @@ The following concepts are product filters, not authorization boundaries:
 - knowledge presets;
 - material scopes.
 
-They help organize retrieval and UI workflows, but they do not isolate data between users. Do not run this system as a multi-tenant service until full RBAC, user management, and per-workspace authorization are implemented.
+They help organize retrieval and UI workflows, but they do not isolate data between users. `workspaceKey`, `projectKey`, scopes, and presets are not security boundaries. Do not run this system as a multi-tenant service until full RBAC, user management, and per-workspace authorization are implemented.
 
-All `/api/**` routes require an authenticated session except:
+All `/api/**` routes require an admin session except:
 
 - `GET /api/liveness`;
 - `/api/auth/**`.
 
-`/api/chat-runs/**` is admin-only because it exposes audit traces, prompts, sources, and model execution details.
+Business APIs such as `/api/health`, `/api/materials`, `/api/search`, `/api/models`, `/api/instructions`, `/api/reference/**`, `/api/rag-projects`, `/api/chat`, and `/api/chat-runs/**` are admin-only. `/api/chat-runs/**` is explicitly covered because it exposes audit traces, prompts, sources, and model execution details.
 
 `app.security.enabled=false` is only for local, dev, or test runtimes. Production-like Compose runs must keep security enabled and provide an explicit admin password.
 
@@ -51,7 +53,7 @@ POSTGRES_PASSWORD=<strong-postgres-password>
 APP_CORS_ALLOWED_ORIGINS=https://your-domain.example
 ```
 
-The Compose file refuses to start the hardened backend when the admin password is missing.
+The production Compose file refuses to start when the admin or PostgreSQL password is missing. The preferred deployment mode is same-origin browser access through the frontend nginx container; backend, PostgreSQL, and Elasticsearch stay unpublished.
 
 ## CORS
 
@@ -62,6 +64,8 @@ APP_CORS_ALLOWED_ORIGINS=https://your-domain.example
 ```
 
 Origins are comma-separated and whitespace is ignored. Blank entries are ignored. Wildcard origins (`*`) are rejected because the API uses credentialed session cookies and CSRF tokens.
+
+For the primary same-origin nginx deployment, keep this value aligned with the public HTTPS origin. If direct backend browser access is ever exposed for diagnostics, it must also use explicit non-wildcard origins; do not publish the backend with permissive CORS.
 
 ## Chat Audit Redaction
 
@@ -86,11 +90,14 @@ The login screen may prefill the username for operator convenience, but the pass
 
 ## Static Guardrails
 
-`scripts/phase5-static-gate.py` blocks weak runtime credential regressions, including:
+`scripts/phase5-static-gate.py` blocks weak runtime credential and single-admin posture regressions, including:
 
 - a fallback admin password in local scripts or runtime config;
 - weak admin credential examples in runtime-facing docs;
 - a prefilled admin password in production frontend code.
+- `/api/**` falling back to authenticated non-admin access;
+- security tests that allow `ROLE_USER` through business APIs;
+- new multi-user/RBAC production artifacts without a dedicated security decision.
 
 Run it locally with:
 

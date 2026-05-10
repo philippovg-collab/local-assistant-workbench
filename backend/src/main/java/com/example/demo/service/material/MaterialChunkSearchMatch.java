@@ -1,5 +1,7 @@
 package com.example.demo.service.material;
 
+import com.example.demo.model.DocumentBlockType;
+
 public record MaterialChunkSearchMatch(
     String materialId,
     int chunkIndex,

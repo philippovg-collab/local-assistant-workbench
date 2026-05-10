@@ -19,7 +19,10 @@ public class SecurityProperties {
         "admin",
         "password",
         "secret",
-        "local-admin-password"
+        "local-admin-password",
+        "change-me",
+        "change-me-admin",
+        "ragstudio"
     );
     private static final Set<String> DEV_LIKE_PROFILES = Set.of("local", "dev", "test");
 
@@ -55,7 +58,8 @@ public class SecurityProperties {
             );
         }
 
-        if (!testRuntime && WEAK_ADMIN_PASSWORDS.contains(adminPassword.trim().toLowerCase(Locale.ROOT))) {
+        String normalizedPassword = adminPassword.trim().toLowerCase(Locale.ROOT);
+        if (!testRuntime && (WEAK_ADMIN_PASSWORDS.contains(normalizedPassword) || normalizedPassword.startsWith("replace-with-"))) {
             throw new IllegalStateException(
                 "app.security.admin-password must not use a weak default password"
             );

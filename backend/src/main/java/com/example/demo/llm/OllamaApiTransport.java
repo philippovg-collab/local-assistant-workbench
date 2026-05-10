@@ -1,6 +1,7 @@
 package com.example.demo.llm;
 
-import com.example.demo.api.ApiException;
+import com.example.demo.error.ErrorType;
+import com.example.demo.error.ProviderException;
 import com.example.demo.service.cancellation.ChatCancellationToken;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
@@ -13,7 +14,6 @@ import java.util.Map;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -147,15 +147,15 @@ public class OllamaApiTransport {
                 .build();
             return exchange(request, responseType, unavailableCode, unavailableMessage, badResponseCode, badResponseMessage, parseFailedCode, parseFailedMessage, interruptedCode, interruptedMessage, invalidConfigurationCode, invalidConfigurationMessage);
         } catch (IOException exception) {
-            throw new ApiException(
-                HttpStatus.BAD_GATEWAY,
+            throw new ProviderException(
+                ErrorType.PROVIDER_BAD_RESPONSE,
                 parseFailedCode,
                 parseFailedMessage,
                 exception
             );
         } catch (IllegalArgumentException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new ProviderException(
+                ErrorType.INTERNAL,
                 "llm.invalid_configuration",
                 "Invalid Ollama transport configuration: " + exception.getMessage(),
                 exception
@@ -264,15 +264,15 @@ public class OllamaApiTransport {
                 invalidConfigurationMessage
             );
         } catch (IOException exception) {
-            throw new ApiException(
-                HttpStatus.BAD_GATEWAY,
+            throw new ProviderException(
+                ErrorType.PROVIDER_BAD_RESPONSE,
                 parseFailedCode,
                 parseFailedMessage,
                 exception
             );
         } catch (IllegalArgumentException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new ProviderException(
+                ErrorType.INTERNAL,
                 "llm.invalid_configuration",
                 "Invalid Ollama transport configuration: " + exception.getMessage(),
                 exception
@@ -331,36 +331,36 @@ public class OllamaApiTransport {
             try {
                 response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
             } catch (IOException exception) {
-                throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, unavailableCode, unavailableMessage, exception);
+                throw new ProviderException(ErrorType.PROVIDER_UNAVAILABLE, unavailableCode, unavailableMessage, exception);
             }
 
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                throw new ApiException(
-                    HttpStatus.BAD_GATEWAY,
+                throw new ProviderException(
+                    ErrorType.PROVIDER_BAD_RESPONSE,
                     badResponseCode,
-                    badResponseMessage + ": " + response.statusCode() + ": " + response.body()
+                    providerHttpStatusMessage(badResponseMessage, response.statusCode())
                 );
             }
 
             return objectMapper.readValue(response.body(), responseType);
         } catch (IOException exception) {
-            throw new ApiException(
-                HttpStatus.BAD_GATEWAY,
+            throw new ProviderException(
+                ErrorType.PROVIDER_BAD_RESPONSE,
                 parseFailedCode,
                 parseFailedMessage,
                 exception
             );
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
-            throw new ApiException(
-                HttpStatus.GATEWAY_TIMEOUT,
+            throw new ProviderException(
+                ErrorType.PROVIDER_TIMEOUT,
                 interruptedCode,
                 interruptedMessage,
                 exception
             );
         } catch (IllegalArgumentException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new ProviderException(
+                ErrorType.INTERNAL,
                 invalidConfigurationCode,
                 invalidConfigurationMessage + ": " + exception.getMessage(),
                 exception
@@ -391,36 +391,36 @@ public class OllamaApiTransport {
             HttpResponse<String> response = responseFuture.join();
             cancellationToken.throwIfCancellationRequested();
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                throw new ApiException(
-                    HttpStatus.BAD_GATEWAY,
+                throw new ProviderException(
+                    ErrorType.PROVIDER_BAD_RESPONSE,
                     badResponseCode,
-                    badResponseMessage + ": " + response.statusCode() + ": " + response.body()
+                    providerHttpStatusMessage(badResponseMessage, response.statusCode())
                 );
             }
             return objectMapper.readValue(response.body(), responseType);
         } catch (CancellationException exception) {
             cancellationToken.throwIfCancellationRequested();
-            throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, unavailableCode, unavailableMessage, exception);
+            throw new ProviderException(ErrorType.PROVIDER_UNAVAILABLE, unavailableCode, unavailableMessage, exception);
         } catch (CompletionException exception) {
             cancellationToken.throwIfCancellationRequested();
             Throwable cause = exception.getCause() == null ? exception : exception.getCause();
-            if (cause instanceof ApiException apiException) {
+            if (cause instanceof ProviderException apiException) {
                 throw apiException;
             }
             if (cause instanceof IOException) {
-                throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, unavailableCode, unavailableMessage, cause);
+                throw new ProviderException(ErrorType.PROVIDER_UNAVAILABLE, unavailableCode, unavailableMessage, cause);
             }
             throw exception;
         } catch (IOException exception) {
-            throw new ApiException(
-                HttpStatus.BAD_GATEWAY,
+            throw new ProviderException(
+                ErrorType.PROVIDER_BAD_RESPONSE,
                 parseFailedCode,
                 parseFailedMessage,
                 exception
             );
         } catch (IllegalArgumentException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new ProviderException(
+                ErrorType.INTERNAL,
                 invalidConfigurationCode,
                 invalidConfigurationMessage + ": " + exception.getMessage(),
                 exception
@@ -428,5 +428,9 @@ public class OllamaApiTransport {
         } finally {
             registration.close();
         }
+    }
+
+    private String providerHttpStatusMessage(String message, int statusCode) {
+        return message + ": returned HTTP " + statusCode;
     }
 }

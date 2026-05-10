@@ -2,15 +2,17 @@ package com.example.demo.infrastructure.material;
 
 import com.example.demo.service.material.DocumentBlock;
 import com.example.demo.service.material.DocumentBlockBuilder;
-import com.example.demo.service.material.DocumentBlockConfidence;
+import com.example.demo.model.DocumentBlockConfidence;
 import com.example.demo.service.material.DocumentBlockHeuristics;
-import com.example.demo.service.material.DocumentBlockType;
+import com.example.demo.model.DocumentBlockType;
 import com.example.demo.service.material.DocumentParseResult;
 import com.example.demo.service.material.DocumentParserProfile;
 import com.example.demo.service.material.MaterialFormatRegistry;
 import com.example.demo.service.material.MaterialMetadataHints;
 
-import com.example.demo.api.ApiException;
+import com.example.demo.error.ApplicationException;
+import com.example.demo.error.ErrorType;
+import com.example.demo.error.ProviderException;
 import com.example.demo.config.MaterialProperties;
 import java.io.ByteArrayInputStream;
 import java.io.StringReader;
@@ -33,7 +35,6 @@ import org.apache.tika.parser.EmptyParser;
 import org.apache.tika.parser.ParseContext;
 import org.apache.tika.sax.ToXMLContentHandler;
 import org.apache.tika.sax.WriteOutContentHandler;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import org.w3c.dom.Document;
@@ -103,8 +104,8 @@ public class TikaDocumentTextExtractor implements DocumentTextExtractionStrategy
         }
 
         if (blocks.isEmpty()) {
-            throw new ApiException(
-                HttpStatus.BAD_REQUEST,
+            throw new ApplicationException(
+                ErrorType.INVALID_REQUEST,
                 "material.extraction_failed",
                 "Unable to extract text from the uploaded file"
             );
@@ -139,16 +140,16 @@ public class TikaDocumentTextExtractor implements DocumentTextExtractionStrategy
             var task = executor.submit(() -> parseWithTika(originalFileName, bytes));
             return task.get(properties.getExtractionTimeoutSeconds(), TimeUnit.SECONDS);
         } catch (TimeoutException exception) {
-            throw new ApiException(
-                HttpStatus.BAD_REQUEST,
+            throw new ApplicationException(
+                ErrorType.INVALID_REQUEST,
                 "material.extraction_timeout",
                 "Document extraction timed out",
                 exception
             );
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new ProviderException(
+                ErrorType.INTERNAL,
                 "material.extraction_interrupted",
                 "Document extraction was interrupted",
                 exception
@@ -156,15 +157,15 @@ public class TikaDocumentTextExtractor implements DocumentTextExtractionStrategy
         } catch (ExecutionException exception) {
             Throwable cause = exception.getCause() == null ? exception : exception.getCause();
             if (isWriteLimitFailure(cause)) {
-                throw new ApiException(
-                    HttpStatus.BAD_REQUEST,
+                throw new ApplicationException(
+                    ErrorType.INVALID_REQUEST,
                     "material.extraction_too_large",
                     "Extracted document text exceeds the configured parser output limit",
                     cause
                 );
             }
-            throw new ApiException(
-                HttpStatus.BAD_REQUEST,
+            throw new ApplicationException(
+                ErrorType.INVALID_REQUEST,
                 "material.extraction_failed",
                 "Unable to extract text from the uploaded file",
                 cause

@@ -1,7 +1,6 @@
 import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { apiClient } from "../api/client";
 import { ChatAuditPanel } from "./ChatAuditPanel";
 import type {
   ChatAuditRunDetail,
@@ -15,6 +14,73 @@ import {
   EMPTY_KNOWLEDGE_SCOPE_RESOLVED,
   EMPTY_RETRIEVAL_TRACE,
 } from "../utils/workbenchPresentation";
+
+const traceDetails = vi.hoisted(() => new Map<string, ChatRunTraceDetail>());
+
+vi.mock("@/hooks/useChatAuditComparison", async () => {
+  const React = await vi.importActual<typeof import("react")>("react");
+
+  return {
+    useChatAuditComparison: ({
+      runs,
+      selectedRun,
+      currentAuditRunId,
+      onLoadRun,
+    }: {
+      runs: ChatAuditRunSummary[];
+      selectedRun: ChatAuditRunDetail | null;
+      currentAuditRunId?: string | null;
+      onLoadRun: (runId: string) => Promise<ChatAuditRunDetail | null>;
+    }) => {
+      const initialBaseRunId = currentAuditRunId ?? selectedRun?.id ?? runs[0]?.id ?? null;
+      const initialCompareRunId = runs.find((run) => run.id !== initialBaseRunId)?.id ?? null;
+      const [cachedRuns, setCachedRuns] = React.useState<Record<string, ChatAuditRunDetail>>(
+        selectedRun ? { [selectedRun.id]: selectedRun } : {},
+      );
+      const [baseRunId, setBaseRunId] = React.useState<string | null>(initialBaseRunId);
+      const [compareRunId, setCompareRunId] = React.useState<string | null>(initialCompareRunId);
+
+      const loadRun = async (runId: string) => {
+        if (cachedRuns[runId]) {
+          return cachedRuns[runId];
+        }
+        const detail = await onLoadRun(runId);
+        if (detail) {
+          setCachedRuns((current) => ({ ...current, [detail.id]: detail }));
+        }
+        return detail;
+      };
+
+      const assignRun = async (slot: "base" | "compare", runId: string) => {
+        const detail = await loadRun(runId);
+        if (!detail) {
+          return;
+        }
+        if (slot === "base") {
+          setBaseRunId(runId);
+        } else {
+          setCompareRunId(runId);
+        }
+      };
+
+      const baseRun = baseRunId ? cachedRuns[baseRunId] ?? (selectedRun?.id === baseRunId ? selectedRun : null) : null;
+      const compareRun = compareRunId
+        ? cachedRuns[compareRunId] ?? (selectedRun?.id === compareRunId ? selectedRun : null)
+        : null;
+
+      return {
+        traceError: null,
+        baseRunId,
+        compareRunId,
+        baseRun,
+        compareRun,
+        baseTrace: baseRunId ? traceDetails.get(baseRunId) ?? null : null,
+        compareTrace: compareRunId ? traceDetails.get(compareRunId) ?? null : null,
+        assignRun,
+      };
+    },
+  };
+});
 
 const buildInstructionTrace = (title: string, revision: number): InstructionTraceEntry => ({
   instructionId: `${title}-${revision}`,
@@ -183,6 +249,7 @@ const buildTraceDetail = (runId: string, status: "COMPLETED" | "FAILED" = "COMPL
 
 describe("ChatAuditPanel", () => {
   afterEach(() => {
+    traceDetails.clear();
     cleanup();
     vi.clearAllMocks();
   });
@@ -296,9 +363,9 @@ describe("ChatAuditPanel", () => {
       }
       return null;
     });
-    vi.spyOn(apiClient, "fetchChatRunTrace").mockImplementation(async (runId: string) =>
-      buildTraceDetail(runId, runId === compareRun.id ? "FAILED" : "COMPLETED")
-    );
+    traceDetails.set(selectedRun.id, buildTraceDetail(selectedRun.id));
+    traceDetails.set(compareRun.id, buildTraceDetail(compareRun.id, "FAILED"));
+    traceDetails.set(newBaseRun.id, buildTraceDetail(newBaseRun.id));
 
     render(
       <ChatAuditPanel

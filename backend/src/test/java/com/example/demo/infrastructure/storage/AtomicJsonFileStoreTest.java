@@ -3,7 +3,8 @@ package com.example.demo.infrastructure.storage;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
-import com.example.demo.api.ApiException;
+import com.example.demo.error.ErrorType;
+import com.example.demo.error.StorageException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
@@ -18,7 +19,7 @@ class AtomicJsonFileStoreTest {
     void rejectsPathLikeIdsDuringReads() {
         AtomicJsonFileStore<TestRecord> store = createStore();
 
-        ApiException exception = assertThrows(ApiException.class, () -> store.readById("../outside"));
+        StorageException exception = assertThrows(StorageException.class, () -> store.readById("../outside"));
 
         assertEquals("instructions.invalid_id", exception.getCode());
     }
@@ -27,7 +28,7 @@ class AtomicJsonFileStoreTest {
     void rejectsPathLikeIdsDuringDeletes() {
         AtomicJsonFileStore<TestRecord> store = createStore();
 
-        ApiException exception = assertThrows(ApiException.class, () -> store.delete("nested/record"));
+        StorageException exception = assertThrows(StorageException.class, () -> store.delete("nested/record"));
 
         assertEquals("instructions.invalid_id", exception.getCode());
     }
@@ -36,7 +37,7 @@ class AtomicJsonFileStoreTest {
     void rejectsPathLikeIdsDuringWrites() {
         AtomicJsonFileStore<TestRecord> store = createStore();
 
-        ApiException exception = assertThrows(ApiException.class, () -> store.write(
+        StorageException exception = assertThrows(StorageException.class, () -> store.write(
             new TestRecord("..\\escape", "blocked")
         ));
 

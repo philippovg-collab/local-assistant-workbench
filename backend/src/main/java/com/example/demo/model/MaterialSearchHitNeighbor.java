@@ -1,6 +1,6 @@
 package com.example.demo.model;
 
-import com.example.demo.service.material.DocumentBlockType;
+import com.example.demo.model.DocumentBlockType;
 
 public record MaterialSearchHitNeighbor(
     String chunkId,

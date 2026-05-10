@@ -4,7 +4,8 @@ import static com.example.demo.infrastructure.material.MaterialJdbcRowMappers.RA
 import static com.example.demo.infrastructure.material.MaterialJdbcRowMappers.SEARCHABLE_CHUNK_ROW_MAPPER;
 import static com.example.demo.infrastructure.material.MaterialJdbcRowMappers.SEGMENT_ROW_MAPPER;
 
-import com.example.demo.api.ApiException;
+import com.example.demo.error.ErrorType;
+import com.example.demo.error.StorageException;
 import com.example.demo.service.material.SearchableMaterialChunkSnapshot;
 import com.example.demo.service.material.StoredEmbeddedMaterialChunk;
 import com.example.demo.service.material.StoredMaterialChunk;
@@ -12,10 +13,12 @@ import com.example.demo.service.material.StoredMaterialSegment;
 import com.pgvector.PGvector;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
+import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.springframework.dao.DataAccessException;
-import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.BatchPreparedStatementSetter;
 import org.springframework.jdbc.core.JdbcTemplate;
 
@@ -51,10 +54,66 @@ final class PostgresMaterialChunkDao {
                 UUID.fromString(materialId)
             );
         } catch (DataAccessException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new StorageException(
+                ErrorType.STORAGE_FAILURE,
                 "material.storage_read_failed",
                 "Unable to load material chunks from PostgreSQL",
+                exception
+            );
+        }
+    }
+
+    Map<String, List<StoredMaterialChunk>> findChunksByMaterialIds(Collection<String> materialIds) {
+        if (materialIds == null || materialIds.isEmpty()) {
+            return Map.of();
+        }
+        List<String> orderedIds = materialIds.stream()
+            .filter(id -> id != null && !id.isBlank())
+            .distinct()
+            .toList();
+        if (orderedIds.isEmpty()) {
+            return Map.of();
+        }
+
+        UUID[] ids = orderedIds.stream().map(UUID::fromString).toArray(UUID[]::new);
+        try {
+            Map<String, List<StoredMaterialChunk>> chunksByMaterialId = jdbcTemplate.query(
+                """
+                    SELECT
+                        material_id,
+                        chunk_index,
+                        chunk_text,
+                        page,
+                        extractor,
+                        ocr_used,
+                        chunk_type,
+                        section_path,
+                        heading_trail,
+                        table_id,
+                        slide_id,
+                        parser_confidence
+                    FROM material_chunks
+                    WHERE material_id = ANY (?)
+                    ORDER BY material_id ASC, chunk_index ASC
+                    """,
+                preparedStatement -> PostgresMaterialJdbcSupport.bindUuidArray(preparedStatement, 1, ids),
+                resultSet -> {
+                    Map<String, List<StoredMaterialChunk>> result = new LinkedHashMap<>();
+                    int rowNumber = 0;
+                    while (resultSet.next()) {
+                        String materialId = resultSet.getObject("material_id").toString();
+                        result.computeIfAbsent(materialId, ignored -> new java.util.ArrayList<>())
+                            .add(RAW_CHUNK_ROW_MAPPER.mapRow(resultSet, rowNumber++));
+                    }
+                    return result;
+                }
+            );
+            return chunksByMaterialId == null ? Map.of() : chunksByMaterialId;
+        } catch (DataAccessException exception) {
+            throw new StorageException(
+                ErrorType.STORAGE_FAILURE,
+                "material.storage_read_failed",
+                "Unable to bulk load material chunks from PostgreSQL",
                 exception
             );
         }
@@ -78,8 +137,8 @@ final class PostgresMaterialChunkDao {
                 UUID.fromString(materialId)
             );
         } catch (DataAccessException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new StorageException(
+                ErrorType.STORAGE_FAILURE,
                 "material.storage_read_failed",
                 "Unable to load material segments from PostgreSQL",
                 exception
@@ -111,8 +170,8 @@ final class PostgresMaterialChunkDao {
                 UUID.fromString(materialId)
             );
         } catch (DataAccessException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new StorageException(
+                ErrorType.STORAGE_FAILURE,
                 "material.storage_read_failed",
                 "Unable to resolve searchable material snapshot from PostgreSQL",
                 exception

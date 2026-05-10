@@ -1,5 +1,8 @@
 package com.example.demo.service.material;
 
+import com.example.demo.model.DocumentBlockConfidence;
+import com.example.demo.model.DocumentBlockType;
+
 import java.util.Locale;
 import java.util.regex.Pattern;
 import org.springframework.util.StringUtils;

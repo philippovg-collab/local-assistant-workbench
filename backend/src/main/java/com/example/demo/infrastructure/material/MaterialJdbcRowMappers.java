@@ -1,7 +1,7 @@
 package com.example.demo.infrastructure.material;
 
-import com.example.demo.service.material.DocumentBlockConfidence;
-import com.example.demo.service.material.DocumentBlockType;
+import com.example.demo.model.DocumentBlockConfidence;
+import com.example.demo.model.DocumentBlockType;
 import com.example.demo.service.material.MaterialChunkSearchMatch;
 import com.example.demo.service.material.MaterialSearchSyncQueueEntry;
 import com.example.demo.service.material.SearchSyncDeliveryState;

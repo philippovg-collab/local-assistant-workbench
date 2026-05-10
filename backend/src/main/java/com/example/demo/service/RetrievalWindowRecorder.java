@@ -2,7 +2,7 @@ package com.example.demo.service;
 
 import com.example.demo.model.ChatSource;
 import com.example.demo.model.SourceTrustLevel;
-import com.example.demo.service.material.DocumentBlockType;
+import com.example.demo.model.DocumentBlockType;
 import com.example.demo.service.material.StoredMaterialRecord;
 import java.util.List;
 import java.util.Map;

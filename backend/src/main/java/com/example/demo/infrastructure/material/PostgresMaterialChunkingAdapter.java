@@ -1,16 +1,18 @@
 package com.example.demo.infrastructure.material;
 
-import com.example.demo.api.ApiException;
+import com.example.demo.error.ErrorType;
+import com.example.demo.error.StorageException;
 import com.example.demo.service.material.ChunkProfile;
 import com.example.demo.service.material.StoredMaterialChunk;
 import com.example.demo.service.material.StoredMaterialSegment;
 import com.example.demo.service.material.port.MaterialChunkingRepository;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.springframework.dao.DataAccessException;
-import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
 
@@ -29,6 +31,11 @@ final class PostgresMaterialChunkingAdapter extends PostgresMaterialJdbcSupport 
     }
 
     @Override
+    public Map<String, List<StoredMaterialChunk>> findChunksByMaterialIds(Collection<String> materialIds) {
+        return chunkDao.findChunksByMaterialIds(materialIds);
+    }
+
+    @Override
     public List<StoredMaterialSegment> findSegments(String materialId) {
         return chunkDao.findSegments(materialId);
     }
@@ -43,8 +50,8 @@ final class PostgresMaterialChunkingAdapter extends PostgresMaterialJdbcSupport 
             ).stream().findFirst().orElse(null);
             return chunkProfile == null ? ChunkProfile.FIXED_V1.propertyValue() : chunkProfile;
         } catch (DataAccessException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new StorageException(
+                ErrorType.STORAGE_FAILURE,
                 "material.storage_read_failed",
                 "Unable to load material chunk profile from PostgreSQL",
                 exception
@@ -77,8 +84,8 @@ final class PostgresMaterialChunkingAdapter extends PostgresMaterialJdbcSupport 
                 );
             });
         } catch (DataAccessException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new StorageException(
+                ErrorType.STORAGE_FAILURE,
                 "material.storage_write_failed",
                 "Unable to replace material chunking in PostgreSQL",
                 exception

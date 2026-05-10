@@ -7,6 +7,12 @@ KEGOC RAG остается локальным assistant-workbench с двумя 
 
 Оба режима идут через durable `POST /api/chat-runs` lifecycle и один LLM client. PostgreSQL с `pgvector` остается source of truth для материалов, chunks, embeddings, lineage, chat run queue/result storage и readiness. Elasticsearch, если включен, обслуживает только lexical search plane.
 
+## Security Boundary
+
+KEGOC RAG is an internal single-admin workbench, not a multi-user or tenant-isolated service. All business APIs under `/api/**` require `ROLE_ADMIN`; only `GET /api/liveness` and `/api/auth/**` are public. The decision is recorded in [ADR 0010](adr/0010-single-admin-security-boundary.md).
+
+`workspaceKey`, `projectKey`, RAG projects, reference workspaces, knowledge presets, and instruction scopes are product filters used for organization, retrieval, and prompt selection. They are not authorization boundaries and must not be treated as private user workspaces or tenant isolation.
+
 ## Runtime Flow
 
 ```mermaid
@@ -52,6 +58,14 @@ flowchart LR
 ## Material Metadata
 
 Контракт metadata между backend, frontend и storage описан отдельно: [metadata-contract.md](metadata-contract.md). Обычные UI flows отправляют только canonical editable fields; backend сохраняет compatibility/display fields при edit, version upload и reindex.
+
+## Domain And DTO Boundary
+
+`com.example.demo.model` is the public/shared wire contract package: controller DTOs, response read models, and shared enum/value types that appear in API JSON. It must not import `service`, `api`, `controller`, `config`, or `infrastructure` packages.
+
+`com.example.demo.service.*` owns use-case logic, ports, stored records, and internal domain flow. Internal material records such as `DocumentBlock`, `StoredMaterialChunk`, and `MaterialChunkSearchMatch` stay in service packages; public shared values such as `DocumentBlockType` and `DocumentBlockConfidence` live in `model`.
+
+Controller-exposed DTOs are registered in `ApiContractRegistry`. The generated backend artifact at `backend/src/main/resources/api-contract/frontend-api-contract.json` is the source for frontend generated contract types.
 
 ## API Shape
 

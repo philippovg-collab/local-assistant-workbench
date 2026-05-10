@@ -1,6 +1,7 @@
 package com.example.demo.infrastructure.storage;
 
-import com.example.demo.api.ApiException;
+import com.example.demo.error.ErrorType;
+import com.example.demo.error.StorageException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.nio.file.AtomicMoveNotSupportedException;
@@ -12,7 +13,6 @@ import java.util.List;
 import java.util.Optional;
 import java.util.function.Function;
 import java.util.stream.Stream;
-import org.springframework.http.HttpStatus;
 
 public class AtomicJsonFileStore<T> {
 
@@ -58,8 +58,8 @@ public class AtomicJsonFileStore<T> {
         try {
             Files.createDirectories(this.dataDir);
         } catch (IOException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new StorageException(
+                ErrorType.STORAGE_FAILURE,
                 errorNamespace + ".storage_init_failed",
                 "Unable to initialize storage bucket '" + bucketName + "'",
                 exception
@@ -76,8 +76,8 @@ public class AtomicJsonFileStore<T> {
                 .flatMap(Optional::stream)
                 .toList();
         } catch (IOException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new StorageException(
+                ErrorType.STORAGE_FAILURE,
                 errorNamespace + ".storage_read_failed",
                 "Unable to read " + bucketName + " storage",
                 exception
@@ -107,8 +107,8 @@ public class AtomicJsonFileStore<T> {
                 Files.deleteIfExists(tempFile);
             }
         } catch (IOException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new StorageException(
+                ErrorType.STORAGE_FAILURE,
                 errorNamespace + ".storage_write_failed",
                 "Unable to write " + bucketName + " record",
                 exception
@@ -121,8 +121,8 @@ public class AtomicJsonFileStore<T> {
         try {
             Files.deleteIfExists(target);
         } catch (IOException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new StorageException(
+                ErrorType.STORAGE_FAILURE,
                 errorNamespace + ".storage_delete_failed",
                 "Unable to delete " + bucketName + " record",
                 exception
@@ -169,13 +169,13 @@ public class AtomicJsonFileStore<T> {
         return id.length() >= 3 ? id + "-" : bucketName + "-tmp-";
     }
 
-    private ApiException invalidId(String id) {
+    private StorageException invalidId(String id) {
         return invalidId(id, null);
     }
 
-    private ApiException invalidId(String id, Throwable cause) {
-        return new ApiException(
-            HttpStatus.BAD_REQUEST,
+    private StorageException invalidId(String id, Throwable cause) {
+        return new StorageException(
+            ErrorType.INVALID_REQUEST,
             errorNamespace + ".invalid_id",
             "Invalid " + bucketName + " id: " + id,
             cause

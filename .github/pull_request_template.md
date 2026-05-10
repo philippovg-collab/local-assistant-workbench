@@ -1,6 +1,7 @@
 ## Risk / Review Focus
 
 - Risk level: <!-- low / medium / high -->
+- Risk IDs: <!-- e.g. ARCH-001, ERR-001; use N/A only for trivial changes outside the refactor ledger -->
 - Touched boundaries: <!-- API, data, metadata, retrieval, queues, frontend, security, deploy, docs-only -->
 - Review focus: <!-- behavior first, then tests, then architecture impact -->
 

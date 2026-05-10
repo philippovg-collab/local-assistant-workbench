@@ -26,6 +26,16 @@ export const buildMaterialSummary = (overrides: Partial<MaterialSummary> = {}): 
     contentLength: 128,
     preview: "Preview",
     metadata: DEFAULT_MATERIAL_METADATA,
+    enrichmentStatus: {
+      taskId: null,
+      status: "NOT_REQUESTED",
+      attempts: 0,
+      nextRetryAt: null,
+      failureCode: null,
+      failureMessage: null,
+      resultCode: null,
+      updatedAt: null,
+    },
   };
 
   return {

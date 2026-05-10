@@ -4,11 +4,15 @@ import com.example.demo.service.material.StoredMaterialChunk;
 import com.example.demo.service.material.StoredMaterialSegment;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 
 public interface MaterialChunkingRepository {
 
     List<StoredMaterialChunk> findChunks(String materialId);
+
+    Map<String, List<StoredMaterialChunk>> findChunksByMaterialIds(Collection<String> materialIds);
 
     List<StoredMaterialSegment> findSegments(String materialId);
 

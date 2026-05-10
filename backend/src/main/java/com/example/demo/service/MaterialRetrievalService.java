@@ -9,7 +9,8 @@ import com.example.demo.service.material.port.MaterialCatalogRepository;
 import com.example.demo.service.material.port.MaterialChunkingRepository;
 import com.example.demo.service.material.port.SemanticSearchRepository;
 
-import com.example.demo.api.ApiException;
+import com.example.demo.error.ApplicationException;
+import com.example.demo.error.ErrorType;
 import com.example.demo.config.RolloutProperties;
 import com.example.demo.config.RagProperties;
 import com.example.demo.embedding.EmbeddingClient;
@@ -27,15 +28,12 @@ import com.example.demo.model.RetrievalTrace;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -62,6 +60,7 @@ public class MaterialRetrievalService {
     private final RetrievalWindowRecorder windowRecorder;
     private final RetrievalSearchResponseBuilder searchResponseBuilder;
     private final RetrievalRelevancePolicyResolver relevancePolicyResolver;
+    private final RetrievalCandidateMaterialLoader candidateMaterialLoader;
 
     @Autowired
     public MaterialRetrievalService(
@@ -101,6 +100,7 @@ public class MaterialRetrievalService {
         this.windowRecorder = new RetrievalWindowRecorder(this.qualityLayerHealthService);
         this.searchResponseBuilder = new RetrievalSearchResponseBuilder(this.resultMapper);
         this.relevancePolicyResolver = new RetrievalRelevancePolicyResolver(ragProperties, this.rolloutProperties);
+        this.candidateMaterialLoader = new RetrievalCandidateMaterialLoader(catalogRepository, chunkingRepository);
     }
 
     public MaterialRetrievalService(
@@ -167,15 +167,15 @@ public class MaterialRetrievalService {
 
     public MaterialSearchResponse search(MaterialSearchRequest request) {
         if (!rolloutProperties.isSearchApiV1()) {
-            throw new ApiException(
-                HttpStatus.CONFLICT,
+            throw new ApplicationException(
+                ErrorType.CONFLICT,
                 "search.api_disabled",
                 "Search API is disabled by rollout."
             );
         }
         if (request == null || request.query() == null || request.query().isBlank()) {
-            throw new ApiException(
-                HttpStatus.BAD_REQUEST,
+            throw new ApplicationException(
+                ErrorType.INVALID_REQUEST,
                 "search.invalid_query",
                 "Field 'query' is required"
             );
@@ -207,8 +207,8 @@ public class MaterialRetrievalService {
     ) {
         Set<String> queryTokens = contentSupport.tokenize(prompt);
         if (queryTokens.isEmpty()) {
-            throw new ApiException(
-                HttpStatus.BAD_REQUEST,
+            throw new ApplicationException(
+                ErrorType.INVALID_REQUEST,
                 "chat.invalid_prompt",
                 "Prompt must contain at least one alphanumeric token"
             );
@@ -305,6 +305,7 @@ public class MaterialRetrievalService {
                 0,
                 List.of(),
                 Map.of(),
+                Map.of(),
                 trace,
                 new RetrievalDebug(
                     queryHints,
@@ -356,9 +357,11 @@ public class MaterialRetrievalService {
         );
         List<HybridChunkRanker.RankedChunk> preRerankMatches = List.copyOf(rankedMatches);
         int rerankCandidateCount = rankedMatches.size();
-        Map<String, StoredMaterialRecord> candidateRecordsById = loadRecordsByMaterialId(rankedMatches);
+        Map<String, StoredMaterialRecord> candidateRecordsById =
+            candidateMaterialLoader.loadRecordsByMaterialId(rankedMatches);
+        Map<String, List<StoredMaterialChunk>> chunksByMaterialId = Map.of();
         if (relevanceProfile == RelevanceProfile.HYBRID_RERANK_V1) {
-            Map<String, List<StoredMaterialChunk>> chunksByMaterialId = loadChunksByMaterialId(rankedMatches);
+            chunksByMaterialId = candidateMaterialLoader.loadChunksByMaterialId(rankedMatches);
             rankedMatches = chunkReranker.rerank(
                 prompt,
                 queryHints,
@@ -433,6 +436,7 @@ public class MaterialRetrievalService {
             rerankCandidateCount,
             matches,
             candidateRecordsById,
+            chunksByMaterialId,
             trace,
             new RetrievalDebug(
                 queryHints,
@@ -453,41 +457,6 @@ public class MaterialRetrievalService {
             appliedCapabilities,
             suppressedCapabilities
         );
-    }
-
-    private Map<String, List<StoredMaterialChunk>> loadChunksByMaterialId(List<HybridChunkRanker.RankedChunk> rankedMatches) {
-        Map<String, List<StoredMaterialChunk>> chunksByMaterialId = new LinkedHashMap<>();
-        for (HybridChunkRanker.RankedChunk rankedChunk : rankedMatches) {
-            chunksByMaterialId.computeIfAbsent(
-                rankedChunk.match().materialId(),
-                chunkingRepository::findChunks
-            );
-        }
-        return chunksByMaterialId;
-    }
-
-    private Map<String, StoredMaterialRecord> loadRecordsByMaterialId(List<HybridChunkRanker.RankedChunk> rankedMatches) {
-        if (rankedMatches == null || rankedMatches.isEmpty()) {
-            return Map.of();
-        }
-        List<String> materialIds = rankedMatches.stream()
-            .map(rankedChunk -> rankedChunk.match().materialId())
-            .distinct()
-            .toList();
-        List<StoredMaterialRecord> records = catalogRepository.findByIds(materialIds);
-        if (records == null) {
-            records = materialIds.stream()
-                .map(catalogRepository::findById)
-                .flatMap(java.util.Optional::stream)
-                .toList();
-        }
-        return records.stream()
-            .collect(Collectors.toMap(
-                StoredMaterialRecord::id,
-                record -> record,
-                (left, right) -> left,
-                LinkedHashMap::new
-            ));
     }
 
     private void logSuppressedCapability(String capability, String reason) {

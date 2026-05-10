@@ -1,6 +1,6 @@
 package com.example.demo.infrastructure.material;
 
-import com.example.demo.service.material.DocumentBlockType;
+import com.example.demo.model.DocumentBlockType;
 import com.example.demo.service.material.LexicalProviderType;
 import com.example.demo.service.material.MaterialChunkSearchMatch;
 import com.example.demo.service.material.MaterialSearchScope;
@@ -14,7 +14,8 @@ import co.elastic.clients.elasticsearch._types.query_dsl.Query;
 import co.elastic.clients.elasticsearch.core.SearchResponse;
 import co.elastic.clients.elasticsearch.indices.GetMappingResponse;
 import co.elastic.clients.elasticsearch.indices.get_mapping.IndexMappingRecord;
-import com.example.demo.api.ApiException;
+import com.example.demo.error.ErrorType;
+import com.example.demo.error.ProviderException;
 import com.example.demo.config.SearchSyncProperties;
 import com.example.demo.model.KnowledgeScope;
 import com.example.demo.model.RetrievalFilters;
@@ -28,7 +29,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Repository;
 
 @Repository
@@ -119,18 +119,18 @@ public class ElasticsearchLexicalSearchProvider implements LexicalSearchProvider
                 .map(hit -> toMatch(hit.source(), hit.score()))
                 .filter(match -> match != null)
                 .toList();
-        } catch (ApiException exception) {
+        } catch (ProviderException exception) {
             throw exception;
         } catch (IOException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new ProviderException(
+                ErrorType.INTERNAL,
                 "material.elasticsearch_query_failed",
                 "Unable to execute Elasticsearch lexical retrieval",
                 exception
             );
         } catch (RuntimeException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new ProviderException(
+                ErrorType.INTERNAL,
                 "material.elasticsearch_query_failed",
                 "Unable to execute Elasticsearch lexical retrieval",
                 exception
@@ -385,8 +385,8 @@ public class ElasticsearchLexicalSearchProvider implements LexicalSearchProvider
         boolean supported = !response.result().isEmpty()
             && response.result().values().stream().allMatch(this::mappingHasRequiredScopeFields);
         if (!supported) {
-            throw new ApiException(
-                HttpStatus.CONFLICT,
+            throw new ProviderException(
+                ErrorType.CONFLICT,
                 "material.elasticsearch_scope_mapping_unsupported",
                 "Elasticsearch read alias does not support scoped retrieval fields; rebuild and promote the v3 index or use PostgreSQL search."
             );

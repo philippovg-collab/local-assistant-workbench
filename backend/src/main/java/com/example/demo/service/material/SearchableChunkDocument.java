@@ -1,7 +1,9 @@
 package com.example.demo.service.material;
 
-import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.example.demo.model.DocumentBlockConfidence;
+import com.example.demo.model.DocumentBlockType;
 import com.example.demo.model.MaterialMetadataSnapshot;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;

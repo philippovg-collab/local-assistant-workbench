@@ -5,7 +5,8 @@ import com.example.demo.service.material.StoredMaterialRecord;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-import com.example.demo.api.ApiException;
+import com.example.demo.error.ApplicationException;
+import com.example.demo.error.ErrorType;
 import com.example.demo.config.MaterialProperties;
 import com.example.demo.embedding.EmbeddingClient;
 import com.example.demo.model.MaterialIndexingStatus;
@@ -20,7 +21,6 @@ import java.util.UUID;
 import java.util.concurrent.Executor;
 import java.util.concurrent.RejectedExecutionException;
 import org.junit.jupiter.api.Test;
-import org.springframework.http.HttpStatus;
 
 class MaterialIndexingServiceTest {
 
@@ -204,8 +204,8 @@ class MaterialIndexingServiceTest {
         public List<float[]> embedAll(List<String> inputs) {
             calls++;
             if (calls == 1) {
-                throw new ApiException(
-                    HttpStatus.SERVICE_UNAVAILABLE,
+                throw new ApplicationException(
+                    ErrorType.PROVIDER_UNAVAILABLE,
                     "embedding.provider_unavailable",
                     "Embedding provider is unavailable on the first attempt"
                 );

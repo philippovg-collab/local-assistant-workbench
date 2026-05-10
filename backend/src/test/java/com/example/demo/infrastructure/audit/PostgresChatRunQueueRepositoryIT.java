@@ -192,6 +192,20 @@ class PostgresChatRunQueueRepositoryIT extends PostgresIntegrationTestSupport {
         assertEquals(0, intValue("SELECT COUNT(*) FROM chat_run_queue WHERE run_id = ?::uuid", run.runId()));
     }
 
+    @Test
+    void pendingDeleteDoesNotRemoveRunningLease() {
+        EnqueuedChatRun run = repository.enqueue(request("Cancel semantics"), ChatMode.DIRECT, Instant.parse("2026-04-19T00:00:00Z"));
+        ChatRunQueueLease lease = repository.claimNext(
+            "worker-a",
+            Instant.parse("2026-04-19T00:00:05Z"),
+            Duration.ofMinutes(5)
+        ).orElseThrow();
+
+        assertFalse(repository.deletePendingQueueEntry(run.runId()));
+        assertEquals("IN_PROGRESS", stringValue("SELECT delivery_state FROM chat_run_queue WHERE run_id = ?::uuid", run.runId()));
+        assertTrue(repository.deleteQueueEntryIfOwned(lease));
+    }
+
     private ChatExecutionRequest request(String prompt) {
         return new ChatExecutionRequest(ChatMode.DIRECT, "qwen2.5:7b", prompt, null, List.of());
     }

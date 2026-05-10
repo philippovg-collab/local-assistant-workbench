@@ -1,6 +1,6 @@
 package com.example.demo.infrastructure.material;
 
-import com.example.demo.service.material.DocumentBlockType;
+import com.example.demo.model.DocumentBlockType;
 import com.example.demo.service.material.DocumentParseResult;
 import com.example.demo.service.material.DocumentParserProfile;
 import com.example.demo.service.material.MaterialFormatRegistry;
@@ -9,7 +9,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import com.example.demo.api.ApiException;
+import com.example.demo.error.ErrorType;
+import com.example.demo.error.ApplicationException;
 import com.example.demo.config.MaterialProperties;
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
@@ -75,7 +76,7 @@ class StructuredRichDocumentExtractionStrategyTest {
             new MaterialFormatRegistry()
         );
 
-        ApiException exception = assertThrows(ApiException.class, () -> boundedExtractor.extract(
+        ApplicationException exception = assertThrows(ApplicationException.class, () -> boundedExtractor.extract(
             "large.html",
             "text/html",
             ("<html><body><p>" + "long content ".repeat(100) + "</p></body></html>")

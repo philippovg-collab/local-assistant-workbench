@@ -8,10 +8,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.example.demo.api.ApiException;
 import com.example.demo.api.ApiExceptionHandler;
 import com.example.demo.config.ChatExecutionProperties;
 import com.example.demo.config.MaterialProperties;
+import com.example.demo.error.ApplicationException;
+import com.example.demo.error.ErrorType;
 import com.example.demo.llm.LlmClient;
 import com.example.demo.model.ChatExecutionResponse;
 import com.example.demo.model.ChatMode;
@@ -20,13 +21,13 @@ import com.example.demo.model.RetrievalTrace;
 import com.example.demo.model.RetrievalDebug;
 import com.example.demo.model.RetrievalFilters;
 import com.example.demo.model.RetrievalQueryHints;
+import com.example.demo.service.ChatCompatibilityUsageTelemetry;
 import com.example.demo.service.ChatRunExecutionService;
 import com.example.demo.service.ModelCatalogService;
 import java.time.Duration;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
 import org.springframework.test.web.servlet.MockMvc;
@@ -38,17 +39,20 @@ class ChatControllerContractTest {
 
     private MockMvc mockMvc;
     private ChatRunExecutionService chatRunExecutionService;
+    private ChatCompatibilityUsageTelemetry compatibilityUsageTelemetry;
     private LlmClient llmClient;
 
     @BeforeEach
     void setUp() {
         chatRunExecutionService = mock(ChatRunExecutionService.class);
+        compatibilityUsageTelemetry = mock(ChatCompatibilityUsageTelemetry.class);
         llmClient = mock(LlmClient.class);
         mockMvc = MockMvcBuilders
             .standaloneSetup(new ChatController(
                 chatRunExecutionService,
                 new ModelCatalogService(llmClient),
-                new ChatExecutionProperties()
+                new ChatExecutionProperties(),
+                compatibilityUsageTelemetry
             ))
             .setControllerAdvice(new ApiExceptionHandler(new MaterialProperties()))
             .setMessageConverters(new MappingJackson2HttpMessageConverter())
@@ -169,13 +173,14 @@ class ChatControllerContractTest {
             .andExpect(jsonPath("$.retrievalDebug.queryHints.documentNumber").value("KZ-2026-0415-ENERGY"));
 
         verify(chatRunExecutionService).submitAndWait(any(), any(Duration.class));
+        verify(compatibilityUsageTelemetry).recordRequest();
     }
 
     @Test
     void returnsCompatibilityTimeoutWithDurableRunLinks() throws Exception {
         org.mockito.Mockito.when(chatRunExecutionService.submitAndWait(any(), any(Duration.class))).thenThrow(
-            new ApiException(
-                HttpStatus.REQUEST_TIMEOUT,
+            new ApplicationException(
+                ErrorType.REQUEST_TIMEOUT,
                 "chat.run_still_processing",
                 "Chat run 'run-1' is still processing. Poll /api/chat-runs/run-1/status or fetch /api/chat-runs/run-1/result when it completes."
             )
@@ -196,6 +201,9 @@ class ChatControllerContractTest {
             .andExpect(header().string("Link", "</api/chat-runs>; rel=\"successor-version\""))
             .andExpect(jsonPath("$.code").value("chat.run_still_processing"))
             .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("/api/chat-runs/run-1/status")));
+
+        verify(compatibilityUsageTelemetry).recordRequest();
+        verify(compatibilityUsageTelemetry).recordTimeoutResponse();
     }
 
     @Test

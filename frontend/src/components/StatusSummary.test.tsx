@@ -35,6 +35,12 @@ const health: HealthResponse = {
   indexingPendingCount: 0,
   indexingInProgressCount: 0,
   indexingFailedCount: 0,
+  readiness: {
+    "context-layer": {
+      status: "UP",
+      observedAt: "2026-04-16T10:00:00Z",
+    },
+  },
   qualityLayer: {
     flags: {
       metadataV1: true,
@@ -100,5 +106,7 @@ describe("StatusSummary", () => {
     expect(screen.getByText(/1\/4 active на structured-v1/)).toBeTruthy();
     expect(screen.getByText(/pending=3/)).toBeTruthy();
     expect(screen.getByText(/partial-ready=1/)).toBeTruthy();
+    expect(screen.getByText("Context layer")).toBeTruthy();
+    expect(screen.getAllByText("UP").length).toBeGreaterThan(0);
   });
 });

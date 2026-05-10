@@ -29,26 +29,61 @@ public interface ChatRunTraceRepository {
         Instant createdAt
     );
 
-    void saveRequestSnapshot(
+    default boolean saveRequestSnapshot(
         String runId,
         ChatExecutionRequest request,
         ChatExecutionRequest normalizedRequest
+    ) {
+        return saveRequestSnapshot(runId, request, normalizedRequest, null);
+    }
+
+    boolean saveRequestSnapshot(
+        String runId,
+        ChatExecutionRequest request,
+        ChatExecutionRequest normalizedRequest,
+        ChatRunLeaseToken leaseToken
     );
 
-    void savePromptSnapshot(String runId, PromptPolicySnapshot snapshot);
+    default boolean savePromptSnapshot(String runId, PromptPolicySnapshot snapshot) {
+        return savePromptSnapshot(runId, snapshot, null);
+    }
 
-    void savePromptMessages(String runId, List<ChatRunMessage> messages);
+    boolean savePromptSnapshot(String runId, PromptPolicySnapshot snapshot, ChatRunLeaseToken leaseToken);
 
-    void saveRetrievalSummary(
+    default boolean savePromptMessages(String runId, List<ChatRunMessage> messages) {
+        return savePromptMessages(runId, messages, null);
+    }
+
+    boolean savePromptMessages(String runId, List<ChatRunMessage> messages, ChatRunLeaseToken leaseToken);
+
+    default boolean saveRetrievalSummary(
         String runId,
         String retrievalStatus,
         RetrievalTrace trace,
         RetrievalDebug debug
+    ) {
+        return saveRetrievalSummary(runId, retrievalStatus, trace, debug, null);
+    }
+
+    boolean saveRetrievalSummary(
+        String runId,
+        String retrievalStatus,
+        RetrievalTrace trace,
+        RetrievalDebug debug,
+        ChatRunLeaseToken leaseToken
     );
 
-    void insertLlmCall(String runId, LlmCallTrace call);
+    default boolean insertLlmCall(String runId, LlmCallTrace call) {
+        return insertLlmCall(runId, call, null);
+    }
 
-    void saveOutput(String runId, ChatRunOutputTrace output);
+    boolean insertLlmCall(String runId, LlmCallTrace call, ChatRunLeaseToken leaseToken);
+
+    default boolean saveOutput(String runId, ChatRunOutputTrace output) {
+        return saveOutput(runId, output, null);
+    }
+
+    boolean saveOutput(String runId, ChatRunOutputTrace output, ChatRunLeaseToken leaseToken);
 
     boolean transitionStage(String runId, String status, ChatRunLeaseToken leaseToken);
 
@@ -126,7 +161,17 @@ public interface ChatRunTraceRepository {
 
     void insertEvent(String runId, String eventType, Object payload, Instant createdAt);
 
-    boolean insertEventIfRunMutable(String runId, String eventType, Object payload, Instant createdAt);
+    default boolean insertEventIfRunMutable(String runId, String eventType, Object payload, Instant createdAt) {
+        return insertEventIfRunMutable(runId, eventType, payload, createdAt, null);
+    }
+
+    boolean insertEventIfRunMutable(
+        String runId,
+        String eventType,
+        Object payload,
+        Instant createdAt,
+        ChatRunLeaseToken leaseToken
+    );
 
     List<ChatAuditRunSummary> findRunSummaries(int limit, String workspaceKey);
 

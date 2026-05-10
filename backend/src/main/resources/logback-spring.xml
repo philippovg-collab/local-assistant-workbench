@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <springProperty scope="context" name="serviceName" source="spring.application.name" defaultValue="spring-backend" />
+
+    <appender name="JSON_CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder class="net.logstash.logback.encoder.LoggingEventCompositeJsonEncoder">
+            <providers>
+                <timestamp>
+                    <fieldName>timestamp</fieldName>
+                </timestamp>
+                <logLevel>
+                    <fieldName>level</fieldName>
+                </logLevel>
+                <loggerName>
+                    <fieldName>logger</fieldName>
+                </loggerName>
+                <threadName>
+                    <fieldName>thread</fieldName>
+                </threadName>
+                <message>
+                    <fieldName>message</fieldName>
+                </message>
+                <mdc>
+                    <includeMdcKeyName>requestId</includeMdcKeyName>
+                    <includeMdcKeyName>actor</includeMdcKeyName>
+                    <includeMdcKeyName>method</includeMdcKeyName>
+                    <includeMdcKeyName>path</includeMdcKeyName>
+                    <includeMdcKeyName>status</includeMdcKeyName>
+                    <includeMdcKeyName>latencyMs</includeMdcKeyName>
+                    <includeMdcKeyName>runId</includeMdcKeyName>
+                    <includeMdcKeyName>materialId</includeMdcKeyName>
+                    <includeMdcKeyName>auditEventId</includeMdcKeyName>
+                    <includeMdcKeyName>taskId</includeMdcKeyName>
+                    <includeMdcKeyName>attempt</includeMdcKeyName>
+                    <includeMdcKeyName>workerId</includeMdcKeyName>
+                    <includeMdcKeyName>batchSize</includeMdcKeyName>
+                    <includeMdcKeyName>clientEventType</includeMdcKeyName>
+                    <includeMdcKeyName>clientRequestId</includeMdcKeyName>
+                </mdc>
+                <arguments />
+                <stackTrace>
+                    <fieldName>stack_trace</fieldName>
+                </stackTrace>
+                <pattern>
+                    <pattern>{"service":"${serviceName}"}</pattern>
+                </pattern>
+            </providers>
+        </encoder>
+    </appender>
+
+    <root level="INFO">
+        <appender-ref ref="JSON_CONSOLE" />
+    </root>
+</configuration>

@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.example.demo.model.AnswerMode;
+import com.example.demo.model.ChatExecutionRequest;
 import com.example.demo.model.ChatExecutionResponse;
 import com.example.demo.model.ChatMode;
 import com.example.demo.model.ChatRunOutputTrace;
@@ -258,6 +259,42 @@ class PostgresChatRunTraceRepositoryIT extends PostgresIntegrationTestSupport {
         assertFalse(completed);
         assertEquals("RECEIVED", stringValue("SELECT status FROM chat_run_headers WHERE id = ?::uuid", runId));
         assertEquals(0, intValue("SELECT COUNT(*) FROM chat_run_results WHERE run_id = ?::uuid", runId));
+    }
+
+    @Test
+    void nonTerminalTraceWritesWithStaleLeaseTokenAreRejected() {
+        String runId = runId();
+        Instant createdAt = Instant.parse("2026-04-19T00:00:00Z");
+        ChatRunLeaseToken staleLease = new ChatRunLeaseToken(runId, "worker-a", 1);
+        repository.insertHeader(runId, ChatMode.DIRECT, "qwen2.5:7b", AnswerMode.BRIEF, createdAt);
+        insertQueueLease(runId, "worker-b", 2, createdAt.plusSeconds(10));
+
+        assertFalse(repository.saveRequestSnapshot(
+            runId,
+            new ChatExecutionRequest(ChatMode.DIRECT, "qwen2.5:7b", "Prompt", null, List.of()),
+            new ChatExecutionRequest(ChatMode.DIRECT, "qwen2.5:7b", "Prompt", null, List.of()),
+            staleLease
+        ));
+        assertFalse(repository.savePromptSnapshot(runId, promptSnapshot(), staleLease));
+        assertFalse(repository.saveRetrievalSummary(
+            runId,
+            "DONE",
+            new RetrievalTrace(0, 0, 0, 0, 0, 0, 0, 0, 0),
+            null,
+            staleLease
+        ));
+        assertFalse(repository.insertLlmCall(runId, successfulLlmCall(createdAt.plusSeconds(1)), staleLease));
+        assertFalse(repository.saveOutput(
+            runId,
+            new ChatRunOutputTrace("raw", "Late answer", List.of(), null, false, false),
+            staleLease
+        ));
+
+        assertEquals(0, intValue("SELECT COUNT(*) FROM chat_run_request_snapshots WHERE run_id = ?::uuid", runId));
+        assertEquals(0, intValue("SELECT COUNT(*) FROM chat_run_prompt_snapshots WHERE run_id = ?::uuid", runId));
+        assertEquals(0, intValue("SELECT COUNT(*) FROM chat_run_retrieval_summaries WHERE run_id = ?::uuid", runId));
+        assertEquals(0, intValue("SELECT COUNT(*) FROM chat_run_llm_calls WHERE run_id = ?::uuid", runId));
+        assertEquals(0, intValue("SELECT COUNT(*) FROM chat_run_outputs WHERE run_id = ?::uuid", runId));
     }
 
     @Test

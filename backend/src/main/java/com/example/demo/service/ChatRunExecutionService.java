@@ -1,6 +1,7 @@
 package com.example.demo.service;
 
-import com.example.demo.api.ApiException;
+import com.example.demo.error.ApplicationException;
+import com.example.demo.error.ErrorType;
 import com.example.demo.config.ChatExecutionProperties;
 import com.example.demo.service.audit.ChatRunQueueLease;
 import com.example.demo.service.audit.EnqueuedChatRun;
@@ -14,6 +15,7 @@ import com.example.demo.model.ChatRunTraceDetail;
 import com.example.demo.service.cancellation.ChatCancellationHandle;
 import com.example.demo.service.cancellation.ChatRunCancelledException;
 import com.example.demo.service.cancellation.ChatRunLeaseLostException;
+import com.example.demo.validation.InputLimits;
 import java.lang.management.ManagementFactory;
 import java.time.Duration;
 import java.time.Instant;
@@ -27,10 +29,10 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import org.slf4j.Logger;
@@ -49,7 +51,7 @@ public class ChatRunExecutionService {
     private final ChatRunTraceService chatRunTraceService;
     private final ChatRunQueryService chatRunQueryService;
     private final String workerId;
-    private final Map<String, ChatCancellationHandle> runningRuns = new ConcurrentHashMap<>();
+    private final Map<String, RunningChatRun> runningRuns = new ConcurrentHashMap<>();
     private final AtomicInteger scheduledWorkers = new AtomicInteger(0);
 
     public ChatRunExecutionService(
@@ -117,10 +119,11 @@ public class ChatRunExecutionService {
     public ChatRunTraceDetail cancel(String runId) {
         ChatRunTraceDetail trace = chatRunQueryService.getTrace(runId);
         if (chatRunTraceService.cancelRun(trace.id(), trace.createdAt())) {
-            queueRepository.deleteQueueEntry(trace.id());
-            ChatCancellationHandle runningRun = runningRuns.get(trace.id());
+            RunningChatRun runningRun = runningRuns.get(trace.id());
             if (runningRun != null) {
-                runningRun.requestCancellation();
+                runningRun.cancellationHandle().requestCancellation();
+            } else {
+                queueRepository.deletePendingQueueEntry(trace.id());
             }
         }
         return chatRunQueryService.getTrace(trace.id());
@@ -170,17 +173,19 @@ public class ChatRunExecutionService {
     }
 
     private void executeLease(ChatRunQueueLease lease) {
+        putChatRunMdc(lease);
         ChatRunTraceService.RunTraceContext context = new ChatRunTraceService.RunTraceContext(
             lease.runId(),
             lease.createdAt(),
             lease.leaseToken()
         );
         ChatCancellationHandle cancellationHandle = new ChatCancellationHandle();
-        runningRuns.put(lease.runId(), cancellationHandle);
+        RunningChatRun runningRun = new RunningChatRun(lease, cancellationHandle);
+        runningRuns.put(lease.runId(), runningRun);
         LeaseHeartbeat heartbeat = null;
         try {
             if (isTerminalRun(lease.runId())) {
-                deleteQueueEntryIfTerminal(lease.runId());
+                deleteQueueEntryIfTerminal(lease);
                 return;
             }
             heartbeat = startHeartbeat(lease, context, cancellationHandle);
@@ -192,9 +197,12 @@ public class ChatRunExecutionService {
             }
         } catch (ChatRunLeaseLostException exception) {
             recordLeaseLost(context, lease, exception);
+            if (isTerminalRun(lease.runId())) {
+                queueRepository.deleteQueueEntryIfOwned(lease);
+            }
         } catch (ChatRunCancelledException exception) {
             if (heartbeat == null || !heartbeat.leaseLost()) {
-                deleteQueueEntryIfTerminal(lease.runId());
+                queueRepository.deleteQueueEntryIfOwned(lease);
             }
         } catch (RuntimeException exception) {
             if (heartbeat != null && heartbeat.leaseLost()) {
@@ -206,7 +214,7 @@ public class ChatRunExecutionService {
                 if (failed) {
                     queueRepository.deleteQueueEntryIfOwned(lease);
                 } else {
-                    deleteQueueEntryIfTerminal(lease.runId());
+                    deleteQueueEntryIfTerminal(lease);
                 }
             } catch (RuntimeException traceException) {
                 logger.warn("Unable to mark durable chat run failed: runId={}", lease.runId(), traceException);
@@ -216,7 +224,8 @@ public class ChatRunExecutionService {
             if (heartbeat != null) {
                 heartbeat.close();
             }
-            runningRuns.remove(lease.runId(), cancellationHandle);
+            runningRuns.remove(lease.runId(), runningRun);
+            clearChatRunMdc();
         }
     }
 
@@ -242,6 +251,7 @@ public class ChatRunExecutionService {
         ChatCancellationHandle cancellationHandle,
         AtomicBoolean leaseLost
     ) {
+        putChatRunMdc(lease);
         try {
             Instant heartbeatAt = Instant.now();
             Instant leaseExpiresAt = heartbeatAt.plusSeconds(Math.max(1, properties.getClaimLeaseSeconds()));
@@ -268,6 +278,8 @@ public class ChatRunExecutionService {
                 ));
             }
             logger.warn("Unable to heartbeat durable chat run lease: runId={}", lease.runId(), exception);
+        } finally {
+            clearChatRunMdc();
         }
     }
 
@@ -285,10 +297,10 @@ public class ChatRunExecutionService {
         logger.warn("Durable chat run lease lost: runId={}", lease.runId(), exception);
     }
 
-    private void deleteQueueEntryIfTerminal(String runId) {
-        ChatRunTraceDetail trace = chatRunQueryService.getTrace(runId);
+    private void deleteQueueEntryIfTerminal(ChatRunQueueLease lease) {
+        ChatRunTraceDetail trace = chatRunQueryService.getTrace(lease.runId());
         if (trace != null && isTerminal(trace.status())) {
-            queueRepository.deleteQueueEntry(runId);
+            queueRepository.deleteQueueEntryIfOwned(lease);
         }
     }
 
@@ -322,8 +334,8 @@ public class ChatRunExecutionService {
             Thread.sleep(pollMillis);
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
-            throw new ApiException(
-                HttpStatus.SERVICE_UNAVAILABLE,
+            throw new ApplicationException(
+                ErrorType.PROVIDER_UNAVAILABLE,
                 "chat_run.wait_interrupted",
                 "Chat run '" + submittedRun.id() + "' was submitted, but waiting for the result was interrupted. Poll "
                     + submittedRun.statusUrl() + " or fetch " + submittedRun.resultUrl() + " when it completes.",
@@ -336,26 +348,26 @@ public class ChatRunExecutionService {
         return Math.min(5000L, Math.max(100L, properties.getPollIntervalMillis()));
     }
 
-    private ApiException stillProcessingException(ChatRunSubmissionResponse submittedRun) {
-        return new ApiException(
-            HttpStatus.REQUEST_TIMEOUT,
+    private ApplicationException stillProcessingException(ChatRunSubmissionResponse submittedRun) {
+        return new ApplicationException(
+            ErrorType.REQUEST_TIMEOUT,
             "chat.run_still_processing",
             "Chat run '" + submittedRun.id() + "' is still processing. Poll "
                 + submittedRun.statusUrl() + " or fetch " + submittedRun.resultUrl() + " when it completes."
         );
     }
 
-    private ApiException failedRunException(ChatRunStatusResponse status) {
-        return new ApiException(
-            HttpStatus.CONFLICT,
+    private ApplicationException failedRunException(ChatRunStatusResponse status) {
+        return new ApplicationException(
+            ErrorType.CONFLICT,
             StringUtils.hasText(status.failureCode()) ? status.failureCode() : "chat_run.failed",
             StringUtils.hasText(status.failureMessage()) ? status.failureMessage() : "Chat run failed"
         );
     }
 
-    private ApiException cancelledRunException(ChatRunStatusResponse status) {
-        return new ApiException(
-            HttpStatus.CONFLICT,
+    private ApplicationException cancelledRunException(ChatRunStatusResponse status) {
+        return new ApplicationException(
+            ErrorType.CONFLICT,
             "chat_run.cancelled",
             StringUtils.hasText(status.failureMessage()) ? status.failureMessage() : "Chat run was cancelled"
         );
@@ -366,13 +378,19 @@ public class ChatRunExecutionService {
     }
 
     private void validateRequest(ChatExecutionRequest request) {
-        if (request == null || !StringUtils.hasText(request.prompt())) {
-            throw new ApiException(
-                HttpStatus.BAD_REQUEST,
-                "chat.invalid_request",
-                "Field 'prompt' is required"
-            );
-        }
+        InputLimits.validateChatRequest(request);
+    }
+
+    private void putChatRunMdc(ChatRunQueueLease lease) {
+        MDC.put("runId", lease.runId());
+        MDC.put("attempt", String.valueOf(lease.attemptCount()));
+        MDC.put("workerId", workerId);
+    }
+
+    private void clearChatRunMdc() {
+        MDC.remove("runId");
+        MDC.remove("attempt");
+        MDC.remove("workerId");
     }
 
     private record LeaseHeartbeat(ScheduledFuture<?> future, AtomicBoolean leaseLostFlag) implements AutoCloseable {
@@ -387,5 +405,8 @@ public class ChatRunExecutionService {
                 future.cancel(false);
             }
         }
+    }
+
+    record RunningChatRun(ChatRunQueueLease lease, ChatCancellationHandle cancellationHandle) {
     }
 }

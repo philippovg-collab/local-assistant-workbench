@@ -1,6 +1,7 @@
 package com.example.demo.infrastructure.audit;
 
-import com.example.demo.api.ApiException;
+import com.example.demo.error.ErrorType;
+import com.example.demo.error.StorageException;
 import com.example.demo.model.AnswerMode;
 import com.example.demo.model.ChatMode;
 import com.example.demo.service.audit.StoredChatAuditRunRecord;
@@ -11,7 +12,6 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.dao.DataAccessException;
-import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
@@ -38,42 +38,6 @@ public class PostgresChatAuditRepository implements ChatAuditRepository {
         this.jdbcTemplate = jdbcTemplate;
     }
 
-    public void save(StoredChatAuditRunRecord record) {
-        try {
-            jdbcTemplate.update(
-                """
-                    INSERT INTO chat_audit_runs (
-                        id,
-                        mode,
-                        model,
-                        prompt,
-                        answer,
-                        context_status,
-                        answer_mode,
-                        audit_jsonb,
-                        created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?)
-                    """,
-                UUID.fromString(record.id()),
-                record.mode().name(),
-                record.model(),
-                record.prompt(),
-                record.answer(),
-                record.contextStatus(),
-                record.answerMode() == null ? null : record.answerMode().value(),
-                record.auditJson(),
-                Timestamp.from(record.createdAt())
-            );
-        } catch (DataAccessException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
-                "chat_audit.storage_write_failed",
-                "Unable to persist chat audit run in PostgreSQL",
-                exception
-            );
-        }
-    }
-
     public List<StoredChatAuditRunRecord> findAll(int limit) {
         try {
             return jdbcTemplate.query(
@@ -87,8 +51,8 @@ public class PostgresChatAuditRepository implements ChatAuditRepository {
                 limit
             );
         } catch (DataAccessException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new StorageException(
+                ErrorType.STORAGE_FAILURE,
                 "chat_audit.storage_read_failed",
                 "Unable to load chat audit runs from PostgreSQL",
                 exception
@@ -110,8 +74,8 @@ public class PostgresChatAuditRepository implements ChatAuditRepository {
             );
             return records.stream().findFirst();
         } catch (DataAccessException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new StorageException(
+                ErrorType.STORAGE_FAILURE,
                 "chat_audit.storage_read_failed",
                 "Unable to load chat audit run from PostgreSQL",
                 exception
@@ -126,8 +90,8 @@ public class PostgresChatAuditRepository implements ChatAuditRepository {
                 Timestamp.from(cutoff)
             );
         } catch (DataAccessException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new StorageException(
+                ErrorType.STORAGE_FAILURE,
                 "chat_audit.storage_write_failed",
                 "Unable to delete expired chat audit runs from PostgreSQL",
                 exception

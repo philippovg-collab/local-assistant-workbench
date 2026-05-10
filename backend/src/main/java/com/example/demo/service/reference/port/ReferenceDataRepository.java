@@ -20,15 +20,9 @@ public interface ReferenceDataRepository {
 
     StoredReferenceWorkspaceRecord saveWorkspace(StoredReferenceWorkspaceRecord record);
 
-    int countMaterialsByWorkspace(String workspaceKey);
-
-    int countReadyMaterialsByWorkspace(String workspaceKey);
-
     List<StoredReferenceProjectRecord> findProjects(boolean activeOnly, String workspaceKey);
 
     Optional<StoredReferenceProjectRecord> findProjectByKey(String key);
-
-    boolean projectHasMaterialReferences(String key);
 
     StoredReferenceProjectRecord saveProject(StoredReferenceProjectRecord record);
 }

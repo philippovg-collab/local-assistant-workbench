@@ -8,8 +8,9 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.example.demo.api.ApiException;
+import com.example.demo.error.ApplicationException;
 import com.example.demo.service.reference.port.ReferenceDataRepository;
+import com.example.demo.service.reference.port.ReferenceUsageRepository;
 import com.example.demo.service.reference.StoredReferenceProjectRecord;
 import com.example.demo.service.reference.StoredReferenceWorkspaceRecord;
 import com.example.demo.model.ReferenceProjectRequest;
@@ -21,11 +22,12 @@ import org.junit.jupiter.api.Test;
 class ReferenceDataServiceTest {
 
     private final ReferenceDataRepository repository = mock(ReferenceDataRepository.class);
-    private final ReferenceDataService service = new ReferenceDataService(repository);
+    private final ReferenceUsageRepository usageRepository = mock(ReferenceUsageRepository.class);
+    private final ReferenceDataService service = new ReferenceDataService(repository, usageRepository);
 
     @Test
     void rejectsNonMachineWorkspaceKeys() {
-        ApiException exception = assertThrows(ApiException.class, () -> service.createWorkspace(
+        ApplicationException exception = assertThrows(ApplicationException.class, () -> service.createWorkspace(
             new ReferenceWorkspaceRequest("North Upgrade", "Северный проект", null, true, 0, false)
         ));
 
@@ -34,7 +36,7 @@ class ReferenceDataServiceTest {
 
     @Test
     void rejectsBlankWorkspaceNames() {
-        ApiException exception = assertThrows(ApiException.class, () -> service.createWorkspace(
+        ApplicationException exception = assertThrows(ApplicationException.class, () -> service.createWorkspace(
             new ReferenceWorkspaceRequest("north-upgrade", " ", null, true, 0, false)
         ));
 
@@ -45,7 +47,7 @@ class ReferenceDataServiceTest {
     void rejectsProjectsWithoutExistingWorkspace() {
         when(repository.workspaceExists("missing-workspace")).thenReturn(false);
 
-        ApiException exception = assertThrows(ApiException.class, () -> service.createProject(
+        ApplicationException exception = assertThrows(ApplicationException.class, () -> service.createProject(
             new ReferenceProjectRequest("project-a", "missing-workspace", "Проект A", true, 0)
         ));
 
@@ -67,7 +69,7 @@ class ReferenceDataServiceTest {
         )));
         when(repository.countDefaultWorkspaces()).thenReturn(1);
 
-        ApiException exception = assertThrows(ApiException.class, () -> service.updateWorkspace(
+        ApplicationException exception = assertThrows(ApplicationException.class, () -> service.updateWorkspace(
             "general",
             new ReferenceWorkspaceRequest(null, "Общая", null, false, 0, true)
         ));
@@ -125,9 +127,9 @@ class ReferenceDataServiceTest {
             now
         )));
         when(repository.workspaceExists("general")).thenReturn(true);
-        when(repository.projectHasMaterialReferences("north-grid")).thenReturn(true);
+        when(usageRepository.projectHasMaterialReferences("north-grid")).thenReturn(true);
 
-        ApiException exception = assertThrows(ApiException.class, () -> service.updateProject(
+        ApplicationException exception = assertThrows(ApplicationException.class, () -> service.updateProject(
             "north-grid",
             new ReferenceProjectRequest("north-grid", "general", "Северная сеть", true, 20)
         ));
@@ -148,7 +150,7 @@ class ReferenceDataServiceTest {
             now
         )));
         when(repository.workspaceExists("general")).thenReturn(true);
-        when(repository.projectHasMaterialReferences("north-grid")).thenReturn(false);
+        when(usageRepository.projectHasMaterialReferences("north-grid")).thenReturn(false);
         when(repository.saveProject(any())).thenAnswer(invocation -> invocation.getArgument(0));
 
         var updated = service.updateProject(

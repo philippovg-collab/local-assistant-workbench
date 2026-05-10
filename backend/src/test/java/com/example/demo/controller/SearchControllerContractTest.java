@@ -1,6 +1,6 @@
 package com.example.demo.controller;
 
-import com.example.demo.service.material.DocumentBlockType;
+import com.example.demo.model.DocumentBlockType;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;

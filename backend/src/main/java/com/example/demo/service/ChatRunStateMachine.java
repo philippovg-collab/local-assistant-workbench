@@ -1,6 +1,6 @@
 package com.example.demo.service;
 
-import com.example.demo.api.ApiException;
+import com.example.demo.error.ErrorReasonResolver;
 import com.example.demo.model.AnswerMode;
 import com.example.demo.model.ChatExecutionResponse;
 import com.example.demo.service.audit.port.ChatRunTraceRepository;
@@ -115,10 +115,7 @@ public class ChatRunStateMachine {
     }
 
     private String reasonCode(Throwable throwable) {
-        if (throwable instanceof ApiException apiException) {
-            return apiException.getCode();
-        }
-        return "chat_trace.execution_failed";
+        return ErrorReasonResolver.reasonCode(throwable, "chat_trace.execution_failed");
     }
 
     private String rootMessage(Throwable throwable) {

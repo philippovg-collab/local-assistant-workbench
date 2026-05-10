@@ -51,6 +51,7 @@ FRONTEND_CHECK_HOST="${FRONTEND_CHECK_HOST:-127.0.0.1}"
 FRONTEND_PUBLIC_URL="${FRONTEND_PUBLIC_URL:-http://${FRONTEND_CHECK_HOST}:${FRONTEND_HTTP_PORT}}"
 POSTGRES_DB="${POSTGRES_DB:-ragstudio}"
 POSTGRES_USER="${POSTGRES_USER:-ragstudio}"
+POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-}"
 APP_LLM_MODEL="${APP_LLM_MODEL:-qwen2.5:7b}"
 APP_EMBEDDINGS_MODEL="${APP_EMBEDDINGS_MODEL:-nomic-embed-text}"
 APP_OCR_ENABLED="${APP_OCR_ENABLED:-false}"
@@ -72,6 +73,19 @@ pass() {
 fail() {
   printf 'FAIL %s\n' "$1" >&2
   exit 1
+}
+
+is_placeholder_secret() {
+  local value
+  value="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
+  case "${value}" in
+    ""|admin|password|secret|local-admin-password|change-me|change-me-admin|ragstudio|replace-with-*)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
 }
 
 wait_until() {
@@ -154,7 +168,8 @@ docker info >/dev/null 2>&1 || fail "Docker daemon is not reachable"
 compose version >/dev/null 2>&1 || fail "Docker Compose plugin is not available"
 pass "Docker and Compose are available"
 
-[[ -n "${APP_SECURITY_ADMIN_PASSWORD}" ]] || fail "APP_SECURITY_ADMIN_PASSWORD must be set for authenticated preflight checks"
+is_placeholder_secret "${POSTGRES_PASSWORD}" && fail "POSTGRES_PASSWORD must be set to a non-placeholder production secret"
+is_placeholder_secret "${APP_SECURITY_ADMIN_PASSWORD}" && fail "APP_SECURITY_ADMIN_PASSWORD must be set to a non-placeholder production secret"
 
 compose ps --services --status running | grep -qx postgres || fail "postgres service is not running"
 compose ps --services --status running | grep -qx backend || fail "backend service is not running"

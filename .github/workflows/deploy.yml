@@ -20,8 +20,6 @@ jobs:
   deploy:
     if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main')
     runs-on: self-hosted
-    env:
-      GIT_SSL_NO_VERIFY: "true"
 
     steps:
       - name: Checkout
@@ -31,10 +29,29 @@ jobs:
         env:
           DEPLOY_ENV_PRODUCTION: ${{ secrets.DEPLOY_ENV_PRODUCTION }}
         run: |
-          cp .env.production.defaults .env.production
-          if [ -n "${DEPLOY_ENV_PRODUCTION}" ]; then
-            printf '\n%s\n' "$DEPLOY_ENV_PRODUCTION" >> .env.production
+          set -euo pipefail
+          if [ -z "${DEPLOY_ENV_PRODUCTION}" ]; then
+            echo "DEPLOY_ENV_PRODUCTION secret must provide production secrets." >&2
+            exit 1
           fi
+
+          cp .env.production.defaults .env.production
+          printf '\n%s\n' "$DEPLOY_ENV_PRODUCTION" >> .env.production
+
+          validate_secret() {
+            name="$1"
+            value="$(awk -F= -v key="$name" '$1 == key { found = 1; value = substr($0, length(key) + 2) } END { if (found) print value }' .env.production | tr -d '\r')"
+            normalized="$(printf '%s' "$value" | tr '[:upper:]' '[:lower:]')"
+            case "$normalized" in
+              ""|admin|password|secret|local-admin-password|change-me|change-me-admin|ragstudio|replace-with-*)
+                echo "$name must be set to a non-placeholder production secret." >&2
+                exit 1
+                ;;
+            esac
+          }
+
+          validate_secret POSTGRES_PASSWORD
+          validate_secret APP_SECURITY_ADMIN_PASSWORD
 
       - name: Prepare persistent directories
         run: |

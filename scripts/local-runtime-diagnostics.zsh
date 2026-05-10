@@ -6,6 +6,8 @@ BACKEND_AUTH_SESSION_URL="${BACKEND_URL}/api/auth/session"
 BACKEND_AUTH_LOGIN_URL="${BACKEND_URL}/api/auth/login"
 BACKEND_HEALTH_URL="${BACKEND_URL}/api/health"
 BACKEND_MODELS_URL="${BACKEND_URL}/api/models"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd -P)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd -P)"
 APP_SECURITY_ADMIN_USERNAME="${APP_SECURITY_ADMIN_USERNAME:-admin}"
 APP_SECURITY_ADMIN_PASSWORD="${APP_SECURITY_ADMIN_PASSWORD:-}"
 DEFAULT_LLM_MODEL="${APP_LLM_MODEL:-qwen2.5:7b}"
@@ -87,6 +89,47 @@ deepseek_manifest_exists() {
   [[ -f "${OLLAMA_MODELS_DIR}/manifests/registry.ollama.ai/library/${model_name}/${tag}" ]]
 }
 
+warn_docker_compose_context_mismatch() {
+  local actual_working_dir actual_config_files normalized_actual
+
+  if ! command -v docker >/dev/null 2>&1; then
+    return 0
+  fi
+  if ! docker ps --format '{{.Names}}' 2>/dev/null | grep -qx 'ragstudio-ollama-1'; then
+    return 0
+  fi
+
+  actual_working_dir="$(
+    docker inspect ragstudio-ollama-1 \
+      --format '{{ index .Config.Labels "com.docker.compose.project.working_dir" }}' 2>/dev/null || true
+  )"
+  actual_config_files="$(
+    docker inspect ragstudio-ollama-1 \
+      --format '{{ index .Config.Labels "com.docker.compose.project.config_files" }}' 2>/dev/null || true
+  )"
+
+  if [[ -z "$actual_working_dir" || "$actual_working_dir" == "<no value>" ]]; then
+    echo "Runtime diagnostics: Docker Ollama container ragstudio-ollama-1 has no Compose working_dir label; it may not belong to this repository." >&2
+    echo "  Expected repository: ${ROOT_DIR}" >&2
+    return 0
+  fi
+
+  normalized_actual="$actual_working_dir"
+  if [[ -d "$actual_working_dir" ]]; then
+    normalized_actual="$(cd "$actual_working_dir" && pwd -P)"
+  fi
+
+  if [[ "$normalized_actual" != "$ROOT_DIR" ]]; then
+    echo "Runtime diagnostics: Docker Ollama container ragstudio-ollama-1 was created from a different Compose working directory." >&2
+    echo "  Expected: ${ROOT_DIR}" >&2
+    echo "  Actual:   ${actual_working_dir}" >&2
+    if [[ -n "$actual_config_files" && "$actual_config_files" != "<no value>" ]]; then
+      echo "  Compose config: ${actual_config_files}" >&2
+    fi
+    echo "  This can hide models pulled into another Ollama volume; pull ${DEEPSEEK_MODEL} into the running container or restart this repository's Compose stack." >&2
+  fi
+}
+
 warn_docker_deepseek_missing() {
   if ! command -v docker >/dev/null 2>&1; then
     return 0
@@ -105,6 +148,8 @@ warn_docker_deepseek_missing() {
 
 main() {
   local models_json health_json models_error_code llm_status embedding_status default_model_present="false"
+
+  warn_docker_compose_context_mismatch
 
   if [[ -z "$APP_SECURITY_ADMIN_PASSWORD" ]]; then
     echo "Runtime diagnostics: APP_SECURITY_ADMIN_PASSWORD is not set; skipping authenticated model/health checks." >&2

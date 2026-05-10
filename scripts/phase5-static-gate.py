@@ -250,6 +250,14 @@ def check_weak_runtime_credentials_absent() -> list[Violation]:
     for path in (REPO_ROOT / "README.md", REPO_ROOT / ".env.example", REPO_ROOT / "docker-compose.yml"):
         if path.exists():
             files.append(path)
+    for path in (
+        REPO_ROOT / ".env.production.defaults",
+        REPO_ROOT / ".env.production.example",
+        REPO_ROOT / "docker-compose.prod.yml",
+        REPO_ROOT / ".github/workflows/deploy.yml",
+    ):
+        if path.exists():
+            files.append(path)
 
     line_patterns = (
         (
@@ -273,6 +281,23 @@ def check_weak_runtime_credentials_absent() -> list[Violation]:
             "Do not document or ship `admin/admin` as a non-test runtime credential.",
         ),
     )
+    production_line_patterns = (
+        (
+            re.compile(r"APP_SECURITY_ADMIN_PASSWORD\s*=\s*(change-me-admin|change-me|ragstudio|replace-with-[^\s#]+)\b", re.IGNORECASE),
+            "placeholder APP_SECURITY_ADMIN_PASSWORD",
+            "Production-facing admin passwords must come from secrets and must not use placeholder values.",
+        ),
+        (
+            re.compile(r"POSTGRES_PASSWORD\s*=\s*(change-me|ragstudio|replace-with-[^\s#]+)\b", re.IGNORECASE),
+            "placeholder POSTGRES_PASSWORD",
+            "Production-facing database passwords must come from secrets and must not use placeholder values.",
+        ),
+        (
+            re.compile(r"POSTGRES_PASSWORD[^\n]*:-ragstudio\b"),
+            "POSTGRES_PASSWORD:-ragstudio",
+            "Do not ship weak PostgreSQL password fallbacks in production compose.",
+        ),
+    )
     frontend_password_prefill = re.compile(
         r"\b(password|setPassword)\b[^\n]*useState\(\s*[\"'`]admin[\"'`]\s*\)",
         re.IGNORECASE,
@@ -282,8 +307,17 @@ def check_weak_runtime_credentials_absent() -> list[Violation]:
     for path in sorted(set(files)):
         if path == REPO_ROOT / "scripts/phase5-static-gate.py" or is_test_fixture(path):
             continue
+        relative = path.relative_to(REPO_ROOT).as_posix()
+        production_facing = (
+            relative.startswith(".env.production")
+            or relative == "docker-compose.prod.yml"
+            or relative == ".github/workflows/deploy.yml"
+            or relative == "scripts/linux/preflight-compose.sh"
+        )
         source = read_text(path)
         for line_no, line in enumerate(source.splitlines(), start=1):
+            if line.strip().startswith("#"):
+                continue
             for regex, pattern, fix in line_patterns:
                 if regex.search(line):
                     violations.append(Violation(
@@ -293,6 +327,16 @@ def check_weak_runtime_credentials_absent() -> list[Violation]:
                         pattern,
                         fix,
                     ))
+            if production_facing:
+                for regex, pattern, fix in production_line_patterns:
+                    if regex.search(line):
+                        violations.append(Violation(
+                            "weak-runtime-credentials",
+                            path,
+                            line_no,
+                            pattern,
+                            fix,
+                        ))
             if path.as_posix().startswith((REPO_ROOT / "frontend/src").as_posix()) and frontend_password_prefill.search(line):
                 violations.append(Violation(
                     "weak-runtime-credentials",
@@ -341,6 +385,195 @@ def check_frontend_production_uses_durable_chat_runs() -> list[Violation]:
     return violations
 
 
+def check_chat_execution_service_is_orchestrator() -> list[Violation]:
+    path = REPO_ROOT / "backend/src/main/java/com/example/demo/service/ChatExecutionService.java"
+    if not path.exists():
+        return []
+    source = read_text(path)
+    violations: list[Violation] = []
+    forbidden_methods = (
+        "buildRagMessages",
+        "buildDirectMessages",
+        "writeRetrievedContextJson",
+    )
+    for method_name in forbidden_methods:
+        for match in re.finditer(r"\b" + re.escape(method_name) + r"\b", source):
+            violations.append(Violation(
+                "chat-execution-lifecycle",
+                path,
+                line_number(source, match.start()),
+                method_name,
+                "Keep prompt/message assembly in ChatPromptAssemblyService; ChatExecutionService should only orchestrate lifecycle steps.",
+            ))
+    line_count = len(source.splitlines())
+    if line_count > 350:
+        violations.append(Violation(
+            "chat-execution-lifecycle",
+            path,
+            1,
+            f"{line_count} lines",
+            "Keep ChatExecutionService below 350 lines after the phase 5 split.",
+        ))
+    return violations
+
+
+def check_legacy_chat_audit_write_path_absent() -> list[Violation]:
+    paths = (
+        REPO_ROOT / "backend/src/main/java/com/example/demo/service/audit/port/ChatAuditRepository.java",
+        REPO_ROOT / "backend/src/main/java/com/example/demo/service/ChatAuditService.java",
+        REPO_ROOT / "backend/src/main/java/com/example/demo/infrastructure/audit/PostgresChatAuditRepository.java",
+    )
+    violations: list[Violation] = []
+    for path in paths:
+        if not path.exists():
+            continue
+        source = read_text(path)
+        for pattern in ("void save(", "public String record(", "repository.save("):
+            for match in re.finditer(re.escape(pattern), source):
+                violations.append(Violation(
+                    "chat-legacy-audit",
+                    path,
+                    line_number(source, match.start()),
+                    pattern,
+                    "New executions must write only to chat_run_* tables; keep legacy audit support read/delete-only.",
+                ))
+    return violations
+
+
+def check_unguarded_chat_queue_deletion_absent() -> list[Violation]:
+    path = REPO_ROOT / "backend/src/main/java/com/example/demo/service/audit/port/ChatRunQueueRepository.java"
+    if not path.exists():
+        return []
+    source = read_text(path)
+    violations: list[Violation] = []
+    for match in re.finditer(r"\bdeleteQueueEntry\s*\(\s*String\s+runId\s*\)", source):
+        violations.append(Violation(
+            "chat-queue-ownership",
+            path,
+            line_number(source, match.start()),
+            "deleteQueueEntry(String runId)",
+            "Use deletePendingQueueEntry(runId) or deleteQueueEntryIfOwned(lease) so cleanup preserves worker ownership.",
+        ))
+    return violations
+
+
+def check_material_auto_tagging_not_hidden_in_ingestion() -> list[Violation]:
+    path = REPO_ROOT / "backend/src/main/java/com/example/demo/service/MaterialIngestionService.java"
+    if not path.exists():
+        return []
+    source = read_text(path)
+    violations: list[Violation] = []
+    forbidden_patterns = (
+        (
+            "applyAutoTagsBestEffort",
+            "Enqueue durable material auto-tagging tasks and let MaterialAutoTaggingWorkerService own enrichment.",
+        ),
+        (
+            "autoTaggingExecutor",
+            "Material ingestion must not submit hidden executor side effects; wake the durable worker after enqueue.",
+        ),
+    )
+    for pattern, fix in forbidden_patterns:
+        for match in re.finditer(re.escape(pattern), source):
+            violations.append(Violation(
+                "material-auto-tagging-lifecycle",
+                path,
+                line_number(source, match.start()),
+                pattern,
+                fix,
+            ))
+    return violations
+
+
+def check_retrieval_hot_paths_use_bulk_chunk_loading() -> list[Violation]:
+    paths = (
+        REPO_ROOT / "backend/src/main/java/com/example/demo/service/MaterialRetrievalService.java",
+        REPO_ROOT / "backend/src/main/java/com/example/demo/service/RetrievalResultMapper.java",
+    )
+    forbidden_patterns = (
+        "chunkingRepository::findChunks",
+        "chunkingRepository.findChunks(",
+    )
+    violations: list[Violation] = []
+    for path in paths:
+        if not path.exists():
+            continue
+        source = read_text(path)
+        for pattern in forbidden_patterns:
+            for match in re.finditer(re.escape(pattern), source):
+                violations.append(Violation(
+                    "retrieval-bulk-chunks",
+                    path,
+                    line_number(source, match.start()),
+                    pattern,
+                    "Bulk-load chunks with findChunksByMaterialIds in retrieval rerank/search-hit hot paths.",
+                ))
+    return violations
+
+
+def check_single_admin_security_posture() -> list[Violation]:
+    violations: list[Violation] = []
+
+    security_config = REPO_ROOT / "backend/src/main/java/com/example/demo/config/SecurityConfig.java"
+    if security_config.exists():
+        source = read_text(security_config)
+        for match in re.finditer(r'\.requestMatchers\s*\(\s*"/api/\*\*"\s*\)\s*\.authenticated\s*\(', source):
+            violations.append(Violation(
+                "single-admin-security-boundary",
+                security_config,
+                line_number(source, match.start()),
+                '.requestMatchers("/api/**").authenticated()',
+                "Keep the internal single-admin posture explicit: use hasRole(\"ADMIN\") for /api/**.",
+            ))
+
+    test_root = REPO_ROOT / "backend/src/test/java"
+    for path in java_files(test_root):
+        source = read_text(path)
+        for test_chunk in re.split(r"(?=@Test\b)", source):
+            if 'roles("USER")' not in test_chunk:
+                continue
+            if "status().isOk()" in test_chunk:
+                violations.append(Violation(
+                    "single-admin-security-boundary",
+                    path,
+                    line_number(source, source.find(test_chunk)),
+                    'roles("USER") with status().isOk()',
+                    "ROLE_USER must not be accepted by business API security tests while the product is single-admin only.",
+                ))
+
+    production_roots = (
+        REPO_ROOT / "backend/src/main/java",
+        REPO_ROOT / "frontend/src",
+    )
+    artifact_patterns = (
+        (
+            re.compile(r"\b(?:tenantId|ownerUserId)\b"),
+            "tenant/owner authorization field",
+        ),
+        (
+            re.compile(r"\bRBAC\b"),
+            "RBAC production artifact",
+        ),
+        (
+            re.compile(r"\b(?:class|record|interface|enum|type)\s+\w*(?:User|Role)\b"),
+            "User/Role production artifact",
+        ),
+    )
+    for root in production_roots:
+        for path in text_files(root, (".java", ".ts", ".tsx")):
+            source = read_text(path)
+            for regex, pattern in artifact_patterns:
+                for match in regex.finditer(source):
+                    violations.append(Violation(
+                        "single-admin-security-boundary",
+                        path,
+                        line_number(source, match.start()),
+                        pattern,
+                        "Do not introduce multi-user/RBAC production artifacts without a separate security ADR and roadmap.",
+                    ))
+    return violations
+
+
 def main() -> int:
     checks = (
         check_service_layer_imports,
@@ -352,6 +585,12 @@ def main() -> int:
         check_weak_runtime_credentials_absent,
         check_controllers_do_not_use_direct_chat_executor,
         check_frontend_production_uses_durable_chat_runs,
+        check_chat_execution_service_is_orchestrator,
+        check_legacy_chat_audit_write_path_absent,
+        check_unguarded_chat_queue_deletion_absent,
+        check_material_auto_tagging_not_hidden_in_ingestion,
+        check_retrieval_hot_paths_use_bulk_chunk_loading,
+        check_single_admin_security_posture,
     )
     violations: list[Violation] = []
     for check in checks:

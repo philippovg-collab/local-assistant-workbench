@@ -6,8 +6,12 @@ import com.example.demo.service.material.port.MaterialCatalogRepository;
 import com.example.demo.service.material.port.MaterialIndexingQueueRepository;
 import com.example.demo.service.material.port.OcrCapabilityProvider;
 
+import com.example.demo.config.ContextProperties;
 import com.example.demo.config.OcrProperties;
+import com.example.demo.llmprovider.ActiveLlmProviderResolver;
 import com.example.demo.model.HealthResponse;
+import com.example.demo.model.LlmProviderStatus;
+import com.example.demo.service.context.ContextLayerHealthService;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -25,7 +29,11 @@ public class HealthStatusService {
     private final ProductionLexicalSearchRouter productionLexicalSearchRouter;
     private final QualityLayerHealthService qualityLayerHealthService;
     private final ChatAuditService chatAuditService;
+    private final ActiveLlmProviderResolver activeProviderResolver;
+    private final ContextLayerHealthService contextLayerHealthService;
+    private final ContextProperties contextProperties;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public HealthStatusService(
         OcrProperties ocrProperties,
         OcrCapabilityProvider ocrCapabilityProvider,
@@ -35,7 +43,10 @@ public class HealthStatusService {
         MaterialIndexingQueueRepository indexingQueueRepository,
         ProductionLexicalSearchRouter productionLexicalSearchRouter,
         QualityLayerHealthService qualityLayerHealthService,
-        ChatAuditService chatAuditService
+        ChatAuditService chatAuditService,
+        ActiveLlmProviderResolver activeProviderResolver,
+        ContextLayerHealthService contextLayerHealthService,
+        ContextProperties contextProperties
     ) {
         this.ocrProperties = ocrProperties;
         this.ocrCapabilityProvider = ocrCapabilityProvider;
@@ -46,6 +57,9 @@ public class HealthStatusService {
         this.productionLexicalSearchRouter = productionLexicalSearchRouter;
         this.qualityLayerHealthService = qualityLayerHealthService;
         this.chatAuditService = chatAuditService;
+        this.activeProviderResolver = activeProviderResolver;
+        this.contextLayerHealthService = contextLayerHealthService;
+        this.contextProperties = contextProperties;
     }
 
     public HealthResponse currentHealth() {
@@ -64,6 +78,10 @@ public class HealthStatusService {
             productionLexicalSearchRouter.currentDecisionWithRefresh();
         var searchHealth = lexicalRoutingDecision.searchHealth();
         ChatAuditService.AuditHealth auditHealth = chatAuditService.currentHealth();
+        HealthResponse.ReadinessComponent contextLayerReadiness = contextLayerHealthService == null
+            ? new HealthResponse.ReadinessComponent("UNKNOWN", "context.health_unknown", "Context layer health has not been observed.", null)
+            : contextLayerHealthService.currentReadiness();
+        HealthResponse.ContextFeatures contextFeatures = contextFeatures();
         String ocrStatus = !ocrProperties.isEnabled()
             ? "DISABLED"
             : capability.scannedPdfSupport() ? "UP" : "DOWN";
@@ -94,12 +112,13 @@ public class HealthStatusService {
             lexicalRoutingDecision,
             searchHealth,
             auditHealth,
-            indexingQueueSnapshot
+            indexingQueueSnapshot,
+            contextLayerReadiness
         );
 
         return new HealthResponse(
             "spring-backend",
-            overallStatus(ragReady, indexSyncReady(searchHealth), auditHealth),
+            overallStatus(ragReady, indexSyncReady(searchHealth), auditHealth, contextLayerReadiness),
             Instant.now().toString(),
             runtimeReadiness.directStatus(),
             runtimeReadiness.directReasonCode(),
@@ -158,8 +177,53 @@ public class HealthStatusService {
                 ? null
                 : indexingQueueSnapshot.oldestInProgressAt().toString(),
             qualityLayerHealthService.currentHealth(),
+            activeChatProviderSummary(runtimeReadiness),
+            activeEmbeddingProviderSummary(runtimeReadiness),
+            contextFeatures,
             readiness
         );
+    }
+
+    private HealthResponse.ContextFeatures contextFeatures() {
+        if (contextProperties == null) {
+            return new HealthResponse.ContextFeatures(false, false, false, false, false, false, false);
+        }
+        return new HealthResponse.ContextFeatures(
+            contextProperties.isEnabled(),
+            contextProperties.isConversationsEnabled(),
+            contextProperties.isHistoryEnabled(),
+            contextProperties.isStickyStateEnabled(),
+            contextProperties.isRetrievalQueryResolutionEnabled(),
+            contextProperties.isSummaryEnabled(),
+            contextProperties.isLongTermMemoryEnabled()
+        );
+    }
+
+    private HealthResponse.ActiveProviderSummary activeChatProviderSummary(
+        RuntimeReadinessService.RuntimeReadiness runtimeReadiness
+    ) {
+        return activeProviderResolver == null
+            ? null
+            : activeProviderResolver.activeChatProviderSummary(llmProviderStatus(runtimeReadiness.llmStatus()));
+    }
+
+    private HealthResponse.ActiveProviderSummary activeEmbeddingProviderSummary(
+        RuntimeReadinessService.RuntimeReadiness runtimeReadiness
+    ) {
+        return activeProviderResolver == null
+            ? null
+            : activeProviderResolver.activeEmbeddingProviderSummary(llmProviderStatus(runtimeReadiness.embeddingStatus()));
+    }
+
+    private LlmProviderStatus llmProviderStatus(String status) {
+        if (status == null) {
+            return LlmProviderStatus.UNKNOWN;
+        }
+        try {
+            return LlmProviderStatus.valueOf(status);
+        } catch (IllegalArgumentException exception) {
+            return LlmProviderStatus.UNKNOWN;
+        }
     }
 
     private String resolveRagDegradedReasonCode(
@@ -233,11 +297,13 @@ public class HealthStatusService {
     private String overallStatus(
         boolean ragReady,
         boolean indexSyncReady,
-        ChatAuditService.AuditHealth auditHealth
+        ChatAuditService.AuditHealth auditHealth,
+        HealthResponse.ReadinessComponent contextLayerReadiness
     ) {
         return ragReady
             && indexSyncReady
             && (auditHealth == null || "UP".equals(auditHealth.status()))
+            && (contextLayerReadiness == null || !"DEGRADED".equals(contextLayerReadiness.status()))
             ? "UP"
             : "DEGRADED";
     }
@@ -249,7 +315,8 @@ public class HealthStatusService {
         ProductionLexicalSearchRouter.LexicalRoutingDecision lexicalRoutingDecision,
         ElasticsearchHealthService.SearchSyncHealth searchHealth,
         ChatAuditService.AuditHealth auditHealth,
-        MaterialIndexingQueueRepository.IndexingQueueSnapshot indexingQueueSnapshot
+        MaterialIndexingQueueRepository.IndexingQueueSnapshot indexingQueueSnapshot,
+        HealthResponse.ReadinessComponent contextLayerReadiness
     ) {
         Map<String, HealthResponse.ReadinessComponent> components = new LinkedHashMap<>();
         components.put("runtime", new HealthResponse.ReadinessComponent(
@@ -296,6 +363,7 @@ public class HealthStatusService {
             auditHealth == null ? "Chat audit health has not been observed." : auditHealth.reasonMessage(),
             auditHealth == null ? null : auditHealth.lastStateChangedAt()
         ));
+        components.put("context-layer", contextLayerReadiness);
         return components;
     }
 

@@ -48,6 +48,7 @@ export function StatusSummary({
   const searchMode = health?.searchMode;
   const searchProvider = health?.searchProvider;
   const searchPresentation = buildSearchPresentation(health);
+  const contextLayerReadiness = health?.readiness?.["context-layer"] ?? null;
   const backendMessage = health
     ? isBackendHealthy
       ? health.application
@@ -89,6 +90,9 @@ export function StatusSummary({
   const qualityRetrievalWindowSummary = health?.qualityLayer
     ? `sample=${health.qualityLayer.retrievalWindow.sampleSize} · no-context=${Math.round(health.qualityLayer.retrievalWindow.noContextRate * 100)}%`
     : "Ждём retrieval window.";
+  const contextLayerSummary = contextLayerReadiness
+    ? `${contextLayerReadiness.status}${contextLayerReadiness.reasonMessage ? ` · ${contextLayerReadiness.reasonMessage}` : ""}`
+    : "Context-layer readiness ещё не опубликован backend-контрактом.";
   const summaryCards = [
     {
       icon: Activity,
@@ -206,6 +210,10 @@ export function StatusSummary({
     {
       label: "Retrieval window",
       value: qualityRetrievalWindowSummary,
+    },
+    {
+      label: "Context layer",
+      value: contextLayerSummary,
     },
   ];
 

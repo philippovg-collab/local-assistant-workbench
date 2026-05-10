@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.example.demo.infrastructure.material.PostgresReferenceUsageRepository;
 import com.example.demo.model.ReferenceProjectRequest;
 import com.example.demo.model.ReferenceWorkspaceRequest;
 import com.example.demo.service.ReferenceDataService;
@@ -17,7 +18,8 @@ class PostgresReferenceDataRepositoryIT extends PostgresIntegrationTestSupport {
     void migratesSeedAndPersistsReferenceData() {
         TestDatabase database = resetDatabase();
         PostgresReferenceDataRepository repository = new PostgresReferenceDataRepository(database.jdbcTemplate());
-        ReferenceDataService service = new ReferenceDataService(repository);
+        PostgresReferenceUsageRepository usageRepository = new PostgresReferenceUsageRepository(database.jdbcTemplate());
+        ReferenceDataService service = new ReferenceDataService(repository, usageRepository);
 
         var seededWorkspaces = service.listWorkspaces(false);
         assertTrue(seededWorkspaces.stream().anyMatch(workspace ->
@@ -64,7 +66,7 @@ class PostgresReferenceDataRepositoryIT extends PostgresIntegrationTestSupport {
         assertEquals("repo-north-grid", projects.getFirst().key());
         assertEquals("repo-north", projects.getFirst().workspaceKey());
 
-        assertFalse(repository.projectHasMaterialReferences("repo-north-grid"));
+        assertFalse(usageRepository.projectHasMaterialReferences("repo-north-grid"));
         database.jdbcTemplate().update(
             """
                 INSERT INTO materials (
@@ -98,6 +100,6 @@ class PostgresReferenceDataRepositoryIT extends PostgresIntegrationTestSupport {
             "ACTIVE"
         );
 
-        assertTrue(repository.projectHasMaterialReferences("repo-north-grid"));
+        assertTrue(usageRepository.projectHasMaterialReferences("repo-north-grid"));
     }
 }

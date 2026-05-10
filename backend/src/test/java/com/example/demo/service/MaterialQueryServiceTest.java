@@ -16,7 +16,8 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import com.example.demo.api.ApiException;
+import com.example.demo.error.ApplicationException;
+import com.example.demo.error.ErrorType;
 import com.example.demo.config.MaterialProperties;
 import com.example.demo.config.RolloutProperties;
 import com.example.demo.model.DocumentStatus;
@@ -799,9 +800,9 @@ class MaterialQueryServiceTest {
             List.of(new StoredMaterialSegment(0, active.content(), null, "direct-text", false))
         );
 
-        ApiException fullRunException = assertThrows(ApiException.class, service::rechunkActiveMaterials);
-        ApiException batchException = assertThrows(
-            ApiException.class,
+        ApplicationException fullRunException = assertThrows(ApplicationException.class, service::rechunkActiveMaterials);
+        ApplicationException batchException = assertThrows(
+            ApplicationException.class,
             () -> service.rechunkActiveMaterialsBatch(new RechunkActiveMaterialsBatchRequest(10, null, true))
         );
 
@@ -910,7 +911,7 @@ class MaterialQueryServiceTest {
         );
         repository.save(superseded, List.of());
 
-        ApiException exception = assertThrows(ApiException.class, () -> service.reindex(superseded.id()));
+        ApplicationException exception = assertThrows(ApplicationException.class, () -> service.reindex(superseded.id()));
 
         assertEquals("material.reindex_requires_active_version", exception.getCode());
     }

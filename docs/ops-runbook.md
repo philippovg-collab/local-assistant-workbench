@@ -73,13 +73,14 @@ Baseline models:
 
 ```bash
 ./scripts/pull-model.sh qwen2.5:7b
+./scripts/pull-model.sh deepseek-r1:8b
 ./scripts/pull-model.sh nomic-embed-text
 ```
 
-Optional DeepSeek local fast path:
+Optional larger DeepSeek comparison target:
 
 ```bash
-./scripts/pull-deepseek-local.sh
+./scripts/pull-deepseek-local.sh 14b
 ```
 
 Practical order for a local Apple Silicon machine:
@@ -89,6 +90,8 @@ Practical order for a local Apple Silicon machine:
 3. Pull `deepseek-r1:14b` only as an optional comparison target.
 
 The first request after pulling or restarting a larger model can take several minutes.
+
+`/api/models` lists chat models only. `nomic-embed-text` is filtered from that catalog because it is used by the embedding client for indexing and retrieval, not for chat completion.
 
 ## Chat Run Lifecycle
 
@@ -104,6 +107,54 @@ POST /api/chat-runs/{id}/cancel
 `POST /api/chat` is retained only as a deprecated compatibility endpoint for older clients. It submits a durable run, waits up to `APP_CHAT_EXECUTION_COMPATIBILITY_WAIT_TIMEOUT_SECONDS` (default `30`, capped at `120`), and returns `408 chat.run_still_processing` with the durable status/result URLs if the worker has not completed yet. That timeout does not cancel the run.
 
 Use `/api/chat-runs/{id}/cancel` for cancellation. Remove `/api/chat` only in a later release after legacy caller usage is verified to be zero.
+
+## Context Manager Feature Surface
+
+Context Manager is controlled by flat Spring properties under `app.context.*`; environment variables use Spring relaxed binding. Keep the feature default-off until release proof is green.
+
+| Env var | Spring property | Default |
+| --- | --- | --- |
+| `APP_CONTEXT_ENABLED` | `app.context.enabled` | `false` |
+| `APP_CONTEXT_CONVERSATIONS_ENABLED` | `app.context.conversations-enabled` | `false` |
+| `APP_CONTEXT_HISTORY_ENABLED` | `app.context.history-enabled` | `false` |
+| `APP_CONTEXT_STICKY_STATE_ENABLED` | `app.context.sticky-state-enabled` | `false` |
+| `APP_CONTEXT_RETRIEVAL_QUERY_RESOLUTION_ENABLED` | `app.context.retrieval-query-resolution-enabled` | `false` |
+| `APP_CONTEXT_SUMMARY_ENABLED` | `app.context.summary-enabled` | `false` |
+| `APP_CONTEXT_LONG_TERM_MEMORY_ENABLED` | `app.context.long-term-memory-enabled` | `false` |
+| `APP_CONTEXT_MAX_RECENT_TURNS` | `app.context.max-recent-turns` | `6` |
+| `APP_CONTEXT_MAX_HISTORY_TOKENS` | `app.context.max-history-tokens` | `2000` |
+| `APP_CONTEXT_SUMMARY_REFRESH_TURNS` | `app.context.summary-refresh-turns` | `6` |
+| `APP_CONTEXT_SUMMARY_MAX_INPUT_TURNS` | `app.context.summary-max-input-turns` | `12` |
+| `APP_CONTEXT_SUMMARY_MAX_OUTPUT_CHARS` | `app.context.summary-max-output-chars` | `2500` |
+| `APP_CONTEXT_SUMMARY_MAX_FACTS` | `app.context.summary-max-facts` | `12` |
+| `APP_CONTEXT_SUMMARY_MAX_ACTIVE_ENTITIES` | `app.context.summary-max-active-entities` | `20` |
+| `APP_CONTEXT_SUMMARY_MAX_SOURCE_REFS` | `app.context.summary-max-source-refs` | `20` |
+| `APP_CONTEXT_SUMMARY_MAX_ATTEMPTS` | `app.context.summary-max-attempts` | `3` |
+| `APP_CONTEXT_SUMMARY_RETRY_BASE_SECONDS` | `app.context.summary-retry-base-seconds` | `30` |
+| `APP_CONTEXT_SUMMARY_RETRY_MAX_SECONDS` | `app.context.summary-retry-max-seconds` | `300` |
+| `APP_CONTEXT_MEMORY_EXTRACTION_LEASE_SECONDS` | `app.context.memory-extraction-lease-seconds` | `120` |
+| `APP_CONTEXT_MEMORY_EXTRACTION_MAX_ATTEMPTS` | `app.context.memory-extraction-max-attempts` | `3` |
+| `APP_CONTEXT_MEMORY_EXTRACTION_RETRY_BASE_SECONDS` | `app.context.memory-extraction-retry-base-seconds` | `30` |
+| `APP_CONTEXT_MEMORY_EXTRACTION_RETRY_MAX_SECONDS` | `app.context.memory-extraction-retry-max-seconds` | `300` |
+| `APP_CONTEXT_MEMORY_EXTRACTION_WORKER_COUNT` | `app.context.memory-extraction-worker-count` | `1` |
+| `APP_CONTEXT_MEMORY_EXTRACTION_DRAIN_MAX_JOBS` | `app.context.memory-extraction-drain-max-jobs` | `50` |
+| `APP_CONTEXT_MEMORY_SELECTION_LIMIT` | `app.context.memory-selection-limit` | `8` |
+| `APP_CONTEXT_RETENTION_ENABLED` | `app.context.retention.enabled` | `true` |
+| `APP_CONTEXT_RETENTION_SNAPSHOT_DAYS` | `app.context.retention.snapshot-days` | `30` |
+| `APP_CONTEXT_RETENTION_SUMMARY_JOB_DAYS` | `app.context.retention.summary-job-days` | `14` |
+| `APP_CONTEXT_RETENTION_MEMORY_REJECTED_DAYS` | `app.context.retention.memory-rejected-days` | `30` |
+| `APP_CONTEXT_RETENTION_MEMORY_DELETED_DAYS` | `app.context.retention.memory-deleted-days` | `30` |
+| `APP_CONTEXT_RETENTION_MEMORY_JOB_DAYS` | `app.context.retention.memory-job-days` | `14` |
+| `APP_CONTEXT_RETENTION_DELETED_CONVERSATION_DAYS` | `app.context.retention.deleted-conversation-days` | `30` |
+| `APP_CONTEXT_RETENTION_EMPTY_CONVERSATION_DAYS` | `app.context.retention.empty-conversation-days` | `7` |
+| `APP_CONTEXT_RETENTION_KEEP_LATEST_SNAPSHOTS_PER_CONVERSATION` | `app.context.retention.keep-latest-snapshots-per-conversation` | `5` |
+| `APP_CONTEXT_RETENTION_BATCH_SIZE` | `app.context.retention.batch-size` | `500` |
+
+`/api/health` exposes effective feature state in `contextFeatures`. Use that response to verify rollout after config changes:
+
+```bash
+curl -fsS http://127.0.0.1:8080/api/health | jq '.contextFeatures'
+```
 
 ## Health Checks
 
@@ -165,6 +216,19 @@ The `retrieval` and `all` smoke modes require `/api/search`, so run the target s
 5. For migration or data integrity risk, stop writers first and restore from the documented database backup path before restarting workers.
 6. Re-run liveness, diagnostics, and the relevant smoke mode.
 
+### Context Manager Rollback
+
+Context Manager rollback is config-based; do not run destructive down migrations. Disable features from the highest-risk writers down to the compatibility surface:
+
+1. Set `APP_CONTEXT_LONG_TERM_MEMORY_ENABLED=false`.
+2. Set `APP_CONTEXT_SUMMARY_ENABLED=false`.
+3. Set `APP_CONTEXT_RETRIEVAL_QUERY_RESOLUTION_ENABLED=false`.
+4. Set `APP_CONTEXT_STICKY_STATE_ENABLED=false` and `APP_CONTEXT_HISTORY_ENABLED=false`.
+5. Set `APP_CONTEXT_CONVERSATIONS_ENABLED=false`.
+6. Set `APP_CONTEXT_ENABLED=false`.
+
+After rollback, legacy durable `/api/chat-runs` and compatibility `/api/chat` remain available. Leave conversation, snapshot, summary, and memory rows in place for forward-compatible inspection or reviewed cleanup.
+
 ## Local vs Docker-Backed Checks
 
 `bash scripts/quality-gates.sh fast` is local-only and does not require Docker.
@@ -193,14 +257,16 @@ Important `/api/health` fields:
 - `directStatus`: readiness of direct chat.
 - `ragStatus`: readiness of RAG chat.
 - `knowledgeStatus`: `EMPTY`, `HISTORICAL_ONLY`, `INDEXING`, `READY`, or `DEGRADED`.
-- `llmStatus` and `embeddingStatus`: Ollama catalog/provider health.
+- `llmStatus` and `embeddingStatus`: active OpenAI-compatible provider health.
+- `activeChatProvider` and `activeEmbeddingProvider`: selected DB provider or env fallback without secrets.
 - `ocrStatus`: scanned PDF OCR readiness.
 - `databaseStatus` and `vectorStatus`: PostgreSQL and pgvector health.
+- `contextFeatures`: effective Context Manager flags for context, conversations, history, sticky state, rewrite, summary, and long-term memory.
 - `indexingPendingCount`, `indexingInProgressCount`, `indexingFailedCount`, `indexingNextRetryAt`, `indexingOldestPendingAt`, `indexingOldestInProgressAt`: material indexing queue state.
 
 ## Material Indexing
 
-Material upload and text save persist content first, then run LLM auto-tag enrichment as best-effort follow-up. If auto-tagging is slow or unavailable, the material remains saved and indexable; successful enrichment moves the material back to `PENDING` so indexing refreshes searchable metadata.
+Material upload and text save persist content with a durable auto-tagging task. The API exposes `enrichmentStatus` on material summary/detail responses so operators can see whether enrichment is `PENDING`, `RUNNING`, `FAILED`, or `DONE`. Executor rejection leaves the task `PENDING`; provider and parse failures retry through the queue before surfacing as `FAILED`. Successful enrichment updates metadata through the material lifecycle and moves the material back to `PENDING` so indexing refreshes searchable metadata.
 
 Material indexing uses bounded worker slots. Tune concurrent drains with:
 
@@ -238,6 +304,7 @@ If the original document changed or raw extraction must run again, upload a new 
 | Symptom | Check | Action |
 | --- | --- | --- |
 | Model exists on host but `/api/models` returns `llm.provider_unavailable` | `curl http://127.0.0.1:11434/api/tags` | Start host Ollama or check `APP_LLM_BASE_URL`. |
-| Docker UI shows only baseline model | `docker exec ragstudio-ollama-1 ollama list` | Pull the model inside the same container or start Compose with `APP_LLM_EXTRA_MODELS`. |
+| Docker UI shows only `qwen2.5:7b` | `docker exec ragstudio-ollama-1 ollama list` | Run `docker exec ragstudio-ollama-1 ollama pull deepseek-r1:8b`, then refresh `/api/models`. |
+| Docker Ollama was started from another folder | `APP_SECURITY_ADMIN_PASSWORD=<current-password> ./scripts/local-runtime-diagnostics.zsh` | Restart this repository's Compose stack or pull the missing model into the running `ragstudio-ollama-1` container. |
 | Model is installed but absent from UI | `curl http://127.0.0.1:8080/api/models` after login | Pull it into the Ollama instance used by backend. |
 | RAG is blocked while chat model is visible | `curl http://127.0.0.1:8080/api/health` after login | Check `embeddingStatus`; RAG needs `nomic-embed-text`. |

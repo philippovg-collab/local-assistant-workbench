@@ -43,7 +43,7 @@ class PostgresMaterialFilterSqlBuilderTest {
 
         PostgresMaterialFilterSqlBuilder.SearchFilterSql sql = builder.buildSearchFilterSql(filters);
 
-        assertTrue(sql.sql().contains("LOWER(COALESCE(m.project_name, '')) = ? OR LOWER(COALESCE(m.project_key, '')) = ?"));
+        assertTrue(sql.sql().contains("LOWER(m.project_name) = ? OR m.project_key = ?"));
         assertEquals("north upgrade", sql.project());
     }
 
@@ -78,6 +78,7 @@ class PostgresMaterialFilterSqlBuilderTest {
         assertEquals(List.of("project-a"), sql.projectKeys());
         assertEquals(List.of(MaterialLanguageCode.RU.name()), sql.languageCodes());
         assertEquals(List.of("policy", "operations"), sql.tags());
+        assertEquals(List.of(SourceTrustLevel.HIGH.name(), SourceTrustLevel.MEDIUM.name()), sql.sourceTrustLevels());
         assertEquals(LocalDate.parse("2026-04-01"), sql.documentDateFrom());
         assertEquals(LocalDate.parse("2026-04-30"), sql.documentDateTo());
         assertEquals(LocalDate.parse("2026-01-01"), sql.periodStartFrom());
@@ -87,6 +88,31 @@ class PostgresMaterialFilterSqlBuilderTest {
         assertTrue(sql.sql().contains("m.document_date >= ?"));
         assertTrue(sql.sql().contains("m.period_start >= ?"));
         assertTrue(sql.sql().contains("m.period_end <= ?"));
-        assertTrue(sql.sql().contains("LOWER(COALESCE(m.business_status, '')) = ?"));
+        assertTrue(sql.sql().contains("LOWER(m.business_status) = ?"));
+        assertTrue(sql.sql().contains("m.project_key = ANY (?)"));
+        assertTrue(sql.sql().contains("m.language_code = ANY (?)"));
+        assertTrue(sql.sql().contains("m.source_trust = ANY (?)"));
+        assertTrue(sql.sql().contains("m.language_code = ?"));
+    }
+
+    @Test
+    void invalidLegacyLanguageStillProducesNoMatchPredicate() {
+        RetrievalFilters filters = new RetrievalFilters(
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            "esperanto",
+            List.of(),
+            null
+        );
+
+        PostgresMaterialFilterSqlBuilder.SearchFilterSql sql = builder.buildSearchFilterSql(filters);
+
+        assertEquals("__INVALID_LANGUAGE__", sql.language());
+        assertTrue(sql.sql().contains("m.language_code = ?"));
     }
 }

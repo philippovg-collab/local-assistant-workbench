@@ -303,7 +303,7 @@ def validate_body(body: str, sprawl_hits: list[SprawlHit], high_risk: list[str])
             errors.append(f"PR body section is empty: {section_name}")
 
     risk = sections.get("risk / review focus", "")
-    require_labels(errors, risk, "Risk / Review Focus", ("Risk level", "Touched boundaries", "Review focus"))
+    require_labels(errors, risk, "Risk / Review Focus", ("Risk level", "Risk IDs", "Touched boundaries", "Review focus"))
 
     tests = sections.get("tests / evidence", "")
     test_evidence = label_value(tests, "Evidence / skipped tests")

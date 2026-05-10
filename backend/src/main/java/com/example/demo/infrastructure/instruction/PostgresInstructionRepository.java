@@ -1,6 +1,7 @@
 package com.example.demo.infrastructure.instruction;
 
-import com.example.demo.api.ApiException;
+import com.example.demo.error.ErrorType;
+import com.example.demo.error.StorageException;
 import com.example.demo.model.InstructionCategory;
 import com.example.demo.model.InstructionScopeLevel;
 import com.example.demo.service.instruction.port.InstructionRepository;
@@ -16,7 +17,6 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import org.springframework.dao.DataAccessException;
-import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
@@ -83,8 +83,8 @@ public class PostgresInstructionRepository implements InstructionRepository {
                 ROW_MAPPER
             );
         } catch (DataAccessException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new StorageException(
+                ErrorType.STORAGE_FAILURE,
                 "instruction.storage_read_failed",
                 "Unable to read instructions from PostgreSQL",
                 exception
@@ -118,8 +118,8 @@ public class PostgresInstructionRepository implements InstructionRepository {
             );
             return records.stream().findFirst();
         } catch (DataAccessException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new StorageException(
+                ErrorType.STORAGE_FAILURE,
                 "instruction.storage_read_failed",
                 "Unable to load instruction from PostgreSQL",
                 exception
@@ -165,8 +165,8 @@ public class PostgresInstructionRepository implements InstructionRepository {
                 .filter(record -> record != null)
                 .toList();
         } catch (DataAccessException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new StorageException(
+                ErrorType.STORAGE_FAILURE,
                 "instruction.storage_read_failed",
                 "Unable to load instructions from PostgreSQL",
                 exception
@@ -215,8 +215,8 @@ public class PostgresInstructionRepository implements InstructionRepository {
         try {
             return jdbcTemplate.query(sql.toString(), ROW_MAPPER, params.toArray());
         } catch (DataAccessException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new StorageException(
+                ErrorType.STORAGE_FAILURE,
                 "instruction.storage_read_failed",
                 "Unable to load scoped instructions from PostgreSQL",
                 exception
@@ -250,8 +250,8 @@ public class PostgresInstructionRepository implements InstructionRepository {
                 UUID.fromString(instructionId)
             );
         } catch (DataAccessException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new StorageException(
+                ErrorType.STORAGE_FAILURE,
                 "instruction.storage_read_failed",
                 "Unable to load instruction revisions from PostgreSQL",
                 exception
@@ -287,8 +287,8 @@ public class PostgresInstructionRepository implements InstructionRepository {
             );
             return records.stream().findFirst();
         } catch (DataAccessException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new StorageException(
+                ErrorType.STORAGE_FAILURE,
                 "instruction.storage_read_failed",
                 "Unable to load instruction revision from PostgreSQL",
                 exception
@@ -338,8 +338,8 @@ public class PostgresInstructionRepository implements InstructionRepository {
                 Timestamp.from(record.updatedAt())
             );
         } catch (DataAccessException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new StorageException(
+                ErrorType.STORAGE_FAILURE,
                 "instruction.storage_write_failed",
                 "Unable to persist instruction in PostgreSQL",
                 exception
@@ -381,8 +381,8 @@ public class PostgresInstructionRepository implements InstructionRepository {
                 Timestamp.from(record.updatedAt())
             );
         } catch (DataAccessException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new StorageException(
+                ErrorType.STORAGE_FAILURE,
                 "instruction.storage_write_failed",
                 "Unable to persist instruction revision in PostgreSQL",
                 exception
@@ -395,8 +395,8 @@ public class PostgresInstructionRepository implements InstructionRepository {
         try {
             jdbcTemplate.update("DELETE FROM instructions WHERE id = ?", UUID.fromString(id));
         } catch (DataAccessException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new StorageException(
+                ErrorType.STORAGE_FAILURE,
                 "instruction.storage_delete_failed",
                 "Unable to delete instruction from PostgreSQL",
                 exception

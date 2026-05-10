@@ -25,7 +25,8 @@ import static com.example.demo.service.MaterialMetadataDefaults.TAGS;
 import static com.example.demo.service.MaterialMetadataDefaults.VERSION_LABEL;
 import static com.example.demo.service.MaterialMetadataDefaults.WORKSPACE_KEY;
 
-import com.example.demo.api.ApiException;
+import com.example.demo.error.ApplicationException;
+import com.example.demo.error.ErrorType;
 import com.example.demo.model.DocumentStatus;
 import com.example.demo.model.DocumentType;
 import com.example.demo.model.KnowledgeDocumentClass;
@@ -45,7 +46,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
-import org.springframework.http.HttpStatus;
 import org.springframework.util.StringUtils;
 
 final class MaterialMetadataMergePolicy {
@@ -223,8 +223,8 @@ final class MaterialMetadataMergePolicy {
             ? manualInput.workspaceKey()
             : DEFAULT_WORKSPACE_KEY;
         if (referenceDataRepository != null && !referenceDataRepository.workspaceExists(workspaceKey)) {
-            throw new ApiException(
-                HttpStatus.BAD_REQUEST,
+            throw new ApplicationException(
+                ErrorType.INVALID_REQUEST,
                 "material.metadata.workspace_not_found",
                 "Reference workspace '" + workspaceKey + "' does not exist"
             );
@@ -253,14 +253,14 @@ final class MaterialMetadataMergePolicy {
             return projectKey;
         }
         StoredReferenceProjectRecord project = referenceDataRepository.findProjectByKey(projectKey)
-            .orElseThrow(() -> new ApiException(
-                HttpStatus.BAD_REQUEST,
+            .orElseThrow(() -> new ApplicationException(
+                ErrorType.INVALID_REQUEST,
                 "material.metadata.project_not_found",
                 "Reference project '" + projectKey + "' does not exist"
             ));
         if (!project.workspaceKey().equals(workspaceKey)) {
-            throw new ApiException(
-                HttpStatus.BAD_REQUEST,
+            throw new ApplicationException(
+                ErrorType.INVALID_REQUEST,
                 "material.metadata.project_workspace_mismatch",
                 "Reference project '" + projectKey + "' does not belong to workspace '" + workspaceKey + "'"
             );

@@ -18,7 +18,7 @@ public interface ChatRunQueueRepository {
 
     boolean deleteQueueEntryIfOwned(ChatRunQueueLease lease);
 
-    void deleteQueueEntry(String runId);
+    boolean deletePendingQueueEntry(String runId);
 
     RecoverySummary recoverExpiredLeases(Instant observedAt, int maxAttempts);
 

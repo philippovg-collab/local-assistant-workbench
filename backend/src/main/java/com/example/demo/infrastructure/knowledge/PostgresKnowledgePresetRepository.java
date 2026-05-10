@@ -3,7 +3,8 @@ package com.example.demo.infrastructure.knowledge;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.json.JsonMapper;
-import com.example.demo.api.ApiException;
+import com.example.demo.error.ErrorType;
+import com.example.demo.error.StorageException;
 import com.example.demo.model.KnowledgeScope;
 import com.example.demo.model.SavedKnowledgeFilterKind;
 import com.example.demo.service.knowledge.port.KnowledgePresetRepository;
@@ -15,7 +16,6 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.dao.DataAccessException;
-import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
@@ -70,8 +70,8 @@ public class PostgresKnowledgePresetRepository implements KnowledgePresetReposit
                 PRESET_ROW_MAPPER
             );
         } catch (DataAccessException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new StorageException(
+                ErrorType.STORAGE_FAILURE,
                 "knowledge_preset.storage_read_failed",
                 "Unable to read knowledge presets from PostgreSQL",
                 exception
@@ -93,8 +93,8 @@ public class PostgresKnowledgePresetRepository implements KnowledgePresetReposit
                 safeKind(kind).name()
             );
         } catch (DataAccessException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new StorageException(
+                ErrorType.STORAGE_FAILURE,
                 "knowledge_preset.storage_read_failed",
                 "Unable to read knowledge filters from PostgreSQL",
                 exception
@@ -117,8 +117,8 @@ public class PostgresKnowledgePresetRepository implements KnowledgePresetReposit
             );
             return records.stream().findFirst();
         } catch (DataAccessException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new StorageException(
+                ErrorType.STORAGE_FAILURE,
                 "knowledge_preset.storage_read_failed",
                 "Unable to load knowledge preset from PostgreSQL",
                 exception
@@ -165,8 +165,8 @@ public class PostgresKnowledgePresetRepository implements KnowledgePresetReposit
                 Timestamp.from(record.updatedAt())
             );
         } catch (DataAccessException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new StorageException(
+                ErrorType.STORAGE_FAILURE,
                 "knowledge_preset.storage_write_failed",
                 "Unable to persist knowledge preset in PostgreSQL",
                 exception
@@ -188,8 +188,8 @@ public class PostgresKnowledgePresetRepository implements KnowledgePresetReposit
                 UUID.fromString(presetId)
             );
         } catch (DataAccessException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new StorageException(
+                ErrorType.STORAGE_FAILURE,
                 "knowledge_preset.storage_read_failed",
                 "Unable to load knowledge preset revisions from PostgreSQL",
                 exception
@@ -213,8 +213,8 @@ public class PostgresKnowledgePresetRepository implements KnowledgePresetReposit
             );
             return records.stream().findFirst();
         } catch (DataAccessException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new StorageException(
+                ErrorType.STORAGE_FAILURE,
                 "knowledge_preset.storage_read_failed",
                 "Unable to load knowledge preset revision from PostgreSQL",
                 exception
@@ -254,8 +254,8 @@ public class PostgresKnowledgePresetRepository implements KnowledgePresetReposit
                 Timestamp.from(record.updatedAt())
             );
         } catch (DataAccessException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new StorageException(
+                ErrorType.STORAGE_FAILURE,
                 "knowledge_preset.storage_write_failed",
                 "Unable to persist knowledge preset revision in PostgreSQL",
                 exception
@@ -268,8 +268,8 @@ public class PostgresKnowledgePresetRepository implements KnowledgePresetReposit
         try {
             jdbcTemplate.update("DELETE FROM knowledge_presets WHERE id = ?", UUID.fromString(presetId));
         } catch (DataAccessException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new StorageException(
+                ErrorType.STORAGE_FAILURE,
                 "knowledge_preset.storage_delete_failed",
                 "Unable to delete knowledge preset from PostgreSQL",
                 exception
@@ -285,8 +285,8 @@ public class PostgresKnowledgePresetRepository implements KnowledgePresetReposit
         try {
             return JSON_MAPPER.readValue(rawJson, KnowledgeScope.class);
         } catch (JsonProcessingException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new StorageException(
+                ErrorType.STORAGE_FAILURE,
                 "knowledge_preset.storage_decode_failed",
                 "Unable to decode knowledge preset scope from PostgreSQL",
                 exception
@@ -313,8 +313,8 @@ public class PostgresKnowledgePresetRepository implements KnowledgePresetReposit
         try {
             return JSON_MAPPER.writeValueAsString(scope == null ? KnowledgeScope.empty() : scope);
         } catch (JsonProcessingException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new StorageException(
+                ErrorType.STORAGE_FAILURE,
                 "knowledge_preset.storage_encode_failed",
                 "Unable to encode knowledge preset scope for PostgreSQL",
                 exception

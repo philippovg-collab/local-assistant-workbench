@@ -1,11 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
 import { History, Radar } from "lucide-react";
-import { apiClient } from "@/api/client";
 import { EmptyState } from "@/components/app/EmptyState";
 import { SectionIntro } from "@/components/app/SectionIntro";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
+import { useChatAuditComparison } from "@/hooks/useChatAuditComparison";
 import type {
   ChatAuditRunDetail,
   ChatAuditRunSummary,
@@ -347,117 +346,15 @@ export function ChatAuditPanel({
   currentKnowledgeScopeResolved,
   currentRetrievalTrace,
 }: ChatAuditPanelProps) {
-  const [cachedRuns, setCachedRuns] = useState<Record<string, ChatAuditRunDetail>>({});
-  const [cachedTraces, setCachedTraces] = useState<Record<string, ChatRunTraceDetail>>({});
-  const [traceError, setTraceError] = useState<string | null>(null);
-  const [baseRunId, setBaseRunId] = useState<string | null>(null);
-  const [compareRunId, setCompareRunId] = useState<string | null>(null);
+  const comparison = useChatAuditComparison({
+    runs,
+    selectedRun,
+    currentAuditRunId,
+    onLoadRun,
+  });
 
   const currentScope = knowledgeScopeResolvedWithDefaults(currentKnowledgeScopeResolved);
   const currentTrace = retrievalTraceWithDefaults(currentRetrievalTrace);
-
-  useEffect(() => {
-    if (!selectedRun) {
-      return;
-    }
-    setCachedRuns((current) => ({
-      ...current,
-      [selectedRun.id]: selectedRun,
-    }));
-  }, [selectedRun]);
-
-  const loadTraceDetail = async (runId: string) => {
-    if (cachedTraces[runId]) {
-      return cachedTraces[runId];
-    }
-    try {
-      const trace = await apiClient.fetchChatRunTrace(runId);
-      setCachedTraces((current) => ({
-        ...current,
-        [trace.id]: trace,
-      }));
-      setTraceError(null);
-      return trace;
-    } catch {
-      setTraceError("Trace detail для этого запуска недоступен. Возможно, это legacy audit run до P0.");
-      return null;
-    }
-  };
-
-  useEffect(() => {
-    if (currentAuditRunId && !baseRunId) {
-      setBaseRunId(currentAuditRunId);
-    }
-    if (!baseRunId && runs.length > 0) {
-      setBaseRunId(currentAuditRunId ?? selectedRun?.id ?? runs[0]?.id ?? null);
-    }
-    if (!compareRunId && runs.length > 1) {
-      const fallbackCompareId = runs.find((run) => run.id !== (currentAuditRunId ?? selectedRun?.id ?? runs[0]?.id))?.id ?? null;
-      setCompareRunId(fallbackCompareId);
-    }
-  }, [baseRunId, compareRunId, currentAuditRunId, runs, selectedRun]);
-
-  useEffect(() => {
-    if (!currentAuditRunId || cachedRuns[currentAuditRunId]) {
-      return;
-    }
-    void loadRunDetail(currentAuditRunId);
-  }, [currentAuditRunId, cachedRuns]);
-
-  useEffect(() => {
-    const ids = [baseRunId, compareRunId].filter((id): id is string => Boolean(id));
-    ids.forEach((runId) => {
-      if (!cachedTraces[runId]) {
-        void loadTraceDetail(runId);
-      }
-    });
-  }, [baseRunId, compareRunId]);
-
-  const loadRunDetail = async (runId: string) => {
-    if (cachedRuns[runId]) {
-      return cachedRuns[runId];
-    }
-
-    const detail = await onLoadRun(runId);
-    if (detail) {
-      setCachedRuns((current) => ({
-        ...current,
-        [detail.id]: detail,
-      }));
-    }
-    return detail;
-  };
-
-  const assignRun = async (slot: "base" | "compare", runId: string) => {
-    const detail = await loadRunDetail(runId);
-    if (!detail) {
-      return;
-    }
-
-    if (slot === "base") {
-      setBaseRunId(runId);
-    } else {
-      setCompareRunId(runId);
-    }
-    void loadTraceDetail(runId);
-  };
-
-  const baseRun = useMemo(() => {
-    if (!baseRunId) {
-      return null;
-    }
-    return cachedRuns[baseRunId] ?? (selectedRun?.id === baseRunId ? selectedRun : null);
-  }, [baseRunId, cachedRuns, selectedRun]);
-
-  const compareRun = useMemo(() => {
-    if (!compareRunId) {
-      return null;
-    }
-    return cachedRuns[compareRunId] ?? (selectedRun?.id === compareRunId ? selectedRun : null);
-  }, [compareRunId, cachedRuns, selectedRun]);
-
-  const baseTrace = baseRunId ? cachedTraces[baseRunId] ?? null : null;
-  const compareTrace = compareRunId ? cachedTraces[compareRunId] ?? null : null;
 
   return (
     <article className="surface-subtle space-y-4 rounded-[24px] p-5">
@@ -469,7 +366,7 @@ export function ChatAuditPanel({
       />
 
       {error ? <p className="text-sm leading-6 text-destructive">{error}</p> : null}
-      {traceError ? <p className="text-sm leading-6 text-warning">{traceError}</p> : null}
+      {comparison.traceError ? <p className="text-sm leading-6 text-warning">{comparison.traceError}</p> : null}
 
       <div className="rounded-[22px] border border-field-border bg-field px-4 py-4 text-sm leading-6 text-foreground">
         <p>
@@ -489,8 +386,8 @@ export function ChatAuditPanel({
             <div className="space-y-3">
               {runs.slice(0, 12).map((run) => {
                 const isCurrent = currentAuditRunId === run.id;
-                const isBase = baseRunId === run.id;
-                const isCompare = compareRunId === run.id;
+                const isBase = comparison.baseRunId === run.id;
+                const isCompare = comparison.compareRunId === run.id;
 
                 return (
                   <article
@@ -510,10 +407,10 @@ export function ChatAuditPanel({
                       {run.mode} · {formatDate(run.createdAt)}
                     </p>
                     <div className="mt-3 flex flex-wrap gap-2">
-                      <Button size="sm" type="button" variant={isBase ? "default" : "outline"} onClick={() => void assignRun("base", run.id)}>
+                      <Button size="sm" type="button" variant={isBase ? "default" : "outline"} onClick={() => void comparison.assignRun("base", run.id)}>
                         База
                       </Button>
-                      <Button size="sm" type="button" variant={isCompare ? "secondary" : "outline"} onClick={() => void assignRun("compare", run.id)}>
+                      <Button size="sm" type="button" variant={isCompare ? "secondary" : "outline"} onClick={() => void comparison.assignRun("compare", run.id)}>
                         Сравнить
                       </Button>
                     </div>
@@ -529,15 +426,15 @@ export function ChatAuditPanel({
                   Compare any two runs
                 </div>
                 <Badge variant="secondary">
-                  {baseRun && compareRun ? `${formatDate(baseRun.createdAt)} vs ${formatDate(compareRun.createdAt)}` : "Выбери 2 запуска"}
+                  {comparison.baseRun && comparison.compareRun ? `${formatDate(comparison.baseRun.createdAt)} vs ${formatDate(comparison.compareRun.createdAt)}` : "Выбери 2 запуска"}
                 </Badge>
               </div>
 
               <Separator />
 
-              {baseRun && compareRun ? (
+              {comparison.baseRun && comparison.compareRun ? (
                 <div className="space-y-3 text-sm leading-6 text-foreground">
-                  {compareRuns(baseRun, compareRun).map((line) => (
+                  {compareRuns(comparison.baseRun, comparison.compareRun).map((line) => (
                     <p key={line}>{line}</p>
                   ))}
                 </div>
@@ -550,13 +447,13 @@ export function ChatAuditPanel({
           </div>
 
           <div className="grid gap-4 xl:grid-cols-2">
-            {baseRun ? <AuditInspector label="Base run inspector" run={baseRun} /> : null}
-            {compareRun ? <AuditInspector label="Compare run inspector" run={compareRun} /> : null}
+            {comparison.baseRun ? <AuditInspector label="Base run inspector" run={comparison.baseRun} /> : null}
+            {comparison.compareRun ? <AuditInspector label="Compare run inspector" run={comparison.compareRun} /> : null}
           </div>
 
           <div className="grid gap-4 xl:grid-cols-2">
-            {baseTrace ? <TraceFoundationInspector trace={baseTrace} /> : null}
-            {compareTrace ? <TraceFoundationInspector trace={compareTrace} /> : null}
+            {comparison.baseTrace ? <TraceFoundationInspector trace={comparison.baseTrace} /> : null}
+            {comparison.compareTrace ? <TraceFoundationInspector trace={comparison.compareTrace} /> : null}
           </div>
         </>
       )}

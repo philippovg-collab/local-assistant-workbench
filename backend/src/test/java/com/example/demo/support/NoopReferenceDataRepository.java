@@ -39,16 +39,6 @@ public class NoopReferenceDataRepository implements ReferenceDataRepository {
     }
 
     @Override
-    public int countMaterialsByWorkspace(String workspaceKey) {
-        return 0;
-    }
-
-    @Override
-    public int countReadyMaterialsByWorkspace(String workspaceKey) {
-        return 0;
-    }
-
-    @Override
     public List<StoredReferenceProjectRecord> findProjects(boolean activeOnly, String workspaceKey) {
         return List.of();
     }
@@ -56,11 +46,6 @@ public class NoopReferenceDataRepository implements ReferenceDataRepository {
     @Override
     public Optional<StoredReferenceProjectRecord> findProjectByKey(String key) {
         return Optional.empty();
-    }
-
-    @Override
-    public boolean projectHasMaterialReferences(String key) {
-        return false;
     }
 
     @Override

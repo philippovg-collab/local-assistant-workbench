@@ -96,10 +96,12 @@ class PostgresMaterialRetrievalScopeSqlBuilderTest {
         );
         String explicitPredicate = builder.retrievalReadyPredicate("m", KnowledgeScope.empty(), explicitFilters);
 
-        assertTrue(defaultPredicate.contains("COALESCE(m.document_status, 'ACTIVE') = 'ACTIVE'"));
+        assertTrue(defaultPredicate.contains("m.document_status = 'ACTIVE'"));
+        assertFalse(defaultPredicate.contains("COALESCE(m.document_status"));
         assertTrue(defaultPredicate.contains("m.period_start <= CURRENT_DATE"));
         assertTrue(defaultPredicate.contains("m.period_end >= CURRENT_DATE"));
-        assertFalse(explicitPredicate.contains("COALESCE(m.document_status, 'ACTIVE') = 'ACTIVE'"));
+        assertFalse(explicitPredicate.contains("m.document_status = 'ACTIVE'"));
+        assertFalse(explicitPredicate.contains("COALESCE(m.document_status"));
         assertFalse(explicitPredicate.contains("m.period_start <= CURRENT_DATE"));
         assertFalse(explicitPredicate.contains("m.period_end >= CURRENT_DATE"));
     }

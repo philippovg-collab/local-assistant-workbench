@@ -23,7 +23,16 @@ class SecurityPropertiesTest {
 
     @Test
     void rejectsWeakAdminPasswordsOutsideTestRuntime() {
-        for (String weakPassword : new String[] {"admin", "password", "secret", "local-admin-password"}) {
+        for (String weakPassword : new String[] {
+            "admin",
+            "password",
+            "secret",
+            "local-admin-password",
+            "change-me",
+            "change-me-admin",
+            "ragstudio",
+            "replace-with-strong-admin-password"
+        }) {
             SecurityProperties properties = properties("admin", weakPassword);
 
             assertThrows(IllegalStateException.class, () -> properties.validateForRuntime(false));

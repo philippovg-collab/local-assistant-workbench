@@ -1,10 +1,11 @@
 package com.example.demo.service;
 
-import com.example.demo.api.InputLimits;
+import com.example.demo.validation.InputLimits;
 import com.example.demo.config.LlmProperties;
 import com.example.demo.config.MaterialProperties;
 import com.example.demo.llm.LlmClient;
 import com.example.demo.llm.LlmTracingClient;
+import com.example.demo.llmprovider.ActiveLlmProviderResolver;
 import com.example.demo.service.material.MaterialMetadataHints;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -15,8 +16,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
@@ -25,7 +25,6 @@ public class MaterialAutoTaggingService {
 
     public static final double LLM_TAG_CONFIDENCE = 0.82d;
 
-    private static final Logger logger = LoggerFactory.getLogger(MaterialAutoTaggingService.class);
     private static final ObjectMapper JSON_MAPPER = JsonMapper.builder().findAndAddModules().build();
     private static final int SHORT_TEXT_LIMIT = 2_000;
     private static final int MEDIUM_TEXT_LIMIT = 20_000;
@@ -73,20 +72,32 @@ public class MaterialAutoTaggingService {
 
     private final LlmTracingClient llmTracingClient;
     private final LlmProperties llmProperties;
+    private final ActiveLlmProviderResolver activeProviderResolver;
     private final MaterialProperties materialProperties;
+
+    @Autowired
+    public MaterialAutoTaggingService(
+        LlmTracingClient llmTracingClient,
+        LlmProperties llmProperties,
+        ActiveLlmProviderResolver activeProviderResolver,
+        MaterialProperties materialProperties
+    ) {
+        this.llmTracingClient = llmTracingClient;
+        this.llmProperties = llmProperties;
+        this.activeProviderResolver = activeProviderResolver;
+        this.materialProperties = materialProperties == null ? new MaterialProperties() : materialProperties;
+    }
 
     public MaterialAutoTaggingService(
         LlmTracingClient llmTracingClient,
         LlmProperties llmProperties,
         MaterialProperties materialProperties
     ) {
-        this.llmTracingClient = llmTracingClient;
-        this.llmProperties = llmProperties;
-        this.materialProperties = materialProperties == null ? new MaterialProperties() : materialProperties;
+        this(llmTracingClient, llmProperties, null, materialProperties);
     }
 
     public List<String> suggestTags(TaggingRequest request) {
-        if (request == null || llmTracingClient == null || !autoTagsProperties().isLlmEnabled()) {
+        if (request == null || !isEnabled()) {
             return List.of();
         }
 
@@ -97,10 +108,7 @@ public class MaterialAutoTaggingService {
             return List.of();
         }
 
-        String model = normalizeText(llmProperties == null ? null : llmProperties.getModel());
-        if (!StringUtils.hasText(model)) {
-            return List.of();
-        }
+        String model = modelName();
 
         TagBudget tagBudget = tagBudgetFor(contentText.length());
         String userPrompt = buildUserPrompt(request, contentText, tagBudget);
@@ -122,12 +130,17 @@ public class MaterialAutoTaggingService {
             List<String> rawTags = parseTags(result == null ? null : result.answer());
             return normalizeTags(rawTags, request.manualTags(), tagBudget.max());
         } catch (RuntimeException exception) {
-            logger.warn(
-                "LLM material auto-tagging failed; falling back to metadata heuristics: {}",
-                exception.getMessage()
-            );
-            return List.of();
+            if (exception instanceof AutoTaggingException autoTaggingException) {
+                throw autoTaggingException;
+            }
+            throw AutoTaggingException.provider("LLM material auto-tagging provider failed", exception);
         }
+    }
+
+    public boolean isEnabled() {
+        return llmTracingClient != null
+            && autoTagsProperties().isLlmEnabled()
+            && StringUtils.hasText(modelName());
     }
 
     private MaterialProperties.AutoTagsProperties autoTagsProperties() {
@@ -138,6 +151,12 @@ public class MaterialAutoTaggingService {
     private Integer autoTagTimeoutSeconds() {
         int timeoutSeconds = autoTagsProperties().getTimeoutSeconds();
         return timeoutSeconds > 0 ? timeoutSeconds : null;
+    }
+
+    private String modelName() {
+        return normalizeText(activeProviderResolver == null
+            ? llmProperties == null ? null : llmProperties.getModel()
+            : activeProviderResolver.defaultChatModel());
     }
 
     private String buildUserPrompt(TaggingRequest request, String contentText, TagBudget tagBudget) {
@@ -253,19 +272,19 @@ public class MaterialAutoTaggingService {
 
     private List<String> parseTags(String rawAnswer) {
         if (!StringUtils.hasText(rawAnswer)) {
-            return List.of();
+            throw AutoTaggingException.parse("LLM material auto-tagging returned an empty response", null);
         }
 
         String rawJson = extractJsonObject(rawAnswer);
         if (!StringUtils.hasText(rawJson)) {
-            return List.of();
+            throw AutoTaggingException.parse("LLM material auto-tagging returned a non-JSON response", null);
         }
 
         try {
             JsonNode root = JSON_MAPPER.readTree(rawJson);
             JsonNode tagsNode = root == null ? null : root.get("tags");
             if (tagsNode == null || !tagsNode.isArray()) {
-                return List.of();
+                throw AutoTaggingException.parse("LLM material auto-tagging response does not contain a tags array", null);
             }
             List<String> tags = new ArrayList<>();
             for (JsonNode tagNode : tagsNode) {
@@ -275,7 +294,7 @@ public class MaterialAutoTaggingService {
             }
             return tags;
         } catch (JsonProcessingException exception) {
-            return List.of();
+            throw AutoTaggingException.parse("LLM material auto-tagging returned invalid JSON", exception);
         }
     }
 
@@ -361,6 +380,33 @@ public class MaterialAutoTaggingService {
         }
         String normalized = value.trim();
         return normalized.isEmpty() ? null : normalized;
+    }
+
+    public static final class AutoTaggingException extends RuntimeException {
+
+        private final FailureKind kind;
+
+        private AutoTaggingException(FailureKind kind, String message, Throwable cause) {
+            super(message, cause);
+            this.kind = kind;
+        }
+
+        public FailureKind kind() {
+            return kind;
+        }
+
+        static AutoTaggingException provider(String message, Throwable cause) {
+            return new AutoTaggingException(FailureKind.PROVIDER, message, cause);
+        }
+
+        static AutoTaggingException parse(String message, Throwable cause) {
+            return new AutoTaggingException(FailureKind.PARSE, message, cause);
+        }
+    }
+
+    public enum FailureKind {
+        PROVIDER,
+        PARSE
     }
 
     public record TaggingRequest(

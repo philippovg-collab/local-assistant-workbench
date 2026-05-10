@@ -13,6 +13,8 @@ import java.util.List;
 
 final class PostgresMaterialFilterSqlBuilder {
 
+    private static final String NO_MATCH_LANGUAGE_CODE = "__INVALID_LANGUAGE__";
+
     SearchFilterSql buildSearchFilterSql(RetrievalFilters filters) {
         RetrievalFilters safeFilters = filters == null ? RetrievalFilters.empty() : filters;
         if (safeFilters.isEmpty()) {
@@ -23,8 +25,8 @@ final class PostgresMaterialFilterSqlBuilder {
             """
                   AND (CAST(? AS text) IS NULL OR LOWER(m.document_number) = ?)
                   AND (? = FALSE OR m.document_type = ANY (?))
-                  AND (? = FALSE OR COALESCE(m.document_status, 'ACTIVE') = ANY (?))
-                  AND (? = FALSE OR LOWER(COALESCE(m.project_key, '')) = ANY (?))
+                  AND (? = FALSE OR m.document_status = ANY (?))
+                  AND (? = FALSE OR m.project_key = ANY (?))
                   AND (? = FALSE OR m.language_code = ANY (?))
                   AND (CAST(? AS date) IS NULL OR m.period_start >= ?)
                   AND (CAST(? AS date) IS NULL OR m.period_start <= ?)
@@ -33,24 +35,17 @@ final class PostgresMaterialFilterSqlBuilder {
                   AND (CAST(? AS date) IS NULL OR m.document_date >= ?)
                   AND (CAST(? AS date) IS NULL OR m.document_date <= ?)
                   AND (CAST(? AS text) IS NULL OR LOWER(m.department) = ?)
-                  AND (CAST(? AS text) IS NULL OR LOWER(COALESCE(m.project_name, '')) = ? OR LOWER(COALESCE(m.project_key, '')) = ?)
+                  AND (CAST(? AS text) IS NULL OR LOWER(m.project_name) = ? OR m.project_key = ?)
                   AND (CAST(? AS text) IS NULL OR LOWER(m.counterparty) = ?)
-                  AND (CAST(? AS text) IS NULL OR LOWER(COALESCE(m.business_status, '')) = ?)
-                  AND (CAST(? AS text) IS NULL OR LOWER(m.language_code) = ?)
+                  AND (CAST(? AS text) IS NULL OR LOWER(m.business_status) = ?)
+                  AND (CAST(? AS text) IS NULL OR m.language_code = ?)
                   AND (? = FALSE OR EXISTS (
                         SELECT 1
                         FROM material_tags mt
                         WHERE mt.material_id = m.id
                           AND LOWER(mt.tag_value) = ANY (?)
                   ))
-                  AND (CAST(? AS text) IS NULL OR (
-                        CASE m.source_trust
-                            WHEN 'HIGH' THEN 3
-                            WHEN 'MEDIUM' THEN 2
-                            WHEN 'LOW' THEN 1
-                            ELSE 0
-                        END
-                  ) >= ?)
+                  AND (? = FALSE OR m.source_trust = ANY (?))
                 """,
             PostgresMaterialJdbcSupport.lowerCase(safeFilters.documentNumber()),
             safeFilters.documentTypeNames(),
@@ -67,9 +62,10 @@ final class PostgresMaterialFilterSqlBuilder {
             PostgresMaterialJdbcSupport.lowerCase(safeFilters.project()),
             PostgresMaterialJdbcSupport.lowerCase(safeFilters.counterparty()),
             PostgresMaterialJdbcSupport.lowerCase(safeFilters.businessStatus()),
-            PostgresMaterialJdbcSupport.lowerCase(safeFilters.language()),
+            languageCodeName(safeFilters.language()),
             safeFilters.lowerCaseTags(),
-            safeFilters.sourceTrustMin()
+            safeFilters.sourceTrustMin(),
+            sourceTrustLevelsAtOrAbove(safeFilters.sourceTrustMin())
         );
     }
 
@@ -114,8 +110,8 @@ final class PostgresMaterialFilterSqlBuilder {
             """
                   AND (? = FALSE OR m.knowledge_document_class = ANY (?))
                   AND (? = FALSE OR m.document_type = ANY (?))
-                  AND (? = FALSE OR COALESCE(m.document_status, 'ACTIVE') = ANY (?))
-                  AND (? = FALSE OR LOWER(COALESCE(m.project_key, '')) = ANY (?))
+                  AND (? = FALSE OR m.document_status = ANY (?))
+                  AND (? = FALSE OR m.project_key = ANY (?))
                   AND (CAST(? AS text) IS NULL OR LOWER(m.document_number) = ?)
                   AND (? = FALSE OR m.language_code = ANY (?))
                   AND (? = FALSE OR EXISTS (
@@ -124,7 +120,7 @@ final class PostgresMaterialFilterSqlBuilder {
                         WHERE mt.material_id = m.id
                           AND LOWER(mt.tag_value) = ANY (?)
                   ))
-                  AND (CAST(? AS text) IS NULL OR LOWER(COALESCE(m.workspace_key, '')) = ?)
+                  AND (CAST(? AS text) IS NULL OR m.workspace_key = ?)
                   AND (CAST(? AS date) IS NULL OR m.period_start >= ?)
                   AND (CAST(? AS date) IS NULL OR m.period_start <= ?)
                   AND (CAST(? AS date) IS NULL OR m.period_end >= ?)
@@ -189,13 +185,8 @@ final class PostgresMaterialFilterSqlBuilder {
         preparedStatement.setString(parameterIndex++, filterSql.language());
         preparedStatement.setBoolean(parameterIndex++, !filterSql.tags().isEmpty());
         PostgresMaterialJdbcSupport.bindTextArray(preparedStatement, parameterIndex++, filterSql.tags());
-        String sourceTrustMin = filterSql.sourceTrustMin() == null ? null : filterSql.sourceTrustMin().name();
-        preparedStatement.setString(parameterIndex++, sourceTrustMin);
-        if (sourceTrustMin == null) {
-            preparedStatement.setNull(parameterIndex++, Types.INTEGER);
-        } else {
-            preparedStatement.setInt(parameterIndex++, RetrievalFilters.trustRank(filterSql.sourceTrustMin()));
-        }
+        preparedStatement.setBoolean(parameterIndex++, !filterSql.sourceTrustLevels().isEmpty());
+        PostgresMaterialJdbcSupport.bindTextArray(preparedStatement, parameterIndex++, filterSql.sourceTrustLevels());
         return parameterIndex;
     }
 
@@ -259,7 +250,7 @@ final class PostgresMaterialFilterSqlBuilder {
               AND %sindexing_status IN ('READY', 'PARTIAL_READY')
             """.formatted(prefix, prefix));
         if (!hasExplicitDocumentStatuses(scope, filters)) {
-            predicate.append("  AND COALESCE(%sdocument_status, 'ACTIVE') = 'ACTIVE'%n".formatted(prefix));
+            predicate.append("  AND %sdocument_status = 'ACTIVE'%n".formatted(prefix));
         }
         if (!hasExplicitPeriodCriteria(scope, filters)) {
             predicate.append("  AND (%speriod_start IS NULL OR %speriod_start <= CURRENT_DATE)%n".formatted(prefix, prefix));
@@ -282,6 +273,28 @@ final class PostgresMaterialFilterSqlBuilder {
                 || scope.periodEndTo() != null);
         boolean filtersHasPeriod = filters != null && filters.hasExplicitPeriods();
         return scopeHasPeriod || filtersHasPeriod;
+    }
+
+    private static String languageCodeName(String rawLanguage) {
+        if (rawLanguage == null || rawLanguage.isBlank()) {
+            return null;
+        }
+        try {
+            return com.example.demo.model.MaterialLanguageCode.fromValue(rawLanguage).name();
+        } catch (IllegalArgumentException exception) {
+            return NO_MATCH_LANGUAGE_CODE;
+        }
+    }
+
+    private static List<String> sourceTrustLevelsAtOrAbove(SourceTrustLevel minimum) {
+        if (minimum == null) {
+            return List.of();
+        }
+        int minimumRank = RetrievalFilters.trustRank(minimum);
+        return java.util.Arrays.stream(SourceTrustLevel.values())
+            .filter(level -> RetrievalFilters.trustRank(level) >= minimumRank)
+            .map(Enum::name)
+            .toList();
     }
 
     record RetrievalScopeSql(
@@ -341,7 +354,8 @@ final class PostgresMaterialFilterSqlBuilder {
         String businessStatus,
         String language,
         List<String> tags,
-        SourceTrustLevel sourceTrustMin
+        SourceTrustLevel sourceTrustMin,
+        List<String> sourceTrustLevels
     ) {
         static SearchFilterSql empty() {
             return new SearchFilterSql(
@@ -363,7 +377,8 @@ final class PostgresMaterialFilterSqlBuilder {
                 null,
                 null,
                 List.of(),
-                null
+                null,
+                List.of()
             );
         }
     }

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { apiClient } from "../api/client";
 import { translateCommonApiError } from "../api/errorMessages";
 import type {
@@ -6,6 +6,7 @@ import type {
   ChatExecutionRequest,
   ChatExecutionResponse,
   ChatMode,
+  ChatRunSubmissionResponse,
   ChatRunStatusResponse,
   KnowledgeScope,
   QualityLayerFlags,
@@ -36,6 +37,17 @@ type UseChatExecutionOptions = {
   workspaceKey?: string | null;
 };
 
+export type ChatSubmitOverrides = {
+  conversationId?: string | null;
+  parentRunId?: string | null;
+  clientTurnId?: string | null;
+  persistConversation?: boolean;
+  requestTransform?: (request: ChatExecutionRequest) => ChatExecutionRequest;
+  onSubmitted?: (submission: ChatRunSubmissionResponse) => void | Promise<void>;
+  onCompleted?: (response: ChatExecutionResponse) => void | Promise<void>;
+  onSettled?: () => void | Promise<void>;
+};
+
 export const useChatExecution = ({
   mode,
   initialModel,
@@ -60,15 +72,22 @@ export const useChatExecution = ({
   const [currentRunStatus, setCurrentRunStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isCancelling, setIsCancelling] = useState(false);
   const controllerRef = useRef<AbortController | null>(null);
   const currentRunIdRef = useRef<string | null>(null);
   const submitSequenceRef = useRef(0);
 
   useEffect(() => () => {
     controllerRef.current?.abort();
-    if (currentRunIdRef.current) {
-      void apiClient.cancelChatRun(currentRunIdRef.current);
-    }
+    controllerRef.current = null;
+    currentRunIdRef.current = null;
+  }, []);
+
+  const abortPolling = useCallback(() => {
+    controllerRef.current?.abort();
+    controllerRef.current = null;
+    currentRunIdRef.current = null;
+    setCurrentRunId(null);
   }, []);
 
   const metadataFiltersEnabled = rolloutFlags?.metadataFiltersV1 === true;
@@ -157,12 +176,46 @@ export const useChatExecution = ({
     setDismissedHintKeys([]);
   };
 
-  const submit = async () => {
-    if (currentRunIdRef.current) {
-      void apiClient.cancelChatRun(currentRunIdRef.current);
-      currentRunIdRef.current = null;
+  const cancelCurrentRun = useCallback(async () => {
+    const runId = currentRunIdRef.current;
+    if (!runId) {
+      abortPolling();
+      setIsSubmitting(false);
+      return null;
     }
-    controllerRef.current?.abort();
+
+    const controller = controllerRef.current;
+    controllerRef.current = null;
+    controller?.abort();
+    setIsCancelling(true);
+    setError(null);
+
+    try {
+      const cancelledTrace = await apiClient.cancelChatRun(runId);
+      if (currentRunIdRef.current === runId) {
+        currentRunIdRef.current = null;
+        setCurrentRunId(null);
+        setCurrentRunStatus("CANCELLED");
+        setIsSubmitting(false);
+      }
+      return cancelledTrace;
+    } catch (cancelError) {
+      if (currentRunIdRef.current === runId) {
+        setError(translateCommonApiError(cancelError, "Не удалось отменить текущий запуск"));
+      }
+      return null;
+    } finally {
+      if (currentRunIdRef.current === runId) {
+        currentRunIdRef.current = null;
+        setCurrentRunId(null);
+        setIsSubmitting(false);
+      }
+      setIsCancelling(false);
+    }
+  }, [abortPolling]);
+
+  const submit = async (overrides: ChatSubmitOverrides = {}) => {
+    abortPolling();
     const controller = new AbortController();
     controllerRef.current = controller;
     const submitSequence = submitSequenceRef.current + 1;
@@ -190,7 +243,7 @@ export const useChatExecution = ({
       Boolean(effectiveKnowledgeScope.periodEndTo) ||
       effectiveKnowledgeScope.uploadedTodayOnly;
 
-    const request: ChatExecutionRequest = {
+    const baseRequest: ChatExecutionRequest = {
       mode,
       model,
       prompt,
@@ -205,7 +258,12 @@ export const useChatExecution = ({
         ? { dismissedRetrievalHintKeys: dismissedHintKeys }
         : {}),
       ...(temporaryInstruction.trim() ? { temporaryInstruction: temporaryInstruction.trim() } : {}),
+      ...(overrides.persistConversation ? { persistConversation: true } : {}),
+      ...(overrides.conversationId?.trim() ? { conversationId: overrides.conversationId.trim() } : {}),
+      ...(overrides.parentRunId?.trim() ? { parentRunId: overrides.parentRunId.trim() } : {}),
+      ...(overrides.clientTurnId?.trim() ? { clientTurnId: overrides.clientTurnId.trim() } : {}),
     };
+    const request = overrides.requestTransform ? overrides.requestTransform(baseRequest) : baseRequest;
 
     try {
       setResponse(null);
@@ -213,6 +271,7 @@ export const useChatExecution = ({
       setCurrentRunId(null);
       setCurrentRunStatus("RECEIVED");
       const submittedRun = await apiClient.submitChatRun(request, controller.signal);
+      await overrides.onSubmitted?.(submittedRun);
       currentRunIdRef.current = submittedRun.id;
       setCurrentRunId(submittedRun.id);
       setCurrentRunStatus(submittedRun.status);
@@ -229,6 +288,7 @@ export const useChatExecution = ({
 
       setResponse(payload);
       setCurrentRunStatus("COMPLETED");
+      await overrides.onCompleted?.(payload);
       return payload;
     } catch (submissionError) {
       if (
@@ -247,6 +307,7 @@ export const useChatExecution = ({
         currentRunIdRef.current = null;
         setIsSubmitting(false);
       }
+      await overrides.onSettled?.();
     }
   };
 
@@ -283,7 +344,9 @@ export const useChatExecution = ({
     lastSubmittedRequest,
     error,
     isSubmitting,
+    isCancelling,
     submit,
+    cancelCurrentRun,
   };
 };
 

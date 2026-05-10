@@ -1,8 +1,11 @@
 package com.example.demo.infrastructure.material;
 
 import com.example.demo.service.material.ChunkProfile;
-import com.example.demo.service.material.DocumentBlockConfidence;
-import com.example.demo.service.material.DocumentBlockType;
+import com.example.demo.model.DocumentBlockConfidence;
+import com.example.demo.model.DocumentBlockType;
+import com.example.demo.service.material.MaterialAutoTaggingLease;
+import com.example.demo.service.material.MaterialAutoTaggingStatus;
+import com.example.demo.service.material.MaterialAutoTaggingTask;
 import com.example.demo.service.material.MaterialChunkSearchMatch;
 import com.example.demo.service.material.MaterialIndexingLease;
 import com.example.demo.service.material.MaterialLineageIdentity;
@@ -90,6 +93,33 @@ class PostgresMaterialAdaptersIT extends PostgresIntegrationTestSupport {
         assertEquals(0, repository.catalog().countMaterials());
         Integer chunkCount = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM material_chunks", Integer.class);
         assertEquals(0, chunkCount);
+    }
+
+    @Test
+    void bulkLoadsChunksByMaterialIds() {
+        StoredMaterialRecord first = materialRecord(
+            UUID.randomUUID().toString(),
+            "First material",
+            "First material chunk.",
+            "hash-bulk-chunks-first",
+            MaterialIndexingStatus.PENDING
+        );
+        StoredMaterialRecord second = materialRecord(
+            UUID.randomUUID().toString(),
+            "Second material",
+            "Second material chunk.",
+            "hash-bulk-chunks-second",
+            MaterialIndexingStatus.PENDING
+        );
+        repository.catalog().save(first, List.of(rawChunk(0, "First chunk 0.", 1), rawChunk(1, "First chunk 1.", 2)));
+        repository.catalog().save(second, List.of(rawChunk(0, "Second chunk 0.", 1)));
+
+        var chunksByMaterialId = repository.chunking().findChunksByMaterialIds(List.of(first.id(), second.id()));
+
+        assertEquals(2, chunksByMaterialId.get(first.id()).size());
+        assertEquals(1, chunksByMaterialId.get(second.id()).size());
+        assertEquals(0, chunksByMaterialId.get(first.id()).getFirst().index());
+        assertEquals(1, chunksByMaterialId.get(first.id()).get(1).index());
     }
 
     @Test
@@ -246,6 +276,52 @@ class PostgresMaterialAdaptersIT extends PostgresIntegrationTestSupport {
         StoredMaterialRecord recoveredRecord = repository.catalog().findById(record.id()).orElseThrow();
         assertEquals(MaterialIndexingStatus.PENDING, recoveredRecord.status());
         assertTrue(repository.indexingQueue().hasPendingIndexing(recoveredAt));
+    }
+
+    @Test
+    void managesDurableAutoTaggingQueueLifecycle() {
+        StoredMaterialRecord record = materialRecord(
+            UUID.randomUUID().toString(),
+            "Auto tags",
+            "Relay protection material.",
+            "hash-auto-tags",
+            MaterialIndexingStatus.READY
+        );
+        repository.catalog().save(record, List.of(rawChunk(0, "Relay protection material.", 1)));
+        Instant now = Instant.parse("2026-05-09T10:00:00Z");
+
+        MaterialAutoTaggingTask task = repository.autoTaggingTasks().enqueue(record.id(), record.contentHash(), now);
+        MaterialAutoTaggingTask duplicate = repository.autoTaggingTasks().enqueue(
+            record.id(),
+            record.contentHash(),
+            now.plusSeconds(1)
+        );
+
+        assertEquals(task.id(), duplicate.id());
+        MaterialAutoTaggingLease lease = repository.autoTaggingTasks().claimNext(now.plusSeconds(2)).orElseThrow();
+        assertEquals(task.id(), lease.task().id());
+        assertEquals(1, lease.attemptNumber());
+        assertEquals(MaterialAutoTaggingStatus.RUNNING, lease.task().status());
+
+        Instant nextRetryAt = now.plusSeconds(30);
+        repository.autoTaggingTasks().markRetry(
+            task.id(),
+            "FAILED_PROVIDER",
+            "provider down",
+            now.plusSeconds(3),
+            nextRetryAt
+        );
+        assertFalse(repository.autoTaggingTasks().hasPending(nextRetryAt.minusSeconds(1)));
+        assertTrue(repository.autoTaggingTasks().hasPending(nextRetryAt));
+
+        MaterialAutoTaggingLease retryLease = repository.autoTaggingTasks().claimNext(nextRetryAt.plusSeconds(1)).orElseThrow();
+        assertEquals(2, retryLease.attemptNumber());
+        repository.autoTaggingTasks().markDone(task.id(), "APPLIED", nextRetryAt.plusSeconds(2));
+
+        MaterialAutoTaggingTask completed = repository.autoTaggingTasks().findLatestByMaterialId(record.id()).orElseThrow();
+        assertEquals(MaterialAutoTaggingStatus.DONE, completed.status());
+        assertEquals("APPLIED", completed.resultCode());
+        assertEquals(2, completed.attemptCount());
     }
 
     @Test

@@ -9,13 +9,17 @@ import com.example.demo.service.material.StoredMaterialSegment;
 import com.example.demo.service.material.port.MaterialCatalogRepository;
 import com.example.demo.service.material.port.MaterialChunkingRepository;
 import com.example.demo.service.material.port.OcrCapabilityProvider;
+import com.example.demo.service.MaterialRechunkBatchSupport.NormalizedBatchRequest;
+import com.example.demo.service.MaterialRechunkBatchSupport.RechunkBatchCursor;
 
-import com.example.demo.api.ApiException;
+import com.example.demo.error.ApplicationException;
+import com.example.demo.error.ErrorType;
 import com.example.demo.config.MaterialProperties;
 import com.example.demo.config.RolloutProperties;
 import com.example.demo.model.MaterialIndexingStatus;
 import com.example.demo.model.MaterialChunkDetail;
 import com.example.demo.model.MaterialDetail;
+import com.example.demo.model.MaterialEnrichmentStatus;
 import com.example.demo.model.MaterialListResponse;
 import com.example.demo.model.MaterialLineageResponse;
 import com.example.demo.model.MaterialLineageVersion;
@@ -27,18 +31,15 @@ import com.example.demo.model.MaterialVersionState;
 import com.example.demo.model.RechunkActiveMaterialsBatchRequest;
 import com.example.demo.model.RechunkActiveMaterialsBatchResponse;
 import com.example.demo.model.RechunkActiveMaterialsResponse;
-import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.Base64;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
-import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -50,13 +51,8 @@ public class MaterialQueryService {
     private static final String SUPERSEDE_REASON_NEW_ACTIVE_VERSION = "material.superseded_by_new_active_version";
     private static final String SUPERSEDE_REASON_REACTIVATED_VERSION = "material.superseded_by_reactivated_version";
     private static final String SUPERSEDE_REASON_LEGACY_FALLBACK = "material.supersede_reason_legacy_unknown";
-    private static final String RECHUNK_BATCH_INVALID_LIMIT = "material.rechunk_batch_invalid_limit";
-    private static final String RECHUNK_BATCH_INVALID_CURSOR = "material.rechunk_batch_invalid_cursor";
-    private static final int DEFAULT_RECHUNK_BATCH_LIMIT = 100;
-    private static final int MAX_RECHUNK_BATCH_LIMIT = 500;
     private static final int DEFAULT_MATERIAL_LIST_LIMIT = 100;
     private static final int MAX_MATERIAL_LIST_LIMIT = 500;
-    private static final String BATCH_CURSOR_VERSION = "v1";
 
     private final MaterialCatalogRepository repository;
     private final MaterialChunkingRepository chunkingRepository;
@@ -69,6 +65,8 @@ public class MaterialQueryService {
     private final AfterCommitExecutor afterCommitExecutor;
     private final RolloutProperties rolloutProperties;
     private final MaterialMetadataResolver metadataResolver;
+    private final MaterialAutoTaggingLifecycleService autoTaggingLifecycleService;
+    private final MaterialRechunkBatchSupport rechunkBatchSupport = new MaterialRechunkBatchSupport();
 
     @Autowired
     public MaterialQueryService(
@@ -82,7 +80,8 @@ public class MaterialQueryService {
         MaterialIndexingService indexingService,
         AfterCommitExecutor afterCommitExecutor,
         RolloutProperties rolloutProperties,
-        MaterialMetadataResolver metadataResolver
+        MaterialMetadataResolver metadataResolver,
+        MaterialAutoTaggingLifecycleService autoTaggingLifecycleService
     ) {
         this.repository = repository;
         this.chunkingRepository = chunkingRepository;
@@ -95,6 +94,36 @@ public class MaterialQueryService {
         this.afterCommitExecutor = afterCommitExecutor;
         this.rolloutProperties = rolloutProperties == null ? new RolloutProperties() : rolloutProperties;
         this.metadataResolver = Objects.requireNonNull(metadataResolver, "metadataResolver");
+        this.autoTaggingLifecycleService = autoTaggingLifecycleService;
+    }
+
+    public MaterialQueryService(
+        MaterialCatalogRepository repository,
+        MaterialChunkingRepository chunkingRepository,
+        MaterialProperties properties,
+        MaterialFormatRegistry formatRegistry,
+        OcrCapabilityProvider ocrCapabilityProvider,
+        MaterialContentSupport contentSupport,
+        MaterialSearchSyncLifecycleService lifecycleService,
+        MaterialIndexingService indexingService,
+        AfterCommitExecutor afterCommitExecutor,
+        RolloutProperties rolloutProperties,
+        MaterialMetadataResolver metadataResolver
+    ) {
+        this(
+            repository,
+            chunkingRepository,
+            properties,
+            formatRegistry,
+            ocrCapabilityProvider,
+            contentSupport,
+            lifecycleService,
+            indexingService,
+            afterCommitExecutor,
+            rolloutProperties,
+            metadataResolver,
+            null
+        );
     }
 
     public MaterialQueryService(
@@ -120,7 +149,8 @@ public class MaterialQueryService {
             indexingService,
             afterCommitExecutor,
             RolloutProperties.enabledForTests(),
-            metadataResolver
+            metadataResolver,
+            null
         );
     }
 
@@ -131,7 +161,25 @@ public class MaterialQueryService {
     public List<MaterialSummary> listSummaries(Integer offset, Integer limit) {
         int normalizedOffset = normalizeMaterialListOffset(offset);
         int normalizedLimit = normalizeMaterialListLimit(limit);
-        return repository.findSummaries(normalizedOffset, normalizedLimit);
+        return withEnrichmentStatuses(repository.findSummaries(normalizedOffset, normalizedLimit));
+    }
+
+    private List<MaterialSummary> withEnrichmentStatuses(List<MaterialSummary> summaries) {
+        if (autoTaggingLifecycleService == null || summaries == null || summaries.isEmpty()) {
+            return summaries;
+        }
+        Map<String, MaterialEnrichmentStatus> statuses =
+            autoTaggingLifecycleService.statusesForMaterials(summaries.stream().map(MaterialSummary::id).toList());
+        return summaries.stream()
+            .map(summary -> summary.withEnrichmentStatus(statuses.get(summary.id())))
+            .toList();
+    }
+
+    private MaterialSummary withEnrichmentStatus(MaterialSummary summary) {
+        if (summary == null || autoTaggingLifecycleService == null) {
+            return summary;
+        }
+        return summary.withEnrichmentStatus(autoTaggingLifecycleService.statusForMaterial(summary.id()));
     }
 
     public MaterialListResponse listSummariesPage(Integer offset, Integer limit) {
@@ -145,6 +193,7 @@ public class MaterialQueryService {
         List<MaterialSummary> items = normalizedWorkspaceKey == null
             ? repository.findSummaries(normalizedOffset, normalizedLimit)
             : repository.findSummariesByWorkspace(normalizedWorkspaceKey, normalizedOffset, normalizedLimit);
+        items = withEnrichmentStatuses(items);
         int total = normalizedWorkspaceKey == null
             ? repository.countMaterials()
             : repository.countMaterialsByWorkspace(normalizedWorkspaceKey);
@@ -172,23 +221,23 @@ public class MaterialQueryService {
     }
 
     public MaterialSummary reindex(String id) {
-        StoredMaterialRecord record = repository.findById(id).orElseThrow(() -> new ApiException(
-            HttpStatus.NOT_FOUND,
+        StoredMaterialRecord record = repository.findById(id).orElseThrow(() -> new ApplicationException(
+            ErrorType.NOT_FOUND,
             "material.not_found",
             "Material '" + id + "' does not exist"
         ));
 
         if (record.versionState() != MaterialVersionState.ACTIVE) {
-            throw new ApiException(
-                HttpStatus.CONFLICT,
+            throw new ApplicationException(
+                ErrorType.CONFLICT,
                 "material.reindex_requires_active_version",
                 "Only ACTIVE material versions can be reindexed"
             );
         }
 
         if (record.status() != MaterialIndexingStatus.FAILED && record.status() != MaterialIndexingStatus.PARTIAL_READY) {
-            throw new ApiException(
-                HttpStatus.CONFLICT,
+            throw new ApplicationException(
+                ErrorType.CONFLICT,
                 "material.reindex_not_allowed_for_status",
                 "Manual reindex is only available for FAILED or PARTIAL_READY materials"
             );
@@ -205,7 +254,7 @@ public class MaterialQueryService {
             now
         );
         afterCommitExecutor.afterCommit(indexingService::requestProcessing);
-        return contentSupport.toSummary(updatedRecord);
+        return withEnrichmentStatus(contentSupport.toSummary(updatedRecord));
     }
 
     private StoredMaterialRecord refreshMetadataForReindex(StoredMaterialRecord record, Instant updatedAt) {
@@ -234,7 +283,12 @@ public class MaterialQueryService {
         RechunkBatchCursor cursor = null;
 
         while (true) {
-            ProcessedBatch batch = processRechunkBatch(cursor, MAX_RECHUNK_BATCH_LIMIT, false, totalActive);
+            ProcessedBatch batch = processRechunkBatch(
+                cursor,
+                MaterialRechunkBatchSupport.MAX_RECHUNK_BATCH_LIMIT,
+                false,
+                totalActive
+            );
             scheduledCount += batch.scheduled();
             alreadyCurrentCount += batch.alreadyCurrent();
             legacyBestEffortCount += batch.legacyBestEffort();
@@ -267,7 +321,7 @@ public class MaterialQueryService {
 
     public RechunkActiveMaterialsBatchResponse rechunkActiveMaterialsBatch(RechunkActiveMaterialsBatchRequest request) {
         ensureStructuredRolloutEnabled();
-        NormalizedBatchRequest normalizedRequest = normalizeBatchRequest(request);
+        NormalizedBatchRequest normalizedRequest = rechunkBatchSupport.normalizeBatchRequest(request);
         int totalActive = repository.countActiveMaterials();
         ProcessedBatch batch = processRechunkBatch(
             normalizedRequest.cursor(),
@@ -288,7 +342,7 @@ public class MaterialQueryService {
             batch.alreadyCurrent(),
             batch.legacyBestEffort(),
             normalizedRequest.dryRun(),
-            encodeCursor(batch.nextCursor())
+            rechunkBatchSupport.encodeCursor(batch.nextCursor())
         );
 
         return new RechunkActiveMaterialsBatchResponse(
@@ -297,14 +351,14 @@ public class MaterialQueryService {
             batch.scheduled(),
             batch.alreadyCurrent(),
             batch.legacyBestEffort(),
-            encodeCursor(batch.nextCursor()),
+            rechunkBatchSupport.encodeCursor(batch.nextCursor()),
             batch.materialIds()
         );
     }
 
     public MaterialLineageResponse getLineage(String id) {
-        StoredMaterialRecord requestedRecord = repository.findById(id).orElseThrow(() -> new ApiException(
-            HttpStatus.NOT_FOUND,
+        StoredMaterialRecord requestedRecord = repository.findById(id).orElseThrow(() -> new ApplicationException(
+            ErrorType.NOT_FOUND,
             "material.not_found",
             "Material '" + id + "' does not exist"
         ));
@@ -330,8 +384,8 @@ public class MaterialQueryService {
     }
 
     public MaterialDetail getDetail(String id) {
-        StoredMaterialRecord record = repository.findById(id).orElseThrow(() -> new ApiException(
-            HttpStatus.NOT_FOUND,
+        StoredMaterialRecord record = repository.findById(id).orElseThrow(() -> new ApplicationException(
+            ErrorType.NOT_FOUND,
             "material.not_found",
             "Material '" + id + "' does not exist"
         ));
@@ -359,7 +413,10 @@ public class MaterialQueryService {
             record.createdAt(),
             record.updatedAt(),
             record.metadata(),
-            chunks
+            chunks,
+            autoTaggingLifecycleService == null
+                ? null
+                : autoTaggingLifecycleService.statusForMaterial(record.id())
         );
     }
 
@@ -372,15 +429,15 @@ public class MaterialQueryService {
         if (normalizedWorkspaceKey == null) {
             return;
         }
-        StoredMaterialRecord record = repository.findById(id).orElseThrow(() -> new ApiException(
-            HttpStatus.NOT_FOUND,
+        StoredMaterialRecord record = repository.findById(id).orElseThrow(() -> new ApplicationException(
+            ErrorType.NOT_FOUND,
             "material.not_found",
             "Material '" + id + "' does not exist"
         ));
         String recordWorkspaceKey = normalizeOptionalWorkspaceKey(record.metadata().workspaceKey());
         if (!normalizedWorkspaceKey.equals(recordWorkspaceKey)) {
-            throw new ApiException(
-                HttpStatus.NOT_FOUND,
+            throw new ApplicationException(
+                ErrorType.NOT_FOUND,
                 "material.not_found",
                 "Material '" + id + "' does not exist"
             );
@@ -458,8 +515,8 @@ public class MaterialQueryService {
         if (rolloutProperties.isStructuredV1()) {
             return;
         }
-        throw new ApiException(
-            HttpStatus.CONFLICT,
+        throw new ApplicationException(
+            ErrorType.CONFLICT,
             "material.structured_rollout_disabled",
             "Structured chunking rollout is disabled."
         );
@@ -470,8 +527,8 @@ public class MaterialQueryService {
             return 0;
         }
         if (offset < 0) {
-            throw new ApiException(
-                HttpStatus.BAD_REQUEST,
+            throw new ApplicationException(
+                ErrorType.INVALID_REQUEST,
                 "material.invalid_list_offset",
                 "Material list offset must be zero or greater"
             );
@@ -484,15 +541,15 @@ public class MaterialQueryService {
             return DEFAULT_MATERIAL_LIST_LIMIT;
         }
         if (limit <= 0) {
-            throw new ApiException(
-                HttpStatus.BAD_REQUEST,
+            throw new ApplicationException(
+                ErrorType.INVALID_REQUEST,
                 "material.invalid_list_limit",
                 "Material list limit must be greater than zero"
             );
         }
         if (limit > MAX_MATERIAL_LIST_LIMIT) {
-            throw new ApiException(
-                HttpStatus.BAD_REQUEST,
+            throw new ApplicationException(
+                ErrorType.INVALID_REQUEST,
                 "material.list_limit_too_large",
                 "Material list limit must not exceed " + MAX_MATERIAL_LIST_LIMIT
             );
@@ -553,76 +610,10 @@ public class MaterialQueryService {
         );
     }
 
-    private NormalizedBatchRequest normalizeBatchRequest(RechunkActiveMaterialsBatchRequest request) {
-        int limit = request == null || request.limit() == null ? DEFAULT_RECHUNK_BATCH_LIMIT : request.limit();
-        if (limit < 1 || limit > MAX_RECHUNK_BATCH_LIMIT) {
-            throw new ApiException(
-                HttpStatus.BAD_REQUEST,
-                RECHUNK_BATCH_INVALID_LIMIT,
-                "Batch limit must be between 1 and " + MAX_RECHUNK_BATCH_LIMIT
-            );
-        }
-
-        return new NormalizedBatchRequest(
-            limit,
-            decodeCursor(request == null ? null : request.cursor()),
-            request != null && Boolean.TRUE.equals(request.dryRun())
-        );
-    }
-
-    private String encodeCursor(RechunkBatchCursor cursor) {
-        if (cursor == null) {
-            return null;
-        }
-
-        String payload = BATCH_CURSOR_VERSION + "|" + cursor.createdAt() + "|" + cursor.id();
-        return Base64.getUrlEncoder()
-            .withoutPadding()
-            .encodeToString(payload.getBytes(StandardCharsets.UTF_8));
-    }
-
-    private RechunkBatchCursor decodeCursor(String cursor) {
-        if (!StringUtils.hasText(cursor)) {
-            return null;
-        }
-
-        try {
-            String decoded = new String(Base64.getUrlDecoder().decode(cursor.trim()), StandardCharsets.UTF_8);
-            String[] parts = decoded.split("\\|", -1);
-            if (parts.length != 3 || !BATCH_CURSOR_VERSION.equals(parts[0])) {
-                throw new IllegalArgumentException("Unsupported cursor format");
-            }
-
-            Instant createdAt = Instant.parse(parts[1]);
-            String id = UUID.fromString(parts[2]).toString();
-            return new RechunkBatchCursor(createdAt, id);
-        } catch (RuntimeException exception) {
-            throw new ApiException(
-                HttpStatus.BAD_REQUEST,
-                RECHUNK_BATCH_INVALID_CURSOR,
-                "Batch cursor is invalid or unsupported",
-                exception
-            );
-        }
-    }
-
     private boolean isPartialWarning(StoredMaterialRecord record) {
         return record.status() == MaterialIndexingStatus.PARTIAL_READY
             && StringUtils.hasText(record.statusReasonCode())
             && record.statusReasonCode().startsWith("material.partial_");
-    }
-
-    private record NormalizedBatchRequest(
-        int limit,
-        RechunkBatchCursor cursor,
-        boolean dryRun
-    ) {
-    }
-
-    private record RechunkBatchCursor(
-        Instant createdAt,
-        String id
-    ) {
     }
 
     private record RechunkPreparation(

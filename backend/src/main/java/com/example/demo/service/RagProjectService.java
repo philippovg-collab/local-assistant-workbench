@@ -1,10 +1,12 @@
 package com.example.demo.service;
 
-import com.example.demo.service.reference.port.ReferenceDataRepository;
+import com.example.demo.error.ApplicationException;
+import com.example.demo.error.ErrorType;
 import com.example.demo.model.RagProjectRequest;
 import com.example.demo.model.RagProjectSummary;
-import com.example.demo.model.ReferenceWorkspace;
 import com.example.demo.model.ReferenceWorkspaceRequest;
+import com.example.demo.service.rag.StoredRagProjectSummary;
+import com.example.demo.service.rag.port.RagProjectReadRepository;
 import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -13,30 +15,32 @@ import org.springframework.transaction.annotation.Transactional;
 public class RagProjectService {
 
     private final ReferenceDataService referenceDataService;
-    private final ReferenceDataRepository repository;
+    private final RagProjectReadRepository readRepository;
 
     public RagProjectService(
         ReferenceDataService referenceDataService,
-        ReferenceDataRepository repository
+        RagProjectReadRepository readRepository
     ) {
         this.referenceDataService = referenceDataService;
-        this.repository = repository;
+        this.readRepository = readRepository;
     }
 
     public List<RagProjectSummary> listProjects(boolean activeOnly) {
-        return referenceDataService.listWorkspaces(activeOnly).stream()
+        return readRepository.listSummariesWithCounts(activeOnly).stream()
             .map(this::toSummary)
             .toList();
     }
 
     @Transactional
     public RagProjectSummary createProject(RagProjectRequest request) {
-        return toSummary(referenceDataService.createWorkspace(toWorkspaceRequest(request)));
+        var workspace = referenceDataService.createWorkspace(toWorkspaceRequest(request));
+        return loadSavedSummary(workspace.key());
     }
 
     @Transactional
     public RagProjectSummary updateProject(String key, RagProjectRequest request) {
-        return toSummary(referenceDataService.updateWorkspace(key, toWorkspaceRequest(request)));
+        var workspace = referenceDataService.updateWorkspace(key, toWorkspaceRequest(request));
+        return loadSavedSummary(workspace.key());
     }
 
     private ReferenceWorkspaceRequest toWorkspaceRequest(RagProjectRequest request) {
@@ -53,17 +57,27 @@ public class RagProjectService {
         );
     }
 
-    private RagProjectSummary toSummary(ReferenceWorkspace workspace) {
+    private RagProjectSummary loadSavedSummary(String key) {
+        return readRepository.findSummaryByKey(key)
+            .map(this::toSummary)
+            .orElseThrow(() -> new ApplicationException(
+                ErrorType.NOT_FOUND,
+                "rag_project.not_found",
+                "RAG project '" + key + "' does not exist"
+            ));
+    }
+
+    private RagProjectSummary toSummary(StoredRagProjectSummary project) {
         return new RagProjectSummary(
-            workspace.key(),
-            workspace.nameRu(),
-            workspace.description(),
-            workspace.active(),
-            workspace.isDefault(),
-            workspace.sortOrder(),
-            repository.countMaterialsByWorkspace(workspace.key()),
-            repository.countReadyMaterialsByWorkspace(workspace.key()),
-            workspace.updatedAt()
+            project.key(),
+            project.name(),
+            project.description(),
+            project.active(),
+            project.isDefault(),
+            project.sortOrder(),
+            Math.toIntExact(project.materialCount()),
+            Math.toIntExact(project.readyMaterialCount()),
+            project.updatedAt()
         );
     }
 }

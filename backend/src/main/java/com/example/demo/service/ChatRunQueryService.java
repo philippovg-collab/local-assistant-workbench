@@ -1,6 +1,7 @@
 package com.example.demo.service;
 
-import com.example.demo.api.ApiException;
+import com.example.demo.error.ApplicationException;
+import com.example.demo.error.ErrorType;
 import com.example.demo.service.audit.port.ChatAuditRepository;
 import com.example.demo.service.audit.port.ChatRunTraceRepository;
 import com.example.demo.service.audit.ChatRunHeaderStatus;
@@ -16,13 +17,15 @@ import com.example.demo.model.KnowledgeScopeResolved;
 import com.example.demo.model.LlmCallTrace;
 import com.example.demo.model.RetrievalSummaryTrace;
 import com.example.demo.model.RetrievalTrace;
+import com.example.demo.service.conversation.port.ConversationRepository;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import org.springframework.http.HttpStatus;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -35,6 +38,18 @@ public class ChatRunQueryService {
 
     private final ChatRunTraceRepository traceRepository;
     private final ChatAuditRepository legacyRepository;
+    private final ConversationRepository conversationRepository;
+
+    @Autowired
+    public ChatRunQueryService(
+        ChatRunTraceRepository traceRepository,
+        ChatAuditRepository legacyRepository,
+        ObjectProvider<ConversationRepository> conversationRepositoryProvider
+    ) {
+        this.traceRepository = traceRepository;
+        this.legacyRepository = legacyRepository;
+        this.conversationRepository = conversationRepositoryProvider.getIfAvailable();
+    }
 
     public ChatRunQueryService(
         ChatRunTraceRepository traceRepository,
@@ -42,6 +57,7 @@ public class ChatRunQueryService {
     ) {
         this.traceRepository = traceRepository;
         this.legacyRepository = legacyRepository;
+        this.conversationRepository = null;
     }
 
     public List<ChatAuditRunSummary> listRuns() {
@@ -80,8 +96,8 @@ public class ChatRunQueryService {
         String runId = requireValidId(id);
         return traceRepository.findAuditRunDetail(runId)
             .or(() -> legacyRepository.findById(runId).map(record -> ChatAuditJson.read(record.auditJson())))
-            .orElseThrow(() -> new ApiException(
-                HttpStatus.NOT_FOUND,
+            .orElseThrow(() -> new ApplicationException(
+                ErrorType.NOT_FOUND,
                 "chat_audit.not_found",
                 "Chat audit run '" + id + "' does not exist"
             ));
@@ -90,8 +106,8 @@ public class ChatRunQueryService {
     public ChatRunTraceDetail getTrace(String id) {
         String runId = requireValidId(id);
         return traceRepository.findTrace(runId)
-            .orElseThrow(() -> new ApiException(
-                HttpStatus.NOT_FOUND,
+            .orElseThrow(() -> new ApplicationException(
+                ErrorType.NOT_FOUND,
                 "chat_trace.not_found",
                 "Chat run trace '" + id + "' does not exist"
             ));
@@ -100,8 +116,8 @@ public class ChatRunQueryService {
     public ChatRunStatusResponse getStatus(String id) {
         String runId = requireValidId(id);
         ChatRunHeaderStatus header = traceRepository.findHeaderStatus(runId)
-            .orElseThrow(() -> new ApiException(
-                HttpStatus.NOT_FOUND,
+            .orElseThrow(() -> new ApplicationException(
+                ErrorType.NOT_FOUND,
                 "chat_trace.not_found",
                 "Chat run trace '" + id + "' does not exist"
             ));
@@ -121,39 +137,39 @@ public class ChatRunQueryService {
     public ChatExecutionResponse getResult(String id) {
         String runId = requireValidId(id);
         ChatRunHeaderStatus header = traceRepository.findHeaderStatus(runId)
-            .orElseThrow(() -> new ApiException(
-                HttpStatus.NOT_FOUND,
+            .orElseThrow(() -> new ApplicationException(
+                ErrorType.NOT_FOUND,
                 "chat_trace.not_found",
                 "Chat run trace '" + id + "' does not exist"
             ));
         String status = header.status();
         if (!"COMPLETED".equals(status)) {
             if ("FAILED".equals(status)) {
-                throw new ApiException(
-                    HttpStatus.CONFLICT,
+                throw new ApplicationException(
+                    ErrorType.CONFLICT,
                     "chat_run.failed",
                     header.failureMessage() == null ? "Chat run failed" : header.failureMessage()
                 );
             }
             if ("CANCELLED".equals(status)) {
-                throw new ApiException(
-                    HttpStatus.CONFLICT,
+                throw new ApplicationException(
+                    ErrorType.CONFLICT,
                     "chat_run.cancelled",
                     "Chat run was cancelled"
                 );
             }
-            throw new ApiException(
-                HttpStatus.CONFLICT,
+            throw new ApplicationException(
+                ErrorType.CONFLICT,
                 "chat_run.not_completed",
                 "Chat run is still in progress"
             );
         }
 
-        return traceRepository.findResult(runId)
+        ChatExecutionResponse response = traceRepository.findResult(runId)
             .orElseGet(() -> {
                 ChatRunTraceDetail trace = traceRepository.findTrace(runId)
-                    .orElseThrow(() -> new ApiException(
-                        HttpStatus.NOT_FOUND,
+                    .orElseThrow(() -> new ApplicationException(
+                        ErrorType.NOT_FOUND,
                         "chat_trace.not_found",
                         "Chat run trace '" + id + "' does not exist"
                     ));
@@ -161,6 +177,26 @@ public class ChatRunQueryService {
                 backfillResultBestEffort(trace, reconstructed);
                 return reconstructed;
             });
+        return enrichResult(runId, response);
+    }
+
+    private ChatExecutionResponse enrichResult(String runId, ChatExecutionResponse response) {
+        if (conversationRepository == null || response == null) {
+            return response;
+        }
+        try {
+            return conversationRepository.findRunByRunId(runId)
+                .map(run -> response.withConversationMetadata(
+                    run.conversationId(),
+                    run.turnNo(),
+                    response.contextAssemblyId() == null ? run.contextAssemblyId() : response.contextAssemblyId(),
+                    response.contextSummary()
+                ))
+                .orElse(response);
+        } catch (RuntimeException exception) {
+            logger.warn("Unable to enrich chat run result with conversation metadata: runId={}", runId, exception);
+            return response;
+        }
     }
 
     private void backfillResultBestEffort(ChatRunTraceDetail trace, ChatExecutionResponse response) {
@@ -179,8 +215,8 @@ public class ChatRunQueryService {
     private ChatExecutionResponse reconstructResult(ChatRunTraceDetail trace) {
         ChatRunOutputTrace output = trace.output();
         if (output == null || trace.requestSnapshot() == null || output.finalUserAnswer() == null) {
-            throw new ApiException(
-                HttpStatus.CONFLICT,
+            throw new ApplicationException(
+                ErrorType.CONFLICT,
                 "chat_run.result_unavailable",
                 "Chat run completed but result output is unavailable"
             );
@@ -231,8 +267,8 @@ public class ChatRunQueryService {
         try {
             return UUID.fromString(id).toString();
         } catch (IllegalArgumentException exception) {
-            throw new ApiException(
-                HttpStatus.BAD_REQUEST,
+            throw new ApplicationException(
+                ErrorType.INVALID_REQUEST,
                 "chat_audit.invalid_id",
                 "Chat audit id must be a valid UUID",
                 exception

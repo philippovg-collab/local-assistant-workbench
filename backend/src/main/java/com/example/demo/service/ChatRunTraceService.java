@@ -1,11 +1,9 @@
 package com.example.demo.service;
 
-import com.example.demo.api.ApiException;
+import com.example.demo.error.ErrorReasonResolver;
 import com.example.demo.config.ChatAuditProperties;
 import com.example.demo.llm.LlmClient;
 import com.example.demo.model.AnswerMode;
-import com.example.demo.model.ChatAuditRunDetail;
-import com.example.demo.model.ChatAuditRunSummary;
 import com.example.demo.model.ChatExecutionResponse;
 import com.example.demo.model.ChatExecutionRequest;
 import com.example.demo.model.ChatMode;
@@ -23,7 +21,6 @@ import com.example.demo.service.audit.port.ChatRunTraceRepository;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -78,12 +75,23 @@ public class ChatRunTraceService {
         ChatExecutionRequest normalizedRequest
     ) {
         write(() -> {
-            repository.saveRequestSnapshot(
+            ensureMutableWriteAccepted(context, repository.saveRequestSnapshot(
                 context.id(),
                 redactionService.redactRequest(request),
-                redactionService.redactRequest(normalizedRequest)
+                redactionService.redactRequest(normalizedRequest),
+                context.leaseToken()
+            ), "REQUEST_SNAPSHOT_SAVED");
+            ensureMutableWriteAccepted(
+                context,
+                repository.insertEventIfRunMutable(
+                    context.id(),
+                    "REQUEST_SNAPSHOT_SAVED",
+                    Map.of(),
+                    Instant.now(),
+                    context.leaseToken()
+                ),
+                "REQUEST_SNAPSHOT_EVENT"
             );
-            repository.insertEventIfRunMutable(context.id(), "REQUEST_SNAPSHOT_SAVED", Map.of(), Instant.now());
             return null;
         });
     }
@@ -98,22 +106,48 @@ public class ChatRunTraceService {
             PromptPolicySnapshot enrichedSnapshot = snapshot == null
                 ? null
                 : snapshot.withTrace(instructionTrace, knowledgeScopeResolved);
-            repository.savePromptSnapshot(context.id(), redactionService.redactPromptSnapshot(enrichedSnapshot));
-            repository.insertEventIfRunMutable(context.id(), "PROMPT_RESOLVED", Map.of(), Instant.now());
+            ensureMutableWriteAccepted(
+                context,
+                repository.savePromptSnapshot(
+                    context.id(),
+                    redactionService.redactPromptSnapshot(enrichedSnapshot),
+                    context.leaseToken()
+                ),
+                "PROMPT_SNAPSHOT"
+            );
+            ensureMutableWriteAccepted(
+                context,
+                repository.insertEventIfRunMutable(
+                    context.id(),
+                    "PROMPT_RESOLVED",
+                    Map.of(),
+                    Instant.now(),
+                    context.leaseToken()
+                ),
+                "PROMPT_RESOLVED_EVENT"
+            );
             return null;
         });
     }
 
     public void savePromptMessages(RunTraceContext context, List<LlmClient.Message> messages) {
         write(() -> {
-            repository.savePromptMessages(
+            ensureMutableWriteAccepted(context, repository.savePromptMessages(
                 context.id(),
-                redactionService.redactRequestMessages(toChatRunMessages(messages))
+                redactionService.redactRequestMessages(toChatRunMessages(messages)),
+                context.leaseToken()
+            ), "PROMPT_MESSAGES");
+            ensureMutableWriteAccepted(
+                context,
+                repository.insertEventIfRunMutable(
+                    context.id(),
+                    "PROMPT_MESSAGES_SAVED",
+                    Map.of("messageCount", messages == null ? 0 : messages.size()),
+                    Instant.now(),
+                    context.leaseToken()
+                ),
+                "PROMPT_MESSAGES_EVENT"
             );
-            repository.insertEventIfRunMutable(context.id(), "PROMPT_MESSAGES_SAVED", Map.of(
-                "messageCount",
-                messages == null ? 0 : messages.size()
-            ), Instant.now());
             return null;
         });
     }
@@ -125,8 +159,28 @@ public class ChatRunTraceService {
         RetrievalDebug debug
     ) {
         write(() -> {
-            repository.saveRetrievalSummary(context.id(), retrievalStatus, trace, debug);
-            repository.insertEventIfRunMutable(context.id(), "RETRIEVAL_" + retrievalStatus, Map.of(), Instant.now());
+            ensureMutableWriteAccepted(
+                context,
+                repository.saveRetrievalSummary(
+                    context.id(),
+                    retrievalStatus,
+                    trace,
+                    debug,
+                    context.leaseToken()
+                ),
+                "RETRIEVAL_SUMMARY"
+            );
+            ensureMutableWriteAccepted(
+                context,
+                repository.insertEventIfRunMutable(
+                    context.id(),
+                    "RETRIEVAL_" + retrievalStatus,
+                    Map.of(),
+                    Instant.now(),
+                    context.leaseToken()
+                ),
+                "RETRIEVAL_EVENT"
+            );
             return null;
         });
     }
@@ -138,7 +192,7 @@ public class ChatRunTraceService {
         Integer timeoutSeconds
     ) {
         write(() -> {
-            repository.insertLlmCall(context.id(), new LlmCallTrace(
+            ensureMutableWriteAccepted(context, repository.insertLlmCall(context.id(), new LlmCallTrace(
                 UUID.randomUUID().toString(),
                 PROVIDER_OLLAMA,
                 result == null ? null : result.model(),
@@ -155,8 +209,18 @@ public class ChatRunTraceService {
                 null,
                 null,
                 Instant.now()
-            ));
-            repository.insertEventIfRunMutable(context.id(), "LLM_DONE", Map.of(), Instant.now());
+            ), context.leaseToken()), "LLM_CALL");
+            ensureMutableWriteAccepted(
+                context,
+                repository.insertEventIfRunMutable(
+                    context.id(),
+                    "LLM_DONE",
+                    Map.of(),
+                    Instant.now(),
+                    context.leaseToken()
+                ),
+                "LLM_DONE_EVENT"
+            );
             return null;
         });
     }
@@ -169,7 +233,7 @@ public class ChatRunTraceService {
         Integer timeoutSeconds
     ) {
         write(() -> {
-            repository.insertLlmCall(context.id(), new LlmCallTrace(
+            ensureMutableWriteAccepted(context, repository.insertLlmCall(context.id(), new LlmCallTrace(
                 UUID.randomUUID().toString(),
                 PROVIDER_OLLAMA,
                 request == null ? null : request.model(),
@@ -186,13 +250,23 @@ public class ChatRunTraceService {
                 reasonCode(throwable),
                 redactionService.redactStoredText(rootMessage(throwable)),
                 Instant.now()
-            ));
-            repository.insertEventIfRunMutable(context.id(), "LLM_FAILED", Map.of(
-                "code",
-                reasonCode(throwable),
-                "message",
-                redactionService.redactStoredText(rootMessage(throwable))
-            ), Instant.now());
+            ), context.leaseToken()), "LLM_FAILURE_CALL");
+            ensureMutableWriteAccepted(
+                context,
+                repository.insertEventIfRunMutable(
+                    context.id(),
+                    "LLM_FAILED",
+                    Map.of(
+                        "code",
+                        reasonCode(throwable),
+                        "message",
+                        redactionService.redactStoredText(rootMessage(throwable))
+                    ),
+                    Instant.now(),
+                    context.leaseToken()
+                ),
+                "LLM_FAILED_EVENT"
+            );
             return null;
         });
     }
@@ -207,15 +281,25 @@ public class ChatRunTraceService {
         boolean strictSourcesBlockedAnswer
     ) {
         write(() -> {
-            repository.saveOutput(context.id(), new ChatRunOutputTrace(
+            ensureMutableWriteAccepted(context, repository.saveOutput(context.id(), new ChatRunOutputTrace(
                 redactionService.redactRawLlmText(rawModelAnswer),
                 redactionService.redactStoredText(finalUserAnswer),
                 sources,
                 com.fasterxml.jackson.databind.json.JsonMapper.builder().findAndAddModules().build().valueToTree(postprocess == null ? Map.of() : postprocess),
                 abstained,
                 strictSourcesBlockedAnswer
-            ));
-            repository.insertEventIfRunMutable(context.id(), "OUTPUT_SAVED", Map.of(), Instant.now());
+            ), context.leaseToken()), "OUTPUT");
+            ensureMutableWriteAccepted(
+                context,
+                repository.insertEventIfRunMutable(
+                    context.id(),
+                    "OUTPUT_SAVED",
+                    Map.of(),
+                    Instant.now(),
+                    context.leaseToken()
+                ),
+                "OUTPUT_EVENT"
+            );
             return null;
         });
     }
@@ -294,10 +378,7 @@ public class ChatRunTraceService {
     }
 
     private String reasonCode(Throwable throwable) {
-        if (throwable instanceof ApiException apiException) {
-            return apiException.getCode();
-        }
-        return "chat_trace.execution_failed";
+        return ErrorReasonResolver.reasonCode(throwable, "chat_trace.execution_failed");
     }
 
     private String rootMessage(Throwable throwable) {
@@ -309,6 +390,15 @@ public class ChatRunTraceService {
             current = current.getCause();
         }
         return current.getMessage() == null ? current.getClass().getSimpleName() : current.getMessage();
+    }
+
+    private void ensureMutableWriteAccepted(RunTraceContext context, boolean accepted, String operation) {
+        if (accepted || context == null || context.leaseToken() == null) {
+            return;
+        }
+        throw new com.example.demo.service.cancellation.ChatRunLeaseLostException(
+            "Durable chat run lease no longer owns run " + context.id() + " while writing " + operation
+        );
     }
 
     public record RunTraceContext(
@@ -353,165 +443,4 @@ public class ChatRunTraceService {
         T execute();
     }
 
-    private static final class NoopChatRunTraceRepository implements ChatRunTraceRepository {
-
-        @Override
-        public void insertHeader(String runId, ChatMode mode, String requestedModel, AnswerMode requestedAnswerMode, Instant createdAt) {
-        }
-
-        @Override
-        public void saveRequestSnapshot(String runId, ChatExecutionRequest request, ChatExecutionRequest normalizedRequest) {
-        }
-
-        @Override
-        public void savePromptSnapshot(String runId, PromptPolicySnapshot snapshot) {
-        }
-
-        @Override
-        public void savePromptMessages(String runId, List<ChatRunMessage> messages) {
-        }
-
-        @Override
-        public void saveRetrievalSummary(String runId, String retrievalStatus, RetrievalTrace trace, RetrievalDebug debug) {
-        }
-
-        @Override
-        public void insertLlmCall(String runId, LlmCallTrace call) {
-        }
-
-        @Override
-        public void saveOutput(String runId, ChatRunOutputTrace output) {
-        }
-
-        @Override
-        public boolean completeRun(
-            String runId,
-            String resolvedModel,
-            AnswerMode appliedAnswerMode,
-            String contextStatus,
-            Instant completedAt,
-            long latencyMsTotal
-        ) {
-            return true;
-        }
-
-        @Override
-        public boolean completeRun(
-            String runId,
-            String resolvedModel,
-            AnswerMode appliedAnswerMode,
-            String contextStatus,
-            Instant completedAt,
-            long latencyMsTotal,
-            ChatRunLeaseToken leaseToken
-        ) {
-            return true;
-        }
-
-        @Override
-        public boolean completeRunWithResult(
-            String runId,
-            String resolvedModel,
-            AnswerMode appliedAnswerMode,
-            String contextStatus,
-            Instant completedAt,
-            long latencyMsTotal,
-            ChatExecutionResponse response
-        ) {
-            return true;
-        }
-
-        @Override
-        public boolean completeRunWithResult(
-            String runId,
-            String resolvedModel,
-            AnswerMode appliedAnswerMode,
-            String contextStatus,
-            Instant completedAt,
-            long latencyMsTotal,
-            ChatExecutionResponse response,
-            ChatRunLeaseToken leaseToken
-        ) {
-            return true;
-        }
-
-        @Override
-        public Optional<ChatExecutionResponse> findResult(String runId) {
-            return Optional.empty();
-        }
-
-        @Override
-        public Optional<com.example.demo.service.audit.ChatRunHeaderStatus> findHeaderStatus(String runId) {
-            return Optional.empty();
-        }
-
-        @Override
-        public boolean insertResultIfAbsent(String runId, ChatExecutionResponse response, Instant completedAt, String source) {
-            return false;
-        }
-
-        @Override
-        public boolean transitionStage(String runId, String status, ChatRunLeaseToken leaseToken) {
-            return true;
-        }
-
-        @Override
-        public boolean failRun(
-            String runId,
-            String failureStage,
-            String failureCode,
-            String failureMessage,
-            Instant failedAt,
-            long latencyMsTotal
-        ) {
-            return false;
-        }
-
-        @Override
-        public boolean failRun(
-            String runId,
-            String failureStage,
-            String failureCode,
-            String failureMessage,
-            Instant failedAt,
-            long latencyMsTotal,
-            ChatRunLeaseToken leaseToken
-        ) {
-            return false;
-        }
-
-        @Override
-        public boolean cancelRun(String runId, Instant cancelledAt, long latencyMsTotal) {
-            return false;
-        }
-
-        @Override
-        public void insertEvent(String runId, String eventType, Object payload, Instant createdAt) {
-        }
-
-        @Override
-        public boolean insertEventIfRunMutable(String runId, String eventType, Object payload, Instant createdAt) {
-            return false;
-        }
-
-        @Override
-        public List<ChatAuditRunSummary> findRunSummaries(int limit, String workspaceKey) {
-            return List.of();
-        }
-
-        @Override
-        public Optional<ChatAuditRunDetail> findAuditRunDetail(String runId) {
-            return Optional.empty();
-        }
-
-        @Override
-        public Optional<com.example.demo.model.ChatRunTraceDetail> findTrace(String runId) {
-            return Optional.empty();
-        }
-
-        @Override
-        public int deleteRunsOlderThan(Instant cutoff) {
-            return 0;
-        }
-    }
 }

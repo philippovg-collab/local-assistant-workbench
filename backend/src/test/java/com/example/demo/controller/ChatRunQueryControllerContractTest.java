@@ -14,11 +14,13 @@ import com.example.demo.model.ChatAuditRunDetail;
 import com.example.demo.model.ChatAuditRunSummary;
 import com.example.demo.model.ChatExecutionResponse;
 import com.example.demo.model.ChatMode;
+import com.example.demo.model.ChatRunContextDetail;
 import com.example.demo.model.ChatRunStatusResponse;
 import com.example.demo.model.ChatRunTraceDetail;
 import com.example.demo.model.KnowledgeScopeResolved;
 import com.example.demo.model.RetrievalTrace;
 import com.example.demo.service.ChatRunQueryService;
+import com.example.demo.service.context.ContextAssemblyQueryService;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.databind.json.JsonMapper;
 import java.time.Instant;
@@ -34,12 +36,14 @@ class ChatRunQueryControllerContractTest {
 
     private MockMvc mockMvc;
     private ChatRunQueryService chatRunQueryService;
+    private ContextAssemblyQueryService contextAssemblyQueryService;
 
     @BeforeEach
     void setUp() {
         chatRunQueryService = mock(ChatRunQueryService.class);
+        contextAssemblyQueryService = mock(ContextAssemblyQueryService.class);
         mockMvc = MockMvcBuilders
-            .standaloneSetup(new ChatRunQueryController(chatRunQueryService))
+            .standaloneSetup(new ChatRunQueryController(chatRunQueryService, contextAssemblyQueryService))
             .setControllerAdvice(new ApiExceptionHandler(new MaterialProperties()))
             .setMessageConverters(new MappingJackson2HttpMessageConverter(JsonMapper.builder()
                 .findAndAddModules()
@@ -136,6 +140,56 @@ class ChatRunQueryControllerContractTest {
             .andExpect(jsonPath("$.answer").value("Answer"));
 
         verify(chatRunQueryService).getResult(runId);
+    }
+
+    @Test
+    void returnsContextInspectorThroughQueryService() throws Exception {
+        String runId = UUID.randomUUID().toString();
+        String contextAssemblyId = UUID.randomUUID().toString();
+        when(contextAssemblyQueryService.getByRunId(runId)).thenReturn(new ChatRunContextDetail(
+            "AVAILABLE",
+            runId,
+            UUID.randomUUID().toString(),
+            2,
+            contextAssemblyId,
+            Instant.parse("2026-05-10T00:00:00Z"),
+            new ChatRunContextDetail.ContextFeatureState(true, true, true, true, true, true, true),
+            "сделай короче",
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of(),
+            java.util.Map.of(),
+            null,
+            new ChatRunContextDetail.ContextSummaryState(false, null, null, null, null),
+            new ChatRunContextDetail.ContextMemoryState(false, false, "disabled", null),
+            new ChatRunContextDetail.ContextInspectorTokenBudget(1000, 12, 988, 12, 0, 0, 0, 0),
+            new ChatRunContextDetail.ContextLinks(
+                "/api/chat-runs/" + runId,
+                "/api/chat-runs/" + runId + "/status",
+                "/api/chat-runs/" + runId + "/trace",
+                "/api/chat-runs/" + runId + "/result",
+                null
+            ),
+            null,
+            null
+        ));
+
+        mockMvc.perform(get("/api/chat-runs/{id}/context", runId))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.id").doesNotExist())
+            .andExpect(jsonPath("$.contextAssemblyId").value(contextAssemblyId))
+            .andExpect(jsonPath("$.runId").value(runId))
+            .andExpect(jsonPath("$.status").value("AVAILABLE"))
+            .andExpect(jsonPath("$.featureState.history").value(true))
+            .andExpect(jsonPath("$.tokenBudget.history").value(12))
+            .andExpect(jsonPath("$.tokenBudget.used").value(12))
+            .andExpect(jsonPath("$.tokenBudget.dropped").value(0))
+            .andExpect(jsonPath("$.summaryState.used").value(false))
+            .andExpect(jsonPath("$.links.trace").value("/api/chat-runs/" + runId + "/trace"))
+            .andExpect(jsonPath("$.links.result").value("/api/chat-runs/" + runId + "/result"));
+
+        verify(contextAssemblyQueryService).getByRunId(runId);
     }
 
     private ChatAuditRunDetail detail(String runId) {

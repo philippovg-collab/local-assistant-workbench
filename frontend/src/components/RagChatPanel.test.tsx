@@ -1,25 +1,24 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { apiClient } from "../api/client";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { RagChatPanel } from "./RagChatPanel";
 import { buildChatExecutionResponse } from "../testBuilders";
 import type { MaterialDetail } from "../types";
+import type { MaterialSourceDialogState } from "../hooks/useMaterialSourceDialog";
+import { parseSourceTarget } from "./ragChatPresentation";
 import {
   EMPTY_KNOWLEDGE_SCOPE_RESOLVED,
   EMPTY_RETRIEVAL_TRACE,
 } from "../utils/workbenchPresentation";
 
-vi.mock("../api/client", async () => {
-  const actual = await vi.importActual<typeof import("../api/client")>("../api/client");
-
-  return {
-    ...actual,
-    apiClient: {
-      ...actual.apiClient,
-      fetchMaterial: vi.fn(),
-    },
-  };
+const closedSourceDialog = (): MaterialSourceDialogState => ({
+  highlightedChunkRef: { current: null },
+  openedMaterial: null,
+  isLoadingMaterial: false,
+  materialError: null,
+  openedSourceTarget: null,
+  openSource: vi.fn(async () => undefined),
+  closeSourceDialog: vi.fn(),
 });
 
 const renderPanel = (
@@ -260,6 +259,7 @@ const renderPanel = (
       chatRuns={[]}
       selectedChatRun={null}
       chatRunsError={null}
+      sourceDialog={closedSourceDialog()}
       onLoadChatRun={vi.fn(async () => null)}
       onSubmit={vi.fn(async () => undefined)}
       {...overrides}
@@ -268,46 +268,52 @@ const renderPanel = (
 };
 
 describe("RagChatPanel", () => {
-  let scrollIntoViewMock: ReturnType<typeof vi.fn>;
-
-  beforeEach(() => {
-    scrollIntoViewMock = vi.fn();
-    Object.defineProperty(window.HTMLElement.prototype, "scrollIntoView", {
-      configurable: true,
-      value: scrollIntoViewMock,
-    });
-  });
-
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
   });
 
-  it("opens the source viewer on the targeted chunk from openSourceUrl", async () => {
+  it("requests the source viewer for the targeted chunk from openSourceUrl", async () => {
     const user = userEvent.setup();
-    vi.mocked(apiClient.fetchMaterial).mockResolvedValue(materialDetailFixture());
+    const sourceDialog = closedSourceDialog();
 
-    renderPanel();
+    renderPanel({ sourceDialog });
 
     await user.click(screen.getByRole("button", { name: "Открыть источник" }));
 
     await waitFor(() => {
-      expect(apiClient.fetchMaterial).toHaveBeenCalledWith("material-1");
+      expect(sourceDialog.openSource).toHaveBeenCalledWith(
+        "material-1",
+        "/api/materials/material-1?chunkId=material-1%3A1&chunkIndex=1&page=2",
+      );
+    });
+  });
+
+  it("renders the source dialog from hook state", async () => {
+    renderPanel({
+      sourceDialog: {
+        ...closedSourceDialog(),
+        openedMaterial: materialDetailFixture(),
+        openedSourceTarget: parseSourceTarget(
+          "material-1",
+          "/api/materials/material-1?chunkId=material-1%3A1&chunkIndex=1&page=2",
+        ),
+      },
     });
 
     expect(await screen.findByText("retrieval target")).toBeTruthy();
     expect(screen.getByText("Jump target: 1 · page 2")).toBeTruthy();
     expect(screen.getByText("Второй chunk с тарифом 12000 тенге.")).toBeTruthy();
-    expect(scrollIntoViewMock).toHaveBeenCalled();
   });
 
   it("shows an error when the source material cannot be loaded", async () => {
-    const user = userEvent.setup();
-    vi.mocked(apiClient.fetchMaterial).mockRejectedValue(new Error("boom"));
-
-    renderPanel();
-
-    await user.click(screen.getByRole("button", { name: "Открыть источник" }));
+    renderPanel({
+      sourceDialog: {
+        ...closedSourceDialog(),
+        materialError: "Не удалось загрузить источник. Проверь доступность backend и попробуй ещё раз.",
+        openedSourceTarget: parseSourceTarget("material-1", "/api/materials/material-1"),
+      },
+    });
 
     expect(await screen.findByText(/Не удалось загрузить источник/i)).toBeTruthy();
   });
@@ -327,35 +333,36 @@ describe("RagChatPanel", () => {
     expect(screen.queryByText(/sourceTrust:/i)).toBeNull();
   });
 
-  const materialDetailFixture = (): MaterialDetail => ({
-    id: "material-1",
-    title: "Pricing FAQ",
-    sourceType: "file",
-    originalFileName: "pricing.pdf",
-    mediaType: "application/pdf",
-    content: "Первый chunk.\n\nВторой chunk с тарифом 12000 тенге.",
-    status: "READY",
-    versionState: "ACTIVE",
-    createdAt: "2026-04-19T00:00:00Z",
-    updatedAt: "2026-04-19T00:00:00Z",
-    metadata: undefined,
-    chunks: [
-      {
-        chunkId: "material-1:0",
-        chunkIndex: 0,
-        text: "Первый chunk.",
-        page: 1,
-        extractor: "pdfbox",
-        ocrUsed: false,
-      },
-      {
-        chunkId: "material-1:1",
-        chunkIndex: 1,
-        text: "Второй chunk с тарифом 12000 тенге.",
-        page: 2,
-        extractor: "pdfbox",
-        ocrUsed: false,
-      },
-    ],
-  });
+});
+
+const materialDetailFixture = (): MaterialDetail => ({
+  id: "material-1",
+  title: "Pricing FAQ",
+  sourceType: "file",
+  originalFileName: "pricing.pdf",
+  mediaType: "application/pdf",
+  content: "Первый chunk.\n\nВторой chunk с тарифом 12000 тенге.",
+  status: "READY",
+  versionState: "ACTIVE",
+  createdAt: "2026-04-19T00:00:00Z",
+  updatedAt: "2026-04-19T00:00:00Z",
+  metadata: undefined,
+  chunks: [
+    {
+      chunkId: "material-1:0",
+      chunkIndex: 0,
+      text: "Первый chunk.",
+      page: 1,
+      extractor: "pdfbox",
+      ocrUsed: false,
+    },
+    {
+      chunkId: "material-1:1",
+      chunkIndex: 1,
+      text: "Второй chunk с тарифом 12000 тенге.",
+      page: 2,
+      extractor: "pdfbox",
+      ocrUsed: false,
+    },
+  ],
 });

@@ -112,7 +112,9 @@ export function RagProjectSwitcher({
               {activeProject?.name ?? activeProjectKey}
             </strong>
             <Badge variant="outline">key: {activeProject?.key ?? activeProjectKey}</Badge>
-            <Badge variant="secondary">{activeProject?.readyMaterialCount ?? 0}/{activeProject?.materialCount ?? 0} ready</Badge>
+            {activeProject ? (
+              <Badge variant="secondary">{activeProject.readyMaterialCount}/{activeProject.materialCount} ready</Badge>
+            ) : null}
           </div>
           {activeProject?.description ? (
             <p className="max-w-3xl text-sm leading-6 text-muted-foreground">{activeProject.description}</p>
@@ -154,7 +156,7 @@ export function RagProjectSwitcher({
           <DialogHeader>
             <DialogTitle>Создать RAG-проект</DialogTitle>
             <DialogDescription>
-              Новый проект получит отдельный workspaceKey для материалов, пресетов, проектных инструкций и истории RAG-запусков.
+              Новый проект будет использовать workspaceKey для группировки материалов, пресетов, проектных инструкций и истории RAG-запусков.
             </DialogDescription>
           </DialogHeader>
 

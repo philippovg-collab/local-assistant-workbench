@@ -15,6 +15,43 @@ public record MaterialDetail(
     Instant createdAt,
     Instant updatedAt,
     MaterialMetadataSnapshot metadata,
-    List<MaterialChunkDetail> chunks
+    List<MaterialChunkDetail> chunks,
+    MaterialEnrichmentStatus enrichmentStatus
 ) {
+    public MaterialDetail {
+        metadata = metadata == null ? MaterialMetadataSnapshot.empty() : metadata;
+        chunks = chunks == null ? List.of() : List.copyOf(chunks);
+        enrichmentStatus = enrichmentStatus == null ? MaterialEnrichmentStatus.notRequested() : enrichmentStatus;
+    }
+
+    public MaterialDetail(
+        String id,
+        String title,
+        String sourceType,
+        String originalFileName,
+        String mediaType,
+        String content,
+        MaterialIndexingStatus status,
+        MaterialVersionState versionState,
+        Instant createdAt,
+        Instant updatedAt,
+        MaterialMetadataSnapshot metadata,
+        List<MaterialChunkDetail> chunks
+    ) {
+        this(
+            id,
+            title,
+            sourceType,
+            originalFileName,
+            mediaType,
+            content,
+            status,
+            versionState,
+            createdAt,
+            updatedAt,
+            metadata,
+            chunks,
+            MaterialEnrichmentStatus.notRequested()
+        );
+    }
 }

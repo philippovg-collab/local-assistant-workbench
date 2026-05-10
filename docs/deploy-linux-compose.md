@@ -88,15 +88,16 @@ FRONTEND_BIND_ADDRESS=127.0.0.1
 FRONTEND_HTTP_PORT=8088
 APP_CORS_ALLOWED_ORIGINS=https://your-domain.example
 
-POSTGRES_PASSWORD=replace-with-a-strong-password
+POSTGRES_PASSWORD=<strong-postgres-password>
 BACKEND_IMAGE=ghcr.io/kazinsys-ai/rag-backend:latest
 FRONTEND_IMAGE=ghcr.io/kazinsys-ai/rag-frontend:latest
 APP_SECURITY_ADMIN_USERNAME=admin
-APP_SECURITY_ADMIN_PASSWORD=replace-with-a-strong-admin-password
+APP_SECURITY_ADMIN_PASSWORD=<strong-admin-password>
 
 APP_LLM_BASE_URL=http://10.9.120.3:8000
 APP_LLM_API_KEY=EMPTY
 APP_LLM_MODEL=qwen
+APP_LLM_PROVIDER_SECRET_KEY=<long-random-secret-for-ui-managed-provider-keys>
 APP_EMBEDDINGS_BASE_URL=http://10.9.120.3:8000
 APP_EMBEDDINGS_API_KEY=EMPTY
 APP_EMBEDDINGS_MODEL=nomic-embed-text
@@ -136,8 +137,11 @@ location / {
 }
 ```
 
-Keep `APP_CORS_ALLOWED_ORIGINS` aligned with the public HTTPS origin. Do not
-publish backend, PostgreSQL, or Elasticsearch ports to the internet.
+Keep `APP_CORS_ALLOWED_ORIGINS` aligned with the public HTTPS origin. This stack
+uses same-origin browser access through frontend nginx; do not publish backend,
+PostgreSQL, or Elasticsearch ports to the internet. If a temporary direct
+backend browser origin is ever required for diagnostics, add only that exact
+non-wildcard origin and remove the exposure afterwards.
 
 ## Health Checks
 
@@ -277,6 +281,7 @@ Update `/opt/ragstudio/shared/.env`:
 
 ```dotenv
 APP_SEARCH_SYNC_ENABLED=true
+APP_SEARCH_SYNC_INDEX_VERSION=v3
 APP_RAG_LEXICAL_PROVIDER=auto
 SPRING_ELASTICSEARCH_URIS=http://elasticsearch:9200
 ```

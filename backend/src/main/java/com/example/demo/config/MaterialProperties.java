@@ -27,6 +27,10 @@ public class MaterialProperties {
     private int indexingRetryMaxSeconds = 60;
     private int indexingWorkerCount = 2;
     private int indexingDrainMaxJobs = 64;
+    private int autoTaggingLeaseSeconds = 120;
+    private int autoTaggingMaxAttempts = 3;
+    private int autoTaggingWorkerCount = 2;
+    private int autoTaggingDrainMaxJobs = 100;
     private AutoTagsProperties autoTags = new AutoTagsProperties();
 
     public int getMaxUploadBytes() {
@@ -171,6 +175,38 @@ public class MaterialProperties {
 
     public void setIndexingDrainMaxJobs(int indexingDrainMaxJobs) {
         this.indexingDrainMaxJobs = indexingDrainMaxJobs;
+    }
+
+    public int getAutoTaggingLeaseSeconds() {
+        return autoTaggingLeaseSeconds;
+    }
+
+    public void setAutoTaggingLeaseSeconds(int autoTaggingLeaseSeconds) {
+        this.autoTaggingLeaseSeconds = autoTaggingLeaseSeconds;
+    }
+
+    public int getAutoTaggingMaxAttempts() {
+        return autoTaggingMaxAttempts;
+    }
+
+    public void setAutoTaggingMaxAttempts(int autoTaggingMaxAttempts) {
+        this.autoTaggingMaxAttempts = autoTaggingMaxAttempts;
+    }
+
+    public int getAutoTaggingWorkerCount() {
+        return autoTaggingWorkerCount;
+    }
+
+    public void setAutoTaggingWorkerCount(int autoTaggingWorkerCount) {
+        this.autoTaggingWorkerCount = autoTaggingWorkerCount;
+    }
+
+    public int getAutoTaggingDrainMaxJobs() {
+        return autoTaggingDrainMaxJobs;
+    }
+
+    public void setAutoTaggingDrainMaxJobs(int autoTaggingDrainMaxJobs) {
+        this.autoTaggingDrainMaxJobs = autoTaggingDrainMaxJobs;
     }
 
     public AutoTagsProperties getAutoTags() {

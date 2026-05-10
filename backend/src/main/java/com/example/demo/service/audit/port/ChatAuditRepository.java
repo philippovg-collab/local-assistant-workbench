@@ -7,8 +7,6 @@ import java.util.Optional;
 
 public interface ChatAuditRepository {
 
-    void save(StoredChatAuditRunRecord record);
-
     List<StoredChatAuditRunRecord> findAll(int limit);
 
     Optional<StoredChatAuditRunRecord> findById(String id);

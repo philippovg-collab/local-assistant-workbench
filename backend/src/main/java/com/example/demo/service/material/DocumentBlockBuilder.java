@@ -1,5 +1,7 @@
 package com.example.demo.service.material;
 
+import com.example.demo.model.DocumentBlockType;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;

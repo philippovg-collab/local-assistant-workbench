@@ -43,14 +43,14 @@ public class JsonRequestSizeLimitFilter extends OncePerRequestFilter {
 
         int limit = Math.max(0, properties.getMaxJsonBytes());
         if (request.getContentLengthLong() > limit) {
-            writeTooLarge(response);
+            writeTooLarge(request, response);
             return;
         }
 
         try {
             filterChain.doFilter(new LimitedJsonRequest(request, limit), response);
         } catch (RequestPayloadTooLargeException exception) {
-            writeTooLarge(response);
+            writeTooLarge(request, response);
         }
     }
 
@@ -66,18 +66,21 @@ public class JsonRequestSizeLimitFilter extends OncePerRequestFilter {
             && contentType.toLowerCase(java.util.Locale.ROOT).contains(MediaType.APPLICATION_JSON_VALUE);
     }
 
-    private void writeTooLarge(HttpServletResponse response) throws IOException {
+    private void writeTooLarge(HttpServletRequest request, HttpServletResponse response) throws IOException {
         if (response.isCommitted()) {
             return;
         }
+        String requestId = RequestContext.requestId(request);
+        request.setAttribute(RequestContext.REQUEST_ID_ATTRIBUTE, requestId);
         response.resetBuffer();
+        response.setHeader(RequestContext.REQUEST_ID_HEADER, requestId);
         response.setStatus(HttpStatus.PAYLOAD_TOO_LARGE.value());
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
         objectMapper.writeValue(response.getOutputStream(), new ErrorResponse(
             "request.payload_too_large",
             "JSON request body exceeds the configured size limit",
             Instant.now().toString(),
-            null
+            requestId
         ));
     }
 

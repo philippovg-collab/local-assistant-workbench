@@ -53,6 +53,9 @@ public record HealthResponse(
     String indexingOldestPendingAt,
     String indexingOldestInProgressAt,
     QualityLayerHealth qualityLayer,
+    ActiveProviderSummary activeChatProvider,
+    ActiveProviderSummary activeEmbeddingProvider,
+    ContextFeatures contextFeatures,
     Map<String, ReadinessComponent> readiness
 ) {
     public HealthResponse(
@@ -141,6 +144,9 @@ public record HealthResponse(
             null,
             null,
             null,
+            null,
+            null,
+            null,
             null
         );
     }
@@ -162,6 +168,29 @@ public record HealthResponse(
         String reasonCode,
         String reasonMessage,
         String observedAt
+    ) {
+    }
+
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record ActiveProviderSummary(
+        String id,
+        String name,
+        LlmProviderType providerType,
+        String baseUrl,
+        LlmProviderStatus status,
+        Boolean fallback
+    ) {
+    }
+
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record ContextFeatures(
+        Boolean context,
+        Boolean conversations,
+        Boolean history,
+        Boolean sticky,
+        Boolean rewrite,
+        Boolean summary,
+        Boolean longTermMemory
     ) {
     }
 }

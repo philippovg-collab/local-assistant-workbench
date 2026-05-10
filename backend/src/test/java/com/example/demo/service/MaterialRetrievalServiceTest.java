@@ -1,7 +1,7 @@
 package com.example.demo.service;
 
-import com.example.demo.service.material.DocumentBlockConfidence;
-import com.example.demo.service.material.DocumentBlockType;
+import com.example.demo.model.DocumentBlockConfidence;
+import com.example.demo.model.DocumentBlockType;
 import com.example.demo.service.material.LexicalProviderMode;
 import com.example.demo.service.material.LexicalProviderType;
 import com.example.demo.service.material.MaterialChunkSearchMatch;
@@ -25,7 +25,8 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.example.demo.api.ApiException;
+import com.example.demo.error.ApplicationException;
+import com.example.demo.error.ErrorType;
 import com.example.demo.config.MaterialProperties;
 import com.example.demo.config.RagProperties;
 import com.example.demo.config.RolloutProperties;
@@ -38,6 +39,7 @@ import com.example.demo.model.MaterialIndexingStatus;
 import com.example.demo.model.MaterialMetadataInput;
 import com.example.demo.model.MaterialMetadataSnapshot;
 import com.example.demo.model.MaterialSearchRequest;
+import com.example.demo.model.MaterialSearchResponse;
 import com.example.demo.model.MaterialVersionState;
 import com.example.demo.model.RetrievalFilters;
 import com.example.demo.model.SourceTrustLevel;
@@ -47,7 +49,9 @@ import com.example.demo.support.TestLexicalRoutingSupport;
 import com.example.demo.support.TestMaterialServices;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -60,7 +64,7 @@ class MaterialRetrievalServiceTest {
         InMemoryMaterialRepository repository = new InMemoryMaterialRepository();
         MaterialRetrievalService service = createService(repository, new DeterministicEmbeddingClient());
 
-        ApiException exception = assertThrows(ApiException.class, () -> service.search(new MaterialSearchRequest(
+        ApplicationException exception = assertThrows(ApplicationException.class, () -> service.search(new MaterialSearchRequest(
             "проверка лимита",
             RetrievalFilters.empty(),
             21,
@@ -579,6 +583,82 @@ class MaterialRetrievalServiceTest {
         assertEquals("KZ-2026-0415-ENERGY", result.retrievalDebug().queryHints().documentNumber());
         assertEquals("North Upgrade", result.retrievalDebug().queryHints().project());
         assertEquals("KZ-2026-0415-ENERGY", result.retrievalDebug().effectiveFilters().documentNumber());
+    }
+
+    @Test
+    void rerankPathBulkLoadsChunksOnceForDistinctMaterials() {
+        CountingChunkingRepository repository = new CountingChunkingRepository();
+        DeterministicEmbeddingClient embeddingClient = new DeterministicEmbeddingClient();
+        MaterialRetrievalService service = createService(repository, embeddingClient);
+
+        for (int index = 0; index < 10; index++) {
+            saveStructuredMaterial(
+                repository,
+                embeddingClient,
+                "Phase seven bulk material " + index,
+                "phase-seven-bulk-" + index,
+                MaterialMetadataSnapshot.empty(),
+                List.of(new StoredMaterialChunk(
+                    0,
+                    "phase seven bulk retrieval token material " + index,
+                    List.of("phase", "seven", "bulk", "retrieval"),
+                    1,
+                    "structured-v1",
+                    false,
+                    DocumentBlockType.NARRATIVE,
+                    List.of("bulk"),
+                    List.of("Bulk retrieval"),
+                    null,
+                    null,
+                    DocumentBlockConfidence.HIGH
+                )),
+                Instant.parse("2026-04-17T10:00:00Z").plusSeconds(index)
+            );
+        }
+
+        MaterialRetrievalResult result = service.retrieveContext("phase seven bulk retrieval token");
+
+        assertFalse(result.sources().isEmpty());
+        assertEquals(1, repository.findChunksByMaterialIdsCalls());
+        assertEquals(0, repository.findChunksCalls());
+    }
+
+    @Test
+    void searchNeighborsBulkLoadsChunksOnceAndPreservesNeighborOrder() {
+        CountingChunkingRepository repository = new CountingChunkingRepository();
+        DeterministicEmbeddingClient embeddingClient = new DeterministicEmbeddingClient();
+        RolloutProperties rolloutProperties = RolloutProperties.enabledForTests();
+        rolloutProperties.setRerankerV1(false);
+        MaterialRetrievalService service = createService(repository, embeddingClient, rolloutProperties);
+
+        saveStructuredMaterial(
+            repository,
+            embeddingClient,
+            "Neighbor contract",
+            "phase-seven-neighbor",
+            MaterialMetadataSnapshot.empty(),
+            List.of(
+                new StoredMaterialChunk(0, "opening context", List.of(), 1, "structured-v1", false),
+                new StoredMaterialChunk(1, "center evidence neighbor phase7", List.of(), 2, "structured-v1", false),
+                new StoredMaterialChunk(2, "closing context", List.of(), 3, "structured-v1", false)
+            ),
+            Instant.parse("2026-04-17T10:00:00Z")
+        );
+
+        MaterialSearchResponse response = service.search(new MaterialSearchRequest(
+            "center evidence",
+            RetrievalFilters.empty(),
+            1,
+            true,
+            false
+        ));
+
+        assertEquals(1, response.hits().size());
+        assertEquals(2, response.hits().getFirst().neighbors().size());
+        assertEquals(0, response.hits().getFirst().neighbors().get(0).chunkIndex());
+        assertEquals(2, response.hits().getFirst().neighbors().get(1).chunkIndex());
+        assertEquals(1, repository.findChunksByMaterialIdsCalls());
+        assertEquals(0, repository.findChunksCalls());
     }
 
     @Test
@@ -1457,6 +1537,32 @@ class MaterialRetrievalServiceTest {
             timestamp
         );
         return record;
+    }
+
+    private static final class CountingChunkingRepository extends InMemoryMaterialRepository {
+
+        private int findChunksCalls;
+        private int findChunksByMaterialIdsCalls;
+
+        @Override
+        public synchronized List<StoredMaterialChunk> findChunks(String materialId) {
+            findChunksCalls++;
+            return super.findChunks(materialId);
+        }
+
+        @Override
+        public synchronized Map<String, List<StoredMaterialChunk>> findChunksByMaterialIds(Collection<String> materialIds) {
+            findChunksByMaterialIdsCalls++;
+            return super.findChunksByMaterialIds(materialIds);
+        }
+
+        int findChunksCalls() {
+            return findChunksCalls;
+        }
+
+        int findChunksByMaterialIdsCalls() {
+            return findChunksByMaterialIdsCalls;
+        }
     }
 
     private static final class RecordingShadowComparisonService implements LexicalShadowComparisonService {

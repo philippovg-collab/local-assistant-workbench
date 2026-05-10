@@ -1,6 +1,6 @@
 package com.example.demo.service;
 
-import com.example.demo.service.material.DocumentBlockType;
+import com.example.demo.model.DocumentBlockType;
 import com.example.demo.service.material.QualityLayerCoverageSnapshot;
 import com.example.demo.service.material.port.QualityLayerMetricsRepository;
 
@@ -75,7 +75,14 @@ public class QualityLayerHealthService {
     }
 
     public QualityLayerFlags flags() {
-        return QualityLayerFlags.from(rolloutProperties);
+        return new QualityLayerFlags(
+            rolloutProperties.isMetadataV1(),
+            rolloutProperties.isStructuredV1(),
+            rolloutProperties.isMetadataFiltersV1(),
+            rolloutProperties.isSearchApiV1(),
+            rolloutProperties.isRerankerV1(),
+            rolloutProperties.isQueryHintsV1()
+        );
     }
 
     public QualityLayerHealth currentHealth() {

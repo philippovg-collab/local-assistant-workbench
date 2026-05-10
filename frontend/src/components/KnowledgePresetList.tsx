@@ -37,7 +37,7 @@ export function KnowledgePresetList({
           badgeVariant="secondary"
           description={isFacet
             ? "Фасеты проекта задают сохранённые фильтры поиска по тем же полям, которые используются при загрузке материалов."
-            : "Пресеты проекта ограничивают retrieval внутри активного RAG-проекта. Shared preset без workspace тоже можно видеть, но итоговый запрос всё равно остаётся в активном проекте."}
+            : "Пресеты проекта ограничивают retrieval внутри активного RAG-проекта. Пресет без привязки к RAG-проекту тоже можно видеть, но итоговый запрос всё равно остаётся в активном проекте."}
           eyebrow="Knowledge Scope"
           title={`${entityTitle}: ${activeProjectLabel}`}
         />
@@ -66,7 +66,7 @@ export function KnowledgePresetList({
                         {preset.active ? "active" : "inactive"}
                       </Badge>
                       <Badge variant="outline">rev {preset.revision}</Badge>
-                      {!preset.workspaceKey ? <Badge variant="secondary">shared</Badge> : null}
+                      {!preset.workspaceKey ? <Badge variant="secondary">global</Badge> : null}
                     </div>
                     <p className="text-sm leading-6 text-muted-foreground">
                       {preset.description?.trim() || "Описание не задано."}

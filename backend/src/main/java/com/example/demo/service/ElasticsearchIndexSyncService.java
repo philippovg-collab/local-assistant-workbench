@@ -22,6 +22,7 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
@@ -113,38 +114,48 @@ public class ElasticsearchIndexSyncService {
     }
 
     private void processClaimedBatch(List<MaterialSearchSyncQueueEntry> claimedEntries, Instant startedAt) {
+        MDC.put("batchSize", String.valueOf(claimedEntries.size()));
         int completedCount = 0;
         int retriedCount = 0;
         int failedCount = 0;
         Instant lastSuccessfulSyncAt = null;
 
-        for (MaterialSearchSyncQueueEntry entry : claimedEntries) {
-            try {
-                reconcileMaterial(entry);
-                Instant completedAt = Instant.now();
-                queueRepository.completeSearchSyncEntry(entry.materialId(), entry.claimedAt(), completedAt);
-                completedCount += 1;
-                lastSuccessfulSyncAt = completedAt;
-            } catch (RuntimeException exception) {
-                if (handleFailure(entry, exception) == FailureDisposition.FAILED) {
-                    failedCount += 1;
-                } else {
-                    retriedCount += 1;
+        try {
+            for (MaterialSearchSyncQueueEntry entry : claimedEntries) {
+                MDC.put("materialId", entry.materialId());
+                MDC.put("attempt", String.valueOf(entry.attemptCount()));
+                try {
+                    reconcileMaterial(entry);
+                    Instant completedAt = Instant.now();
+                    queueRepository.completeSearchSyncEntry(entry.materialId(), entry.claimedAt(), completedAt);
+                    completedCount += 1;
+                    lastSuccessfulSyncAt = completedAt;
+                } catch (RuntimeException exception) {
+                    if (handleFailure(entry, exception) == FailureDisposition.FAILED) {
+                        failedCount += 1;
+                    } else {
+                        retriedCount += 1;
+                    }
+                } finally {
+                    MDC.remove("materialId");
+                    MDC.remove("attempt");
                 }
             }
-        }
 
-        if (lastSuccessfulSyncAt != null) {
-            healthService.recordSuccessfulSync(lastSuccessfulSyncAt);
+            if (lastSuccessfulSyncAt != null) {
+                healthService.recordSuccessfulSync(lastSuccessfulSyncAt);
+            }
+            logger.info(
+                "Elasticsearch sync batch completed: claimed={} completed={} retried={} failed={} startedAt={}",
+                claimedEntries.size(),
+                completedCount,
+                retriedCount,
+                failedCount,
+                startedAt
+            );
+        } finally {
+            MDC.remove("batchSize");
         }
-        logger.info(
-            "Elasticsearch sync batch completed: claimed={} completed={} retried={} failed={} startedAt={}",
-            claimedEntries.size(),
-            completedCount,
-            retriedCount,
-            failedCount,
-            startedAt
-        );
     }
 
     private FailureDisposition handleFailure(

@@ -19,7 +19,11 @@ public record ChatExecutionResponse(
     RetrievalTrace retrievalTrace,
     RetrievalDebug retrievalDebug,
     List<ChatSource> sources,
-    String auditRunId
+    String auditRunId,
+    String conversationId,
+    Integer turnNo,
+    String contextAssemblyId,
+    ContextSummary contextSummary
 ) {
     public ChatExecutionResponse {
         appliedInstructions = appliedInstructions == null ? List.of() : List.copyOf(appliedInstructions);
@@ -64,7 +68,55 @@ public record ChatExecutionResponse(
             retrievalTrace,
             null,
             sources,
-            auditRunId
+            auditRunId,
+            null,
+            null,
+            null,
+            null
+        );
+    }
+
+    public ChatExecutionResponse(
+        ChatMode mode,
+        String model,
+        String prompt,
+        String answer,
+        String contextStatus,
+        String createdAt,
+        Integer promptTokens,
+        Integer completionTokens,
+        Integer totalTokens,
+        AnswerMode answerModeApplied,
+        List<AppliedInstruction> appliedInstructions,
+        List<InstructionTraceEntry> instructionTrace,
+        KnowledgeScopeResolved knowledgeScopeResolved,
+        RetrievalTrace retrievalTrace,
+        RetrievalDebug retrievalDebug,
+        List<ChatSource> sources,
+        String auditRunId
+    ) {
+        this(
+            mode,
+            model,
+            prompt,
+            answer,
+            contextStatus,
+            createdAt,
+            promptTokens,
+            completionTokens,
+            totalTokens,
+            answerModeApplied,
+            appliedInstructions,
+            instructionTrace,
+            knowledgeScopeResolved,
+            retrievalTrace,
+            retrievalDebug,
+            sources,
+            auditRunId,
+            null,
+            null,
+            null,
+            null
         );
     }
 
@@ -98,7 +150,42 @@ public record ChatExecutionResponse(
             null,
             null,
             sources == null ? List.of() : sources,
+            null,
+            null,
+            null,
+            null,
             null
+        );
+    }
+
+    public ChatExecutionResponse withConversationMetadata(
+        String conversationId,
+        Integer turnNo,
+        String contextAssemblyId,
+        ContextSummary contextSummary
+    ) {
+        return new ChatExecutionResponse(
+            mode,
+            model,
+            prompt,
+            answer,
+            contextStatus,
+            createdAt,
+            promptTokens,
+            completionTokens,
+            totalTokens,
+            answerModeApplied,
+            appliedInstructions,
+            instructionTrace,
+            knowledgeScopeResolved,
+            retrievalTrace,
+            retrievalDebug,
+            sources,
+            auditRunId,
+            conversationId,
+            turnNo,
+            contextAssemblyId,
+            contextSummary
         );
     }
 }

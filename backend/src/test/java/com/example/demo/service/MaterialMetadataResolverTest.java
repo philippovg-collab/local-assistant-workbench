@@ -10,7 +10,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-import com.example.demo.api.ApiException;
+import com.example.demo.error.ApplicationException;
+import com.example.demo.error.ErrorType;
 import com.example.demo.service.reference.port.ReferenceDataRepository;
 import com.example.demo.service.reference.StoredReferenceProjectRecord;
 import com.example.demo.model.DocumentStatus;
@@ -375,7 +376,7 @@ class MaterialMetadataResolverTest {
         when(referenceRepository.findProjectByKey("missing-project")).thenReturn(Optional.empty());
         MaterialMetadataResolver resolverWithReferences = new MaterialMetadataResolver(referenceRepository);
 
-        ApiException exception = assertThrows(ApiException.class, () -> resolverWithReferences.resolve(
+        ApplicationException exception = assertThrows(ApplicationException.class, () -> resolverWithReferences.resolve(
             new MaterialMetadataInput(
                 DocumentType.REPORT,
                 "general",

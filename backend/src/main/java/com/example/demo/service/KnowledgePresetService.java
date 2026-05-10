@@ -1,7 +1,8 @@
 package com.example.demo.service;
 
-import com.example.demo.api.ApiException;
-import com.example.demo.api.InputLimits;
+import com.example.demo.error.ApplicationException;
+import com.example.demo.error.ErrorType;
+import com.example.demo.validation.InputLimits;
 import com.example.demo.model.CreateKnowledgePresetRequest;
 import com.example.demo.model.DocumentStatus;
 import com.example.demo.model.DocumentType;
@@ -25,7 +26,6 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -81,8 +81,8 @@ public class KnowledgePresetService {
     private KnowledgePresetDetail getFilter(String id, SavedKnowledgeFilterKind expectedKind) {
         String presetId = requireValidId(id);
         StoredKnowledgePresetRecord record = repository.findById(presetId)
-            .orElseThrow(() -> new ApiException(
-                HttpStatus.NOT_FOUND,
+            .orElseThrow(() -> new ApplicationException(
+                ErrorType.NOT_FOUND,
                 "knowledge_preset.not_found",
                 "Knowledge filter '" + presetId + "' does not exist"
             ));
@@ -118,8 +118,8 @@ public class KnowledgePresetService {
         InputLimits.validateKnowledgePresetRequest(request);
         String presetId = requireValidId(id);
         StoredKnowledgePresetRecord current = repository.findById(presetId)
-            .orElseThrow(() -> new ApiException(
-                HttpStatus.NOT_FOUND,
+            .orElseThrow(() -> new ApplicationException(
+                ErrorType.NOT_FOUND,
                 "knowledge_preset.not_found",
                 "Knowledge preset '" + presetId + "' does not exist"
             ));
@@ -169,8 +169,8 @@ public class KnowledgePresetService {
     public KnowledgePresetRevisionDetail getRevision(String id, int revision) {
         return repository.findRevision(requireValidId(id), revision)
             .map(this::toRevisionDetail)
-            .orElseThrow(() -> new ApiException(
-                HttpStatus.NOT_FOUND,
+            .orElseThrow(() -> new ApplicationException(
+                ErrorType.NOT_FOUND,
                 "knowledge_preset.revision_not_found",
                 "Knowledge preset revision '" + revision + "' does not exist"
             ));
@@ -209,8 +209,8 @@ public class KnowledgePresetService {
     private KnowledgePresetDetail restoreRevision(StoredKnowledgePresetRecord current, int revision) {
         String presetId = current.id();
         StoredKnowledgePresetRevisionRecord sourceRevision = repository.findRevision(presetId, revision)
-            .orElseThrow(() -> new ApiException(
-                HttpStatus.NOT_FOUND,
+            .orElseThrow(() -> new ApplicationException(
+                ErrorType.NOT_FOUND,
                 "knowledge_preset.revision_not_found",
                 "Knowledge preset revision '" + revision + "' does not exist"
             ));
@@ -322,8 +322,8 @@ public class KnowledgePresetService {
 
         for (String presetId : safeRequestScope.presetIds()) {
             StoredKnowledgePresetRecord preset = repository.findById(requireValidId(presetId))
-                .orElseThrow(() -> new ApiException(
-                    HttpStatus.NOT_FOUND,
+                .orElseThrow(() -> new ApplicationException(
+                    ErrorType.NOT_FOUND,
                     "knowledge_preset.not_found",
                     "Knowledge preset '" + presetId + "' does not exist"
                 ));
@@ -357,8 +357,8 @@ public class KnowledgePresetService {
 
         for (String facetId : safeRequestScope.facetIds()) {
             StoredKnowledgePresetRecord facet = repository.findById(requireValidId(facetId))
-                .orElseThrow(() -> new ApiException(
-                    HttpStatus.NOT_FOUND,
+                .orElseThrow(() -> new ApplicationException(
+                    ErrorType.NOT_FOUND,
                     "knowledge_preset.not_found",
                     "Knowledge facet '" + facetId + "' does not exist"
                 ));
@@ -539,8 +539,8 @@ public class KnowledgePresetService {
 
     private void requireActiveForExecution(StoredKnowledgePresetRecord record) {
         if (!record.active()) {
-            throw new ApiException(
-                HttpStatus.BAD_REQUEST,
+            throw new ApplicationException(
+                ErrorType.INVALID_REQUEST,
                 "knowledge_preset.inactive",
                 "Knowledge filter '%s' is inactive and cannot be used in chat execution".formatted(record.id())
             );
@@ -550,8 +550,8 @@ public class KnowledgePresetService {
     private StoredKnowledgePresetRecord requireFilterRecord(String id, SavedKnowledgeFilterKind expectedKind) {
         String presetId = requireValidId(id);
         StoredKnowledgePresetRecord record = repository.findById(presetId)
-            .orElseThrow(() -> new ApiException(
-                HttpStatus.NOT_FOUND,
+            .orElseThrow(() -> new ApplicationException(
+                ErrorType.NOT_FOUND,
                 "knowledge_preset.not_found",
                 "Knowledge filter '" + presetId + "' does not exist"
             ));
@@ -563,8 +563,8 @@ public class KnowledgePresetService {
 
     private void requireKind(StoredKnowledgePresetRecord record, SavedKnowledgeFilterKind expectedKind) {
         if (record.kind() != expectedKind) {
-            throw new ApiException(
-                HttpStatus.BAD_REQUEST,
+            throw new ApplicationException(
+                ErrorType.INVALID_REQUEST,
                 "knowledge_preset.kind_mismatch",
                 "Knowledge filter '%s' is %s but %s was expected".formatted(record.id(), record.kind(), expectedKind)
             );
@@ -644,8 +644,8 @@ public class KnowledgePresetService {
         try {
             return UUID.fromString(sanitize(id, "id")).toString();
         } catch (IllegalArgumentException exception) {
-            throw new ApiException(
-                HttpStatus.BAD_REQUEST,
+            throw new ApplicationException(
+                ErrorType.INVALID_REQUEST,
                 "knowledge_preset.invalid_id",
                 "Knowledge preset id must be a valid UUID",
                 exception
@@ -655,8 +655,8 @@ public class KnowledgePresetService {
 
     private String sanitize(String value, String field) {
         if (!StringUtils.hasText(value)) {
-            throw new ApiException(
-                HttpStatus.BAD_REQUEST,
+            throw new ApplicationException(
+                ErrorType.INVALID_REQUEST,
                 "knowledge_preset.invalid_" + field,
                 "Field '%s' must not be blank".formatted(field)
             );

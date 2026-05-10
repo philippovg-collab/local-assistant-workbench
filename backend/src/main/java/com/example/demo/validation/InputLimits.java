@@ -1,5 +1,7 @@
-package com.example.demo.api;
+package com.example.demo.validation;
 
+import com.example.demo.error.ApplicationException;
+import com.example.demo.error.ErrorType;
 import com.example.demo.model.ChatExecutionRequest;
 import com.example.demo.model.CreateInstructionRequest;
 import com.example.demo.model.CreateKnowledgePresetRequest;
@@ -8,7 +10,6 @@ import com.example.demo.model.MaterialMetadataInput;
 import com.example.demo.model.MaterialSearchRequest;
 import com.example.demo.model.RetrievalFilters;
 import java.util.List;
-import org.springframework.http.HttpStatus;
 import org.springframework.util.StringUtils;
 
 public final class InputLimits {
@@ -25,14 +26,15 @@ public final class InputLimits {
     public static final int TAG_MAX = 64;
     public static final int FILTER_TEXT_MAX = 128;
     public static final int WORKSPACE_KEY_MAX = 128;
+    public static final int UUID_TEXT_MAX = 36;
 
     private InputLimits() {
     }
 
     public static void validateChatRequest(ChatExecutionRequest request) {
         if (request == null || !StringUtils.hasText(request.prompt())) {
-            throw new ApiException(
-                HttpStatus.BAD_REQUEST,
+            throw new ApplicationException(
+                ErrorType.INVALID_REQUEST,
                 "chat.invalid_request",
                 "Field 'prompt' is required"
             );
@@ -48,6 +50,9 @@ public final class InputLimits {
         requireMaxListSize(request.dismissedRetrievalHintKeys(), TAGS_MAX, "chat.dismissedRetrievalHintKeys");
         requireMaxStringListEntries(request.dismissedRetrievalHintKeys(), FILTER_TEXT_MAX, "chat.dismissedRetrievalHintKeys");
         requireMaxLength(request.instructionWorkspaceKey(), WORKSPACE_KEY_MAX, "chat.instructionWorkspaceKey");
+        requireMaxLength(request.conversationId(), UUID_TEXT_MAX, "chat.conversationId");
+        requireMaxLength(request.parentRunId(), UUID_TEXT_MAX, "chat.parentRunId");
+        requireMaxLength(request.clientTurnId(), FILTER_TEXT_MAX, "chat.clientTurnId");
         validateKnowledgeScope(request.knowledgeScope(), "chat.knowledgeScope");
         validateRetrievalFilters(request.retrievalFilters(), "chat.retrievalFilters");
     }
@@ -130,8 +135,8 @@ public final class InputLimits {
 
     public static void requireMaxLength(String value, int maxLength, String fieldName) {
         if (value != null && value.length() > maxLength) {
-            throw new ApiException(
-                HttpStatus.BAD_REQUEST,
+            throw new ApplicationException(
+                ErrorType.INVALID_REQUEST,
                 "request.field_too_large",
                 "Field '" + fieldName + "' exceeds the configured limit of " + maxLength + " characters"
             );
@@ -140,8 +145,8 @@ public final class InputLimits {
 
     public static void requireMaxListSize(List<?> values, int maxSize, String fieldName) {
         if (values != null && values.size() > maxSize) {
-            throw new ApiException(
-                HttpStatus.BAD_REQUEST,
+            throw new ApplicationException(
+                ErrorType.INVALID_REQUEST,
                 "request.too_many_items",
                 "Field '" + fieldName + "' exceeds the configured limit of " + maxSize + " entries"
             );

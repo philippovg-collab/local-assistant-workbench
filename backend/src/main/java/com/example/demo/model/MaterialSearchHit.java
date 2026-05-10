@@ -1,6 +1,6 @@
 package com.example.demo.model;
 
-import com.example.demo.service.material.DocumentBlockType;
+import com.example.demo.model.DocumentBlockType;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import java.util.List;

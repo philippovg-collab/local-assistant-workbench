@@ -33,6 +33,18 @@ public class AsyncInfrastructureConfig {
         return boundedExecutor("search-sync", 2, 64);
     }
 
+    @Bean(name = "conversationSummaryExecutor", destroyMethod = "shutdown")
+    @ConditionalOnMissingBean(name = "conversationSummaryExecutor")
+    Executor conversationSummaryExecutor() {
+        return boundedExecutor("conversation-summary", 1, 32);
+    }
+
+    @Bean(name = "memoryExtractionExecutor", destroyMethod = "shutdown")
+    @ConditionalOnMissingBean(name = "memoryExtractionExecutor")
+    Executor memoryExtractionExecutor() {
+        return boundedExecutor("memory-extraction", 1, 32);
+    }
+
     @Bean(name = "chatExecutionExecutor", destroyMethod = "shutdown")
     ExecutorService chatExecutionExecutor(ChatExecutionProperties properties) {
         return boundedExecutor(

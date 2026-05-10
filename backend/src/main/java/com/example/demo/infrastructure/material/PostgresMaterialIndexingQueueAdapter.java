@@ -2,7 +2,8 @@ package com.example.demo.infrastructure.material;
 
 import static com.example.demo.infrastructure.material.MaterialJdbcRowMappers.MATERIAL_ROW_MAPPER;
 
-import com.example.demo.api.ApiException;
+import com.example.demo.error.ErrorType;
+import com.example.demo.error.StorageException;
 import com.example.demo.model.MaterialIndexingStatus;
 import com.example.demo.service.material.MaterialIndexingLease;
 import com.example.demo.service.material.StoredEmbeddedMaterialChunk;
@@ -14,7 +15,6 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.dao.DataAccessException;
-import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
 
@@ -35,8 +35,8 @@ final class PostgresMaterialIndexingQueueAdapter extends PostgresMaterialJdbcSup
         Instant updatedAt
     ) {
         updateIndexingState(materialId, MaterialIndexingStatus.PENDING, reasonCode, reasonMessage, updatedAt, updatedAt, null);
-        return recordDao.findById(materialId).orElseThrow(() -> new ApiException(
-            HttpStatus.NOT_FOUND,
+        return recordDao.findById(materialId).orElseThrow(() -> new StorageException(
+            ErrorType.NOT_FOUND,
             "material.not_found",
             "Material '" + materialId + "' does not exist"
         ));
@@ -61,8 +61,8 @@ final class PostgresMaterialIndexingQueueAdapter extends PostgresMaterialJdbcSup
                 updateIndexingState(materialId, finalStatus, reasonCode, reasonMessage, updatedAt, null, null);
             });
         } catch (DataAccessException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new StorageException(
+                ErrorType.STORAGE_FAILURE,
                 "material.storage_write_failed",
                 "Unable to finalize material indexing in PostgreSQL",
                 exception
@@ -78,6 +78,34 @@ final class PostgresMaterialIndexingQueueAdapter extends PostgresMaterialJdbcSup
     @Override
     public void rescheduleIndexing(String materialId, String code, String message, Instant updatedAt, Instant nextRetryAt) {
         updateIndexingState(materialId, MaterialIndexingStatus.PENDING, code, message, updatedAt, nextRetryAt, null);
+    }
+
+    @Override
+    public int markActiveMaterialsIndexingPending(String reasonCode, String reasonMessage, Instant updatedAt) {
+        try {
+            return jdbcTemplate.update(
+                """
+                    UPDATE materials
+                    SET indexing_status = 'PENDING',
+                        status_reason_code = ?,
+                        status_reason_message = ?,
+                        next_retry_at = NULL,
+                        claimed_at = NULL,
+                        updated_at = ?
+                    WHERE version_state = 'ACTIVE'
+                    """,
+                reasonCode,
+                reasonMessage,
+                Timestamp.from(updatedAt)
+            );
+        } catch (DataAccessException exception) {
+            throw new StorageException(
+                ErrorType.STORAGE_FAILURE,
+                "material.storage_write_failed",
+                "Unable to enqueue active materials for embedding reindex in PostgreSQL",
+                exception
+            );
+        }
     }
 
     @Override
@@ -98,8 +126,8 @@ final class PostgresMaterialIndexingQueueAdapter extends PostgresMaterialJdbcSup
                 Timestamp.from(staleBefore)
             );
         } catch (DataAccessException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new StorageException(
+                ErrorType.STORAGE_FAILURE,
                 "material.storage_write_failed",
                 "Unable to recover stale indexing claims in PostgreSQL",
                 exception
@@ -152,8 +180,8 @@ final class PostgresMaterialIndexingQueueAdapter extends PostgresMaterialJdbcSup
                 return Optional.of(new MaterialIndexingLease(candidate.record(), candidate.attempts() + 1));
             });
         } catch (DataAccessException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new StorageException(
+                ErrorType.STORAGE_FAILURE,
                 "material.storage_write_failed",
                 "Unable to claim the next indexing job from PostgreSQL",
                 exception
@@ -177,8 +205,8 @@ final class PostgresMaterialIndexingQueueAdapter extends PostgresMaterialJdbcSup
             );
             return count != null && count > 0;
         } catch (DataAccessException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new StorageException(
+                ErrorType.STORAGE_FAILURE,
                 "material.storage_read_failed",
                 "Unable to inspect pending indexing jobs in PostgreSQL",
                 exception
@@ -210,8 +238,8 @@ final class PostgresMaterialIndexingQueueAdapter extends PostgresMaterialJdbcSup
                 )
             );
         } catch (DataAccessException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new StorageException(
+                ErrorType.STORAGE_FAILURE,
                 "material.storage_read_failed",
                 "Unable to inspect indexing queue state in PostgreSQL",
                 exception
@@ -249,8 +277,8 @@ final class PostgresMaterialIndexingQueueAdapter extends PostgresMaterialJdbcSup
                 UUID.fromString(materialId)
             );
         } catch (DataAccessException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new StorageException(
+                ErrorType.STORAGE_FAILURE,
                 "material.storage_write_failed",
                 "Unable to update material indexing status in PostgreSQL",
                 exception

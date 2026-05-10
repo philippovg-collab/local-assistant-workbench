@@ -1,5 +1,6 @@
 import { Braces, MessageSquareCode, Sparkles, TerminalSquare } from "lucide-react";
-import { apiClient } from "@/api/client";
+import type { ReactNode } from "react";
+import { buildChatRunCurlExample } from "@/api/curlExample";
 import { EmptyState } from "@/components/app/EmptyState";
 import { SectionIntro } from "@/components/app/SectionIntro";
 import { StudioScaffold } from "@/components/app/StudioScaffold";
@@ -37,7 +38,10 @@ type DirectChatPanelProps = {
   selectedInstructionIds: string[];
   onToggleInstruction: (instructionId: string) => void;
   isSubmitting: boolean;
+  isCancelling?: boolean;
+  currentRunId?: string | null;
   currentRunStatus?: string | null;
+  useLongTermMemory?: boolean;
   error: string | null;
   response: ChatExecutionResponse | null;
   requestPreview: ChatExecutionRequest;
@@ -46,6 +50,9 @@ type DirectChatPanelProps = {
   chatRunsError: string | null;
   onLoadChatRun: (runId: string) => Promise<ChatAuditRunDetail | null>;
   onSubmit: () => Promise<unknown>;
+  onCancelCurrentRun?: () => Promise<unknown>;
+  onUseLongTermMemoryChange?: (value: boolean) => void;
+  conversationPanel?: ReactNode;
 };
 
 const codeBlockClassName =
@@ -68,7 +75,10 @@ export function DirectChatPanel({
   selectedInstructionIds,
   onToggleInstruction,
   isSubmitting,
+  isCancelling,
+  currentRunId,
   currentRunStatus,
+  useLongTermMemory,
   error,
   response,
   requestPreview,
@@ -77,39 +87,50 @@ export function DirectChatPanel({
   chatRunsError,
   onLoadChatRun,
   onSubmit,
+  onCancelCurrentRun,
+  onUseLongTermMemoryChange,
+  conversationPanel,
 }: DirectChatPanelProps) {
   return (
     <StudioScaffold
       badge="POST /api/chat-runs mode=direct"
       controls={
-        <ChatForm
-          answerMode={answerMode}
-          error={error}
-          helperText={isSubmitting && currentRunStatus ? `${helperText} Статус запуска: ${currentRunStatus}.` : helperText}
-          instructionEmptyStateMessage="Сначала создай chat/scenario инструкцию во вкладке библиотеки."
-          instructions={instructions}
-          isSubmitDisabled={isSubmitting || !prompt.trim() || isBlocked}
-          isSubmitting={isSubmitting}
-          models={models}
-          modelsError={modelsError}
-          onAnswerModeChange={onAnswerModeChange}
-          onModelChange={onModelChange}
-          onPromptChange={onPromptChange}
-          onSubmit={onSubmit}
-          onTemporaryInstructionChange={onTemporaryInstructionChange}
-          onToggleInstruction={onToggleInstruction}
-          prompt={prompt}
-          promptLabel="User prompt"
-          promptRows={7}
-          selectedInstructionIds={selectedInstructionIds}
-          selectedModel={selectedModel}
-          submitBusyLabel="Отправляем..."
-          submitIdleLabel="Отправить напрямую"
-          temporaryInstruction={temporaryInstruction}
-          temporaryInstructionLabel="Временная инструкция на этот запрос"
-          temporaryInstructionPlaceholder="Например: структурируй ответ в 3 пункта."
-          temporaryInstructionRows={4}
-        />
+        <div className="space-y-5">
+          {conversationPanel}
+          <ChatForm
+            answerMode={answerMode}
+            currentRunId={currentRunId}
+            error={error}
+            helperText={isSubmitting && currentRunStatus ? `${helperText} Статус запуска: ${currentRunStatus}.` : helperText}
+            instructionEmptyStateMessage="Сначала создай chat/scenario инструкцию во вкладке библиотеки."
+            instructions={instructions}
+            isCancelling={isCancelling}
+            isSubmitDisabled={isSubmitting || !prompt.trim() || isBlocked}
+            isSubmitting={isSubmitting}
+            models={models}
+            modelsError={modelsError}
+            onAnswerModeChange={onAnswerModeChange}
+            onCancelCurrentRun={onCancelCurrentRun}
+            onModelChange={onModelChange}
+            onPromptChange={onPromptChange}
+            onSubmit={onSubmit}
+            onTemporaryInstructionChange={onTemporaryInstructionChange}
+            onToggleInstruction={onToggleInstruction}
+            onUseLongTermMemoryChange={onUseLongTermMemoryChange}
+            prompt={prompt}
+            promptLabel="User prompt"
+            promptRows={7}
+            selectedInstructionIds={selectedInstructionIds}
+            selectedModel={selectedModel}
+            submitBusyLabel="Отправляем..."
+            submitIdleLabel="Отправить напрямую"
+            temporaryInstruction={temporaryInstruction}
+            temporaryInstructionLabel="Временная инструкция на этот запрос"
+            temporaryInstructionPlaceholder="Например: структурируй ответ в 3 пункта."
+            temporaryInstructionRows={4}
+            useLongTermMemory={useLongTermMemory}
+          />
+        </div>
       }
       description="Direct-режим использует тот же execution contract, но без retrieval. Здесь можно проверить instruction stack, answer mode и audit trail без влияния локального контекста."
       eyebrow="Direct Studio"
@@ -133,7 +154,7 @@ export function DirectChatPanel({
                 </div>
                 <Badge variant="secondary">unified chat contract</Badge>
               </div>
-              <pre className={codeBlockClassName}>{apiClient.buildCurlExample(requestPreview)}</pre>
+              <pre className={codeBlockClassName}>{buildChatRunCurlExample(requestPreview)}</pre>
             </article>
 
             {response ? (

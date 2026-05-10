@@ -14,6 +14,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.example.demo.config.ContextProperties;
 import com.example.demo.config.OcrProperties;
 import com.example.demo.config.RolloutProperties;
 import com.example.demo.service.ChatAuditService;
@@ -41,6 +42,7 @@ class HealthControllerTest {
     private MaterialIndexingQueueRepository indexingQueueRepository;
     private ProductionLexicalSearchRouter productionLexicalSearchRouter;
     private ChatAuditService chatAuditService;
+    private ContextProperties contextProperties;
 
     @BeforeEach
     void setUp() {
@@ -52,6 +54,7 @@ class HealthControllerTest {
         indexingQueueRepository = org.mockito.Mockito.mock(MaterialIndexingQueueRepository.class);
         productionLexicalSearchRouter = org.mockito.Mockito.mock(ProductionLexicalSearchRouter.class);
         chatAuditService = org.mockito.Mockito.mock(ChatAuditService.class);
+        contextProperties = new ContextProperties();
         when(chatAuditService.currentHealth()).thenReturn(new ChatAuditService.AuditHealth("UP", null, null, 0, null));
         mockMvc = MockMvcBuilders
             .standaloneSetup(new HealthController(new HealthStatusService(
@@ -63,7 +66,10 @@ class HealthControllerTest {
                 indexingQueueRepository,
                 productionLexicalSearchRouter,
                 QualityLayerHealthService.noop(new RolloutProperties()),
-                chatAuditService
+                chatAuditService,
+                null,
+                null,
+                contextProperties
             )))
             .setMessageConverters(new MappingJackson2HttpMessageConverter())
             .build();
@@ -228,6 +234,43 @@ class HealthControllerTest {
             .andExpect(jsonPath("$.vectorStatus").value("UP"))
             .andExpect(jsonPath("$.ocrStatus").value("UP"))
             .andExpect(jsonPath("$.ocrLanguages[0]").value("kaz"));
+    }
+
+    @Test
+    void publishesEffectiveContextFeatureState() throws Exception {
+        contextProperties.setEnabled(true);
+        contextProperties.setConversationsEnabled(true);
+        contextProperties.setHistoryEnabled(true);
+        contextProperties.setStickyStateEnabled(true);
+        contextProperties.setRetrievalQueryResolutionEnabled(true);
+        contextProperties.setSummaryEnabled(true);
+        contextProperties.setLongTermMemoryEnabled(true);
+        stubHealthyOcrAndStorage();
+        when(runtimeReadinessService.currentReadiness()).thenReturn(runtimeReadiness("UP", null, null, "UP", null, "UP", null));
+        when(materialCatalogRepository.countMaterials()).thenReturn(1);
+        when(materialCatalogRepository.countActiveMaterials()).thenReturn(1);
+        when(materialCatalogRepository.countReadyMaterials()).thenReturn(1);
+        when(indexingQueueRepository.getIndexingQueueSnapshot()).thenReturn(
+            new MaterialIndexingQueueRepository.IndexingQueueSnapshot(0, 0, 0, null)
+        );
+        stubRoutingDecision(
+            LexicalProviderMode.POSTGRES,
+            LexicalProviderType.POSTGRES,
+            false,
+            null,
+            null,
+            new ElasticsearchHealthService.SearchSyncHealth("UP", null, null, 0, 0, 0, null, null, null)
+        );
+
+        mockMvc.perform(get("/api/health"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.contextFeatures.context").value(true))
+            .andExpect(jsonPath("$.contextFeatures.conversations").value(true))
+            .andExpect(jsonPath("$.contextFeatures.history").value(true))
+            .andExpect(jsonPath("$.contextFeatures.sticky").value(true))
+            .andExpect(jsonPath("$.contextFeatures.rewrite").value(true))
+            .andExpect(jsonPath("$.contextFeatures.summary").value(true))
+            .andExpect(jsonPath("$.contextFeatures.longTermMemory").value(true));
     }
 
     @Test

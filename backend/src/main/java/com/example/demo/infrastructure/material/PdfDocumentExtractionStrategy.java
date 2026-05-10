@@ -2,7 +2,7 @@ package com.example.demo.infrastructure.material;
 
 import com.example.demo.service.material.DocumentBlock;
 import com.example.demo.service.material.DocumentBlockBuilder;
-import com.example.demo.service.material.DocumentBlockType;
+import com.example.demo.model.DocumentBlockType;
 import com.example.demo.service.material.DocumentParseResult;
 import com.example.demo.service.material.DocumentParserProfile;
 import com.example.demo.service.material.MaterialFormatRegistry;
@@ -11,7 +11,8 @@ import com.example.demo.service.material.OcrCapability;
 import com.example.demo.service.material.ParseWarning;
 import com.example.demo.service.material.port.OcrCapabilityProvider;
 
-import com.example.demo.api.ApiException;
+import com.example.demo.error.ErrorType;
+import com.example.demo.error.ProviderException;
 import com.example.demo.config.MaterialProperties;
 import com.example.demo.config.OcrProperties;
 import java.awt.image.BufferedImage;
@@ -33,7 +34,6 @@ import org.apache.pdfbox.text.PDFTextStripper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
@@ -85,8 +85,8 @@ public class PdfDocumentExtractionStrategy implements DocumentTextExtractionStra
         try (PDDocument document = PDDocument.load(bytes)) {
             int pageCount = document.getNumberOfPages();
             if (pageCount > materialProperties.getMaxPdfPages()) {
-                throw new ApiException(
-                    HttpStatus.BAD_REQUEST,
+                throw new ProviderException(
+                    ErrorType.INVALID_REQUEST,
                     "material.extraction_too_large",
                     "PDF page count exceeds the configured limit of " + materialProperties.getMaxPdfPages() + " pages"
                 );
@@ -96,7 +96,7 @@ public class PdfDocumentExtractionStrategy implements DocumentTextExtractionStra
             List<Integer> skippedPages = new ArrayList<>();
             String partialReason = null;
             boolean usedOcr = false;
-            ApiException firstOcrFailure = null;
+            ProviderException firstOcrFailure = null;
 
             List<PageParseUnit> ocrRequiredPages = extractedPages.stream()
                 .filter(this::requiresOcr)
@@ -134,7 +134,7 @@ public class PdfDocumentExtractionStrategy implements DocumentTextExtractionStra
                     resolvedPages.add(extractPageWithOcr(document, renderer, pageNumber));
                     usedOcr = true;
                     ocrAttempts++;
-                } catch (ApiException exception) {
+                } catch (ProviderException exception) {
                     logger.warn(
                         "Skipping PDF page {} during OCR fallback because {}: {}",
                         pageNumber,
@@ -156,8 +156,8 @@ public class PdfDocumentExtractionStrategy implements DocumentTextExtractionStra
                 if (firstOcrFailure != null) {
                     throw firstOcrFailure;
                 }
-                throw new ApiException(
-                    HttpStatus.BAD_REQUEST,
+                throw new ProviderException(
+                    ErrorType.INVALID_REQUEST,
                     "material.extraction_failed",
                     "Unable to extract readable text from the uploaded PDF"
                 );
@@ -173,8 +173,8 @@ public class PdfDocumentExtractionStrategy implements DocumentTextExtractionStra
 
             return buildResult(resolvedPages, usedOcr, pageCount, warnings);
         } catch (IOException exception) {
-            throw new ApiException(
-                HttpStatus.BAD_REQUEST,
+            throw new ProviderException(
+                ErrorType.INVALID_REQUEST,
                 "material.extraction_failed",
                 "Unable to read PDF document",
                 exception
@@ -194,8 +194,8 @@ public class PdfDocumentExtractionStrategy implements DocumentTextExtractionStra
             .toList();
 
         if (nonEmptyPages.isEmpty()) {
-            throw new ApiException(
-                HttpStatus.BAD_REQUEST,
+            throw new ProviderException(
+                ErrorType.INVALID_REQUEST,
                 "material.extraction_failed",
                 "Unable to extract readable text from the uploaded PDF"
             );
@@ -218,8 +218,8 @@ public class PdfDocumentExtractionStrategy implements DocumentTextExtractionStra
         }
 
         if (blocks.isEmpty()) {
-            throw new ApiException(
-                HttpStatus.BAD_REQUEST,
+            throw new ProviderException(
+                ErrorType.INVALID_REQUEST,
                 "material.extraction_failed",
                 "Unable to extract readable text from the uploaded PDF"
             );
@@ -283,8 +283,8 @@ public class PdfDocumentExtractionStrategy implements DocumentTextExtractionStra
         Integer pageNumber
     ) throws IOException {
         if (pageNumber == null) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new ProviderException(
+                ErrorType.INTERNAL,
                 "material.extraction_failed",
                 "PDF page number is missing for OCR fallback"
             );
@@ -299,8 +299,8 @@ public class PdfDocumentExtractionStrategy implements DocumentTextExtractionStra
                 estimatedRenderedImageBytes,
                 ocrProperties.getMaxRenderedImageBytes()
             );
-            throw new ApiException(
-                HttpStatus.BAD_REQUEST,
+            throw new ProviderException(
+                ErrorType.INVALID_REQUEST,
                 "material.ocr_render_budget_exceeded",
                 "Rendered OCR image for PDF page " + pageNumber
                     + " would exceed the pre-render memory budget of " + ocrProperties.getMaxRenderedImageBytes() + " bytes"
@@ -314,8 +314,8 @@ public class PdfDocumentExtractionStrategy implements DocumentTextExtractionStra
             ImageIO.write(image, "png", imagePath.toFile());
 
             if (Files.size(imagePath) > ocrProperties.getMaxTempFileBytes()) {
-                throw new ApiException(
-                    HttpStatus.BAD_REQUEST,
+                throw new ProviderException(
+                    ErrorType.INVALID_REQUEST,
                     "material.ocr_temp_file_too_large",
                     "Rendered OCR image for PDF page " + pageNumber + " exceeds the temporary file size limit"
                 );
@@ -334,14 +334,14 @@ public class PdfDocumentExtractionStrategy implements DocumentTextExtractionStra
         }
     }
 
-    private ApiException unavailableOcrException(OcrCapability capability) {
+    private ProviderException unavailableOcrException(OcrCapability capability) {
         String code = StringUtils.hasText(capability.reasonCode())
             ? capability.reasonCode()
             : "material.ocr_unavailable";
         String message = StringUtils.hasText(capability.reasonMessage())
             ? capability.reasonMessage()
             : "OCR is unavailable for scanned PDF processing";
-        return new ApiException(HttpStatus.BAD_REQUEST, code, message);
+        return new ProviderException(ErrorType.INVALID_REQUEST, code, message);
     }
 
     private long estimateRenderedImageBytes(PDPage page) {

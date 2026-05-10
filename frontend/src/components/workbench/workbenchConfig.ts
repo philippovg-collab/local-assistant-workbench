@@ -1,10 +1,12 @@
 import {
   Database,
+  Brain,
   Files,
   LayoutDashboard,
   MessageCircleCode,
   NotebookPen,
   Radar,
+  Settings,
   type LucideIcon,
 } from "lucide-react";
 import kegocLogoAsset from "@/assets/logo-kegoc.png";
@@ -12,7 +14,7 @@ import kegocLogoAsset from "@/assets/logo-kegoc.png";
 export const kegocLogo = kegocLogoAsset;
 export const ACTIVE_RAG_PROJECT_STORAGE_KEY = "kegoc.activeRagProjectKey";
 
-export type WorkspaceTab = "overview" | "materials" | "instructions" | "references" | "rag" | "direct";
+export type WorkspaceTab = "overview" | "materials" | "instructions" | "references" | "memory" | "rag" | "direct" | "settings";
 
 export type WorkspaceTabConfig = {
   id: WorkspaceTab;
@@ -57,6 +59,18 @@ export const workspaceTabs: WorkspaceTabConfig[] = [
     label: "Справочники",
     description: "Пресеты корпуса, рабочие области и проекты",
     icon: Database,
+  },
+  {
+    id: "memory",
+    label: "Память",
+    description: "Review queue и pinned continuity",
+    icon: Brain,
+  },
+  {
+    id: "settings",
+    label: "Настройки",
+    description: "LLM подключения и runtime provider",
+    icon: Settings,
   },
 ];
 

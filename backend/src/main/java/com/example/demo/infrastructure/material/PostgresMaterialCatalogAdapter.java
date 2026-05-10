@@ -3,7 +3,8 @@ package com.example.demo.infrastructure.material;
 import static com.example.demo.infrastructure.material.MaterialJdbcRowMappers.MATERIAL_ROW_MAPPER;
 import static com.example.demo.infrastructure.material.MaterialJdbcRowMappers.MATERIAL_SUMMARY_ROW_MAPPER;
 
-import com.example.demo.api.ApiException;
+import com.example.demo.error.ErrorType;
+import com.example.demo.error.StorageException;
 import com.example.demo.model.KnowledgeScope;
 import com.example.demo.model.MaterialMetadataSnapshot;
 import com.example.demo.model.MaterialSummary;
@@ -23,7 +24,6 @@ import java.util.Optional;
 import java.util.UUID;
 import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DuplicateKeyException;
-import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
 
@@ -63,8 +63,8 @@ final class PostgresMaterialCatalogAdapter extends PostgresMaterialJdbcSupport i
                 safeOffset
             ));
         } catch (DataAccessException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new StorageException(
+                ErrorType.STORAGE_FAILURE,
                 "material.storage_read_failed",
                 "Unable to load material summaries from PostgreSQL",
                 exception
@@ -97,8 +97,8 @@ final class PostgresMaterialCatalogAdapter extends PostgresMaterialJdbcSupport i
                 safeOffset
             ));
         } catch (DataAccessException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new StorageException(
+                ErrorType.STORAGE_FAILURE,
                 "material.storage_read_failed",
                 "Unable to load material summaries from PostgreSQL",
                 exception
@@ -111,8 +111,8 @@ final class PostgresMaterialCatalogAdapter extends PostgresMaterialJdbcSupport i
         try {
             return recordDao.findActivePageAfter(createdAt, id, limit);
         } catch (DataAccessException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new StorageException(
+                ErrorType.STORAGE_FAILURE,
                 "material.storage_read_failed",
                 "Unable to load active material batch from PostgreSQL",
                 exception
@@ -162,14 +162,14 @@ final class PostgresMaterialCatalogAdapter extends PostgresMaterialJdbcSupport i
             });
         } catch (DuplicateKeyException exception) {
             return findBySourceKeyAndContentHash(record.sourceKey(), record.contentHash())
-                .orElseThrow(() -> new ApiException(
-                    HttpStatus.CONFLICT,
+                .orElseThrow(() -> new StorageException(
+                    ErrorType.CONFLICT,
                     "material.duplicate_conflict",
                     "Material already exists but could not be reloaded after a duplicate write"
                 ));
         } catch (DataAccessException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new StorageException(
+                ErrorType.STORAGE_FAILURE,
                 "material.storage_write_failed",
                 "Unable to persist material in PostgreSQL",
                 exception
@@ -182,8 +182,8 @@ final class PostgresMaterialCatalogAdapter extends PostgresMaterialJdbcSupport i
         try {
             return recordDao.findAllBySourceKey(sourceKey);
         } catch (DataAccessException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new StorageException(
+                ErrorType.STORAGE_FAILURE,
                 "material.storage_read_failed",
                 "Unable to load material lineage from PostgreSQL",
                 exception
@@ -251,8 +251,8 @@ final class PostgresMaterialCatalogAdapter extends PostgresMaterialJdbcSupport i
                 return findById(materialId).orElse(null);
             });
         } catch (DataAccessException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new StorageException(
+                ErrorType.STORAGE_FAILURE,
                 "material.storage_write_failed",
                 "Unable to update material metadata in PostgreSQL",
                 exception
@@ -265,8 +265,8 @@ final class PostgresMaterialCatalogAdapter extends PostgresMaterialJdbcSupport i
         try {
             jdbcTemplate.update("DELETE FROM materials WHERE id = ?", UUID.fromString(id));
         } catch (DataAccessException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new StorageException(
+                ErrorType.STORAGE_FAILURE,
                 "material.storage_delete_failed",
                 "Unable to delete material from PostgreSQL",
                 exception
@@ -283,7 +283,7 @@ final class PostgresMaterialCatalogAdapter extends PostgresMaterialJdbcSupport i
     @Override
     public int countMaterialsByWorkspace(String workspaceKey) {
         Integer count = jdbcTemplate.queryForObject(
-            "SELECT COUNT(*) FROM materials WHERE LOWER(COALESCE(workspace_key, '')) = ?",
+            "SELECT COUNT(*) FROM materials WHERE workspace_key = ?",
             Integer.class,
             lowerCase(workspaceKey)
         );
@@ -376,8 +376,8 @@ final class PostgresMaterialCatalogAdapter extends PostgresMaterialJdbcSupport i
                 }
             );
         } catch (DataAccessException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new StorageException(
+                ErrorType.STORAGE_FAILURE,
                 "material.storage_read_failed",
                 "Unable to describe retrieval scope from PostgreSQL",
                 exception
@@ -436,8 +436,8 @@ final class PostgresMaterialCatalogAdapter extends PostgresMaterialJdbcSupport i
                 return affectedRecords;
             });
         } catch (DataAccessException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new StorageException(
+                ErrorType.STORAGE_FAILURE,
                 "material.storage_write_failed",
                 "Unable to supersede older material versions in PostgreSQL",
                 exception
@@ -469,8 +469,8 @@ final class PostgresMaterialCatalogAdapter extends PostgresMaterialJdbcSupport i
             ));
             return records.stream().findFirst();
         } catch (DataAccessException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new StorageException(
+                ErrorType.STORAGE_FAILURE,
                 "material.storage_read_failed",
                 "Unable to load material lineage from PostgreSQL",
                 exception
@@ -503,16 +503,16 @@ final class PostgresMaterialCatalogAdapter extends PostgresMaterialJdbcSupport i
                 UUID.fromString(materialId)
             );
         } catch (DataAccessException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new StorageException(
+                ErrorType.STORAGE_FAILURE,
                 "material.storage_write_failed",
                 "Unable to update material version state in PostgreSQL",
                 exception
             );
         }
 
-        return findById(materialId).orElseThrow(() -> new ApiException(
-            HttpStatus.NOT_FOUND,
+        return findById(materialId).orElseThrow(() -> new StorageException(
+            ErrorType.NOT_FOUND,
             "material.not_found",
             "Material '" + materialId + "' does not exist"
         ));

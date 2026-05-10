@@ -3,7 +3,7 @@ package com.example.demo.service;
 import com.example.demo.service.material.ChunkProfile;
 import com.example.demo.service.material.DocumentBlock;
 import com.example.demo.service.material.DocumentBlockBuilder;
-import com.example.demo.service.material.DocumentBlockType;
+import com.example.demo.model.DocumentBlockType;
 import com.example.demo.service.material.DocumentParseResult;
 import com.example.demo.service.material.ExtractedDocumentSegment;
 import com.example.demo.service.material.MaterialLineageIdentity;
@@ -12,7 +12,8 @@ import com.example.demo.service.material.StoredMaterialChunk;
 import com.example.demo.service.material.StoredMaterialRecord;
 import com.example.demo.service.material.StoredMaterialSegment;
 
-import com.example.demo.api.ApiException;
+import com.example.demo.error.ApplicationException;
+import com.example.demo.error.ErrorType;
 import com.example.demo.config.MaterialProperties;
 import com.example.demo.model.MaterialIndexingStatus;
 import com.example.demo.model.MaterialLineageVersion;
@@ -33,7 +34,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
@@ -475,8 +475,8 @@ public class MaterialContentSupport {
                     identityKind = MaterialLineageIdentityKind.FILE_STEM_AND_CONTENT_ANCHOR;
                     identityKey = fileStemNorm + "|" + contentAnchor;
                 } else {
-                    throw new ApiException(
-                        HttpStatus.BAD_REQUEST,
+                    throw new ApplicationException(
+                        ErrorType.INVALID_REQUEST,
                         "material.lineage_identity_unresolvable",
                         "File materials require an explicit title or a filename-derived lineage identity"
                     );
@@ -540,8 +540,8 @@ public class MaterialContentSupport {
             byte[] hash = digest.digest(input.getBytes(StandardCharsets.UTF_8));
             return HexFormat.of().formatHex(hash);
         } catch (NoSuchAlgorithmException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new ApplicationException(
+                ErrorType.INTERNAL,
                 "material.hash_unavailable",
                 "Unable to create content fingerprint",
                 exception

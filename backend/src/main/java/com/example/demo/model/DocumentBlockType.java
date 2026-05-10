@@ -1,4 +1,4 @@
-package com.example.demo.service.material;
+package com.example.demo.model;
 
 public enum DocumentBlockType {
     TITLE,

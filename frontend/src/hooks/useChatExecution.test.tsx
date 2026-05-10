@@ -138,6 +138,9 @@ function HookHarness({
       <button type="button" onClick={() => void chat.submit()}>
         submit-{mode}
       </button>
+      <button type="button" onClick={() => void chat.cancelCurrentRun()}>
+        cancel-{mode}
+      </button>
       <button type="button" onClick={() => chat.updateRetrievalFilter("projectKeys", ["Manual Project"])}>
         set-manual-project
       </button>
@@ -153,6 +156,8 @@ function HookHarness({
       <output data-testid={`${mode}-temporary-output`}>{chat.temporaryInstruction}</output>
       <output data-testid={`${mode}-error-output`}>{chat.error ?? ""}</output>
       <output data-testid={`${mode}-submitting-output`}>{String(chat.isSubmitting)}</output>
+      <output data-testid={`${mode}-cancelling-output`}>{String(chat.isCancelling)}</output>
+      <output data-testid={`${mode}-current-run-output`}>{chat.currentRunId ?? ""}</output>
       <output data-testid={`${mode}-response-output`}>{chat.response?.answer ?? ""}</output>
       <output data-testid={`${mode}-last-request-output`}>{chat.lastSubmittedRequest?.prompt ?? ""}</output>
       <output data-testid={`${mode}-hint-document-number-output`}>{chat.queryHints.documentNumber ?? ""}</output>
@@ -775,8 +780,9 @@ describe("useChatExecution", () => {
     });
   });
 
-  it("cancels the current durable run before resubmitting", async () => {
+  it("aborts local polling without cancelling the durable run before resubmitting", async () => {
     const user = userEvent.setup();
+    const statusSignals: AbortSignal[] = [];
     vi.mocked(apiClient.submitChatRun)
       .mockResolvedValueOnce({
         id: "run-1",
@@ -794,9 +800,12 @@ describe("useChatExecution", () => {
         traceUrl: "/api/chat-runs/run-2/trace",
         resultUrl: "/api/chat-runs/run-2/result",
       });
-    vi.mocked(apiClient.fetchChatRunStatus).mockImplementation(
-      () => new Promise(() => undefined),
-    );
+    vi.mocked(apiClient.fetchChatRunStatus).mockImplementation((_runId, signal) => {
+      if (signal) {
+        statusSignals.push(signal);
+      }
+      return new Promise(() => undefined);
+    });
 
     render(<HookHarness initialPrompt="direct prompt" mode="direct" />);
 
@@ -808,11 +817,13 @@ describe("useChatExecution", () => {
     await user.click(screen.getByText("submit-direct"));
 
     await waitFor(() => {
-      expect(apiClient.cancelChatRun).toHaveBeenCalledWith("run-1");
+      expect(apiClient.fetchChatRunStatus).toHaveBeenCalledWith("run-2", expect.any(AbortSignal));
     });
+    expect(statusSignals[0]?.aborted).toBe(true);
+    expect(apiClient.cancelChatRun).not.toHaveBeenCalled();
   });
 
-  it("cancels the current durable run on unmount", async () => {
+  it("does not cancel the durable run on unmount", async () => {
     const user = userEvent.setup();
     vi.mocked(apiClient.submitChatRun).mockResolvedValueOnce({
       id: "run-1",
@@ -835,6 +846,44 @@ describe("useChatExecution", () => {
 
     unmount();
 
-    expect(apiClient.cancelChatRun).toHaveBeenCalledWith("run-1");
+    expect(apiClient.cancelChatRun).not.toHaveBeenCalled();
+  });
+
+  it("cancels the current durable run only on explicit user cancel", async () => {
+    const user = userEvent.setup();
+    vi.mocked(apiClient.submitChatRun).mockResolvedValueOnce({
+      id: "run-1",
+      status: "RECEIVED",
+      createdAt: "2026-04-16T10:00:00Z",
+      statusUrl: "/api/chat-runs/run-1/status",
+      traceUrl: "/api/chat-runs/run-1/trace",
+      resultUrl: "/api/chat-runs/run-1/result",
+    });
+    vi.mocked(apiClient.fetchChatRunStatus).mockImplementation(
+      () => new Promise(() => undefined),
+    );
+    vi.mocked(apiClient.cancelChatRun).mockResolvedValue({
+      id: "run-1",
+      mode: "direct",
+      status: "CANCELLED",
+      createdAt: "2026-04-16T10:00:00Z",
+      llmCalls: [],
+      events: [],
+    });
+
+    render(<HookHarness initialPrompt="direct prompt" mode="direct" />);
+
+    await user.click(screen.getByText("submit-direct"));
+    await waitFor(() => {
+      expect(screen.getByTestId("direct-current-run-output").textContent).toBe("run-1");
+    });
+
+    await user.click(screen.getByText("cancel-direct"));
+
+    await waitFor(() => {
+      expect(apiClient.cancelChatRun).toHaveBeenCalledWith("run-1");
+      expect(screen.getByTestId("direct-submitting-output").textContent).toBe("false");
+      expect(screen.getByTestId("direct-current-run-output").textContent).toBe("");
+    });
   });
 });

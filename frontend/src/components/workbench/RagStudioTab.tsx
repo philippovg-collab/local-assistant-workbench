@@ -1,14 +1,23 @@
+import { ConversationThreadPanel } from "@/components/ConversationThreadPanel";
 import { RagChatPanel } from "@/components/RagChatPanel";
+import type { useConversationChatExecution } from "@/hooks/useConversationChatExecution";
+import type { useConversationRuns } from "@/hooks/useConversationRuns";
+import type { useConversations } from "@/hooks/useConversations";
 import type { useChatExecution } from "@/hooks/useChatExecution";
 import type { useChatRuns } from "@/hooks/useChatRuns";
 import type { useKnowledgeFacets } from "@/hooks/useKnowledgeFacets";
 import type { useKnowledgePresets } from "@/hooks/useKnowledgePresets";
+import { useMaterialSourceDialog } from "@/hooks/useMaterialSourceDialog";
 import type { ModelInfo, InstructionSummary } from "@/types";
 
 type RagStudioTabProps = {
   activeRagProjectKey: string;
   activeRagProjectName: string;
   chatRuns: ReturnType<typeof useChatRuns>;
+  conversationsEnabled: boolean;
+  conversationChat: ReturnType<typeof useConversationChatExecution>;
+  conversationRuns: ReturnType<typeof useConversationRuns>;
+  conversations: ReturnType<typeof useConversations>;
   instructions: InstructionSummary[];
   knowledgeFacets: ReturnType<typeof useKnowledgeFacets>;
   knowledgePresets: ReturnType<typeof useKnowledgePresets>;
@@ -18,6 +27,7 @@ type RagStudioTabProps = {
   selectedInstructionIds: string[];
   helperText: string;
   isBlocked: boolean;
+  longTermMemoryEnabled: boolean;
   onToggleInstruction: (instructionId: string) => void;
 };
 
@@ -25,9 +35,14 @@ export function RagStudioTab({
   activeRagProjectKey,
   activeRagProjectName,
   chatRuns,
+  conversationsEnabled,
+  conversationChat,
+  conversationRuns,
+  conversations,
   helperText,
   instructions,
   isBlocked,
+  longTermMemoryEnabled,
   knowledgeFacets,
   knowledgePresets,
   models,
@@ -36,50 +51,87 @@ export function RagStudioTab({
   selectedInstructionIds,
   onToggleInstruction,
 }: RagStudioTabProps) {
+  const sourceDialog = useMaterialSourceDialog(activeRagProjectKey);
+  const conversational = conversationsEnabled && Boolean(conversations.selectedConversationId);
+  const activeChat = conversational ? conversationChat : ragChat;
+  const submit = conversational ? conversationChat.submit : ragChat.submit;
+  const toggleInstruction = (instructionId: string) => {
+    if (conversational) {
+      conversationChat.markInstructionIdsDirty();
+    }
+    onToggleInstruction(instructionId);
+  };
+
   return (
     <RagChatPanel
       activeRagProjectKey={activeRagProjectKey}
       activeRagProjectName={activeRagProjectName}
-      answerMode={ragChat.answerMode}
+      answerMode={activeChat.answerMode}
       chatRuns={chatRuns.runs}
       chatRunsError={chatRuns.error}
-      currentRunStatus={ragChat.currentRunStatus}
-      dismissedHintKeys={ragChat.dismissedHintKeys}
-      effectiveRetrievalFilters={ragChat.effectiveRetrievalFilters}
-      error={ragChat.error}
+      currentRunId={activeChat.currentRunId}
+      currentRunStatus={activeChat.currentRunStatus}
+      useLongTermMemory={conversational && longTermMemoryEnabled ? conversationChat.useLongTermMemory : undefined}
+      dismissedHintKeys={activeChat.dismissedHintKeys}
+      effectiveRetrievalFilters={activeChat.effectiveRetrievalFilters}
+      error={activeChat.error}
       helperText={helperText}
-      hintOwnedFields={ragChat.hintOwnedFields}
+      hintOwnedFields={activeChat.hintOwnedFields}
       instructions={instructions}
       isBlocked={isBlocked}
-      isSubmitting={ragChat.isSubmitting}
+      isCancelling={activeChat.isCancelling}
+      isSubmitting={activeChat.isSubmitting}
       knowledgeFacets={knowledgeFacets.presets}
       knowledgePresets={knowledgePresets.presets}
-      knowledgeScope={ragChat.knowledgeScope}
-      manualOwnedFields={ragChat.manualOwnedFields}
-      metadataFiltersEnabled={ragChat.metadataFiltersEnabled}
+      knowledgeScope={activeChat.knowledgeScope}
+      manualOwnedFields={activeChat.manualOwnedFields}
+      metadataFiltersEnabled={activeChat.metadataFiltersEnabled}
       models={models}
       modelsError={modelsError}
-      prompt={ragChat.prompt}
-      queryHints={ragChat.queryHints}
-      queryHintsEnabled={ragChat.queryHintsEnabled}
-      response={ragChat.response}
-      retrievalFilters={ragChat.retrievalFilters}
+      prompt={activeChat.prompt}
+      queryHints={activeChat.queryHints}
+      queryHintsEnabled={activeChat.queryHintsEnabled}
+      response={activeChat.response}
+      retrievalFilters={activeChat.retrievalFilters}
       selectedChatRun={chatRuns.selectedRun}
       selectedInstructionIds={selectedInstructionIds}
-      selectedModel={ragChat.model}
-      temporaryInstruction={ragChat.temporaryInstruction}
-      onAnswerModeChange={ragChat.setAnswerMode}
-      onClearRetrievalFilter={ragChat.clearRetrievalFilter}
-      onDismissHint={ragChat.dismissHint}
-      onKnowledgeScopeChange={ragChat.setKnowledgeScope}
+      selectedModel={activeChat.model}
+      sourceDialog={sourceDialog}
+      temporaryInstruction={activeChat.temporaryInstruction}
+      conversationPanel={conversationsEnabled ? (
+        <ConversationThreadPanel
+          conversations={conversations.conversations}
+          currentRunId={activeChat.currentRunId}
+          error={conversations.error}
+          isLoading={conversationRuns.isLoading || conversations.isLoadingDetail}
+          isMutating={conversations.isMutating}
+          runs={conversationRuns.runs}
+          runsError={conversationRuns.error}
+          selectedConversationId={conversations.selectedConversationId}
+          onArchiveConversation={conversations.archiveConversation}
+          onCreateConversation={() => conversations.createConversation({
+            title: ragChat.prompt,
+            defaultModel: ragChat.model,
+            defaultAnswerMode: ragChat.answerMode,
+          })}
+          onRefreshRuns={conversationRuns.loadRuns}
+          onSelectConversation={conversations.setSelectedConversationId}
+        />
+      ) : null}
+      onAnswerModeChange={activeChat.setAnswerMode}
+      onCancelCurrentRun={activeChat.cancelCurrentRun}
+      onClearRetrievalFilter={activeChat.clearRetrievalFilter}
+      onDismissHint={activeChat.dismissHint}
+      onKnowledgeScopeChange={activeChat.setKnowledgeScope}
       onLoadChatRun={(runId) => chatRuns.loadRun(runId)}
-      onModelChange={ragChat.setModel}
-      onPromptChange={ragChat.setPrompt}
-      onResetDismissedHints={ragChat.resetDismissedHints}
-      onRetrievalFilterChange={ragChat.updateRetrievalFilter}
-      onSubmit={ragChat.submit}
-      onTemporaryInstructionChange={ragChat.setTemporaryInstruction}
-      onToggleInstruction={onToggleInstruction}
+      onModelChange={activeChat.setModel}
+      onPromptChange={activeChat.setPrompt}
+      onResetDismissedHints={activeChat.resetDismissedHints}
+      onRetrievalFilterChange={activeChat.updateRetrievalFilter}
+      onSubmit={submit}
+      onTemporaryInstructionChange={activeChat.setTemporaryInstruction}
+      onToggleInstruction={toggleInstruction}
+      onUseLongTermMemoryChange={conversational && longTermMemoryEnabled ? conversationChat.setUseLongTermMemory : undefined}
     />
   );
 }

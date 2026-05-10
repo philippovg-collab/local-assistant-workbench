@@ -6,6 +6,8 @@
 
 В штатном режиме все работает внутри инфраструктуры: PostgreSQL с `pgvector` хранит материалы и embeddings, Ollama запускает чат-модель и модель embeddings, а backend не ходит во внешние LLM API.
 
+Security posture: это внутренний single-admin инструмент. RAG-проекты, workspaces, presets и `workspaceKey` помогают организовать корпус и retrieval, но не являются tenant isolation или per-user access boundary.
+
 ## Что умеет
 
 - RAG-чат по загруженным материалам.
@@ -68,6 +70,7 @@ npm --prefix frontend install
 
 ```bash
 ./scripts/pull-model.sh qwen2.5:7b
+./scripts/pull-model.sh deepseek-r1:8b
 ./scripts/pull-model.sh nomic-embed-text
 ```
 
@@ -98,10 +101,12 @@ cp .env.example .env
 Перед стартом обязательно заполнить в `.env`:
 
 ```dotenv
-POSTGRES_PASSWORD=replace-with-a-strong-password
-APP_SECURITY_ADMIN_PASSWORD=replace-with-a-strong-admin-password
+POSTGRES_PASSWORD=<strong-postgres-password>
+APP_SECURITY_ADMIN_PASSWORD=<strong-admin-password>
 APP_CORS_ALLOWED_ORIGINS=https://your-domain.example
 ```
+
+Production baseline рассчитан на same-origin доступ через frontend nginx: backend, PostgreSQL и Elasticsearch не публикуются наружу.
 
 Запуск базового контура:
 
@@ -109,7 +114,7 @@ APP_CORS_ALLOWED_ORIGINS=https://your-domain.example
 docker compose up -d postgres ollama ollama-init backend frontend
 ```
 
-Frontend nginx будет доступен на `127.0.0.1:8080`, если не переопределять `FRONTEND_BIND_ADDRESS` и `FRONTEND_HTTP_PORT`.
+Frontend nginx будет доступен на `127.0.0.1:8088` при значениях из `.env.example`; порт можно переопределить через `FRONTEND_BIND_ADDRESS` и `FRONTEND_HTTP_PORT`.
 
 Подробная инструкция по серверному деплою лежит в [docs/deploy-linux-compose.md](docs/deploy-linux-compose.md).
 
@@ -131,13 +136,27 @@ SPRING_DATASOURCE_USERNAME     пользователь PostgreSQL
 SPRING_DATASOURCE_PASSWORD     пароль PostgreSQL
 APP_LLM_BASE_URL               адрес Ollama
 APP_LLM_MODEL                  чат-модель, по умолчанию qwen2.5:7b
+APP_LLM_EXTRA_MODELS           дополнительные локальные chat-модели, по умолчанию deepseek-r1:8b
+APP_LLM_PROVIDER_SECRET_KEY    ключ шифрования API keys для UI-managed LLM providers
 APP_EMBEDDINGS_MODEL           модель embeddings, по умолчанию nomic-embed-text
 APP_SECURITY_ADMIN_USERNAME    логин администратора
 APP_SECURITY_ADMIN_PASSWORD    пароль администратора
 APP_OCR_ENABLED                включить или отключить OCR
 APP_RAG_LEXICAL_PROVIDER       postgres, auto или elasticsearch
 APP_SEARCH_SYNC_ENABLED        синхронизация поискового индекса Elasticsearch
+APP_CONTEXT_ENABLED            master-флаг Context Manager, по умолчанию false
+APP_CONTEXT_CONVERSATIONS_ENABLED
+APP_CONTEXT_HISTORY_ENABLED
+APP_CONTEXT_STICKY_STATE_ENABLED
+APP_CONTEXT_RETRIEVAL_QUERY_RESOLUTION_ENABLED
+APP_CONTEXT_SUMMARY_ENABLED
+APP_CONTEXT_LONG_TERM_MEMORY_ENABLED
 ```
+
+Корпоративные OpenAI-compatible endpoints можно добавлять в UI: `Настройки -> LLM подключения`.
+Если provider не активирован, backend продолжает использовать `APP_LLM_*` и `APP_EMBEDDINGS_*`.
+Для сохранения API key через UI задайте `APP_LLM_PROVIDER_SECRET_KEY`; без него providers без ключа сохраняются, а secret-поля отклоняются.
+Context Manager остается default-off до релизного proof; эффективное состояние флагов видно в `/api/health.contextFeatures`.
 
 По умолчанию backend ожидает базу:
 
@@ -174,6 +193,15 @@ scripts/linux/preflight-compose.sh
 ./scripts/stop-studio.sh               # остановить локальные backend/frontend/Ollama helper-скрипты
 ./scripts/chat.sh                      # быстрый запрос к локальному API
 ./scripts/local-runtime-diagnostics.zsh
+```
+
+`/api/models` и выпадающий список в UI показывают только chat-модели. `nomic-embed-text` используется для embeddings и намеренно скрывается из списка моделей для отправки запроса.
+
+Если Docker UI показывает только `qwen2.5:7b`, проверьте текущий контейнер:
+
+```bash
+docker exec ragstudio-ollama-1 ollama list
+docker exec ragstudio-ollama-1 ollama pull deepseek-r1:8b
 ```
 
 Для Codex, agent и других non-interactive сред лучше использовать именно `./scripts/run-local-stack.sh`: он держит backend, frontend и Ollama под одним supervisor-процессом.

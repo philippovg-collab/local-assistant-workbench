@@ -7,11 +7,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.example.demo.error.ErrorType;
+import com.example.demo.error.ProviderException;
 import com.example.demo.config.ChatAuditProperties;
 import com.example.demo.llm.LlmClient;
 import com.example.demo.service.audit.port.ChatRunTraceRepository;
@@ -164,6 +167,47 @@ class ChatRunTraceServiceTest {
     }
 
     @Test
+    void failRunPreservesNestedCodedExceptionReasonCode() {
+        ChatRunTraceRepository repository = mock(ChatRunTraceRepository.class);
+        ChatRunTraceService service = new ChatRunTraceService(repository);
+        ChatRunTraceService.RunTraceContext context = context();
+        RuntimeException failure = new IllegalStateException(
+            "wrapped",
+            new ProviderException(
+                ErrorType.PROVIDER_TIMEOUT,
+                "llm.provider_timeout",
+                "Provider timed out"
+            )
+        );
+        when(repository.failRun(
+            eq(context.id()),
+            eq("LLM"),
+            eq("llm.provider_timeout"),
+            eq("Provider timed out"),
+            any(Instant.class),
+            anyLong(),
+            eq(null)
+        )).thenReturn(true);
+
+        boolean failed = service.failRun(context, "LLM", failure);
+
+        assertTrue(failed);
+        verify(repository).insertEvent(
+            eq(context.id()),
+            eq("FAILED"),
+            eq(Map.of(
+                "stage",
+                "LLM",
+                "code",
+                "llm.provider_timeout",
+                "message",
+                "Provider timed out"
+            )),
+            any(Instant.class)
+        );
+    }
+
+    @Test
     void failRunDoesNotWriteFailedEventWhenTransitionIsRejected() {
         ChatRunTraceRepository repository = mock(ChatRunTraceRepository.class);
         ChatRunTraceService service = new ChatRunTraceService(repository);
@@ -200,12 +244,13 @@ class ChatRunTraceServiceTest {
 
         service.saveRequestSnapshot(context, request, request);
 
-        verify(repository).saveRequestSnapshot(context.id(), request, request);
+        verify(repository).saveRequestSnapshot(context.id(), request, request, null);
         verify(repository).insertEventIfRunMutable(
             eq(context.id()),
             eq("REQUEST_SNAPSHOT_SAVED"),
             eq(Map.of()),
-            any(Instant.class)
+            any(Instant.class),
+            isNull()
         );
         verify(repository, never()).insertEvent(eq(context.id()), eq("REQUEST_SNAPSHOT_SAVED"), any(), any(Instant.class));
     }
@@ -229,7 +274,12 @@ class ChatRunTraceServiceTest {
 
         ArgumentCaptor<ChatExecutionRequest> requestCaptor = ArgumentCaptor.forClass(ChatExecutionRequest.class);
         ArgumentCaptor<ChatExecutionRequest> normalizedCaptor = ArgumentCaptor.forClass(ChatExecutionRequest.class);
-        verify(repository).saveRequestSnapshot(eq(context.id()), requestCaptor.capture(), normalizedCaptor.capture());
+        verify(repository).saveRequestSnapshot(
+            eq(context.id()),
+            requestCaptor.capture(),
+            normalizedCaptor.capture(),
+            isNull()
+        );
         assertFalse(requestCaptor.getValue().prompt().contains("token-123"));
         assertFalse(requestCaptor.getValue().prompt().contains("hunter2"));
         assertTrue(requestCaptor.getValue().prompt().contains("[REDACTED]"));
@@ -262,12 +312,12 @@ class ChatRunTraceServiceTest {
         service.saveOutput(context, "raw model answer", "final user answer", List.of(), Map.of(), false, false);
 
         ArgumentCaptor<LlmCallTrace> llmCallCaptor = ArgumentCaptor.forClass(LlmCallTrace.class);
-        verify(repository).insertLlmCall(eq(context.id()), llmCallCaptor.capture());
+        verify(repository).insertLlmCall(eq(context.id()), llmCallCaptor.capture(), isNull());
         assertNull(llmCallCaptor.getValue().rawResponseText());
         assertNull(llmCallCaptor.getValue().parsedAnswerText());
 
         ArgumentCaptor<ChatRunOutputTrace> outputCaptor = ArgumentCaptor.forClass(ChatRunOutputTrace.class);
-        verify(repository).saveOutput(eq(context.id()), outputCaptor.capture());
+        verify(repository).saveOutput(eq(context.id()), outputCaptor.capture(), isNull());
         assertNull(outputCaptor.getValue().rawModelAnswer());
         assertEquals("final user answer", outputCaptor.getValue().finalUserAnswer());
     }
@@ -302,7 +352,7 @@ class ChatRunTraceServiceTest {
         );
 
         ArgumentCaptor<LlmCallTrace> llmCallCaptor = ArgumentCaptor.forClass(LlmCallTrace.class);
-        verify(repository).insertLlmCall(eq(context.id()), llmCallCaptor.capture());
+        verify(repository).insertLlmCall(eq(context.id()), llmCallCaptor.capture(), isNull());
         LlmCallTrace call = llmCallCaptor.getValue();
         ChatRunMessage message = call.requestMessages().getFirst();
         assertFalse(message.content().contains("secret-cookie"));
@@ -326,7 +376,7 @@ class ChatRunTraceServiceTest {
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<ChatRunMessage>> messagesCaptor = ArgumentCaptor.forClass(List.class);
-        verify(repository).savePromptMessages(eq(context.id()), messagesCaptor.capture());
+        verify(repository).savePromptMessages(eq(context.id()), messagesCaptor.capture(), isNull());
         assertTrue(messagesCaptor.getValue().isEmpty());
     }
 

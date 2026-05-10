@@ -1,7 +1,7 @@
 package com.example.demo.controller;
 
-import com.example.demo.service.material.DocumentBlockConfidence;
-import com.example.demo.service.material.DocumentBlockType;
+import com.example.demo.model.DocumentBlockConfidence;
+import com.example.demo.model.DocumentBlockType;
 import com.example.demo.service.material.StoredEmbeddedMaterialChunk;
 import com.example.demo.service.material.StoredMaterialChunk;
 import com.example.demo.service.material.StoredMaterialRecord;

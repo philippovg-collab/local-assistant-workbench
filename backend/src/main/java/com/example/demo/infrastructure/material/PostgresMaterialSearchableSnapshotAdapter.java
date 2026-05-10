@@ -1,6 +1,7 @@
 package com.example.demo.infrastructure.material;
 
-import com.example.demo.api.ApiException;
+import com.example.demo.error.ErrorType;
+import com.example.demo.error.StorageException;
 import com.example.demo.service.material.SearchableMaterialChunkSnapshot;
 import com.example.demo.service.material.SearchableMaterialSnapshot;
 import com.example.demo.service.material.StoredMaterialRecord;
@@ -8,7 +9,6 @@ import com.example.demo.service.material.port.MaterialSearchableSnapshotReposito
 import java.util.List;
 import java.util.Optional;
 import org.springframework.dao.DataAccessException;
-import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
 
@@ -61,8 +61,8 @@ final class PostgresMaterialSearchableSnapshotAdapter
                 (resultSet, rowNum) -> resultSet.getObject("id").toString()
             );
         } catch (DataAccessException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new StorageException(
+                ErrorType.STORAGE_FAILURE,
                 "material.storage_read_failed",
                 "Unable to enumerate searchable material ids from PostgreSQL",
                 exception

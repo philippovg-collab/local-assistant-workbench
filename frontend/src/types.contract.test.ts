@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import contractText from "../../backend/src/main/resources/api-contract/frontend-api-contract.json?raw";
+import { API_CONTRACT_ENUM_VALUES, API_CONTRACT_TYPE_NAMES } from "./generated/api-types";
 import type { CompatibilityMetadataInput, MaterialMetadata, MaterialMetadataInput } from "./types";
 import { DEFAULT_MATERIAL_METADATA } from "./utils/materialMetadata";
 
@@ -53,6 +55,31 @@ type _SnapshotContainsContractFields = Expect<
 >;
 
 describe("frontend API contracts", () => {
+  it("keeps generated frontend contract types in sync with the backend artifact", () => {
+    const contract = JSON.parse(contractText) as {
+      types: Record<string, { kind: string; values?: string[] }>;
+    };
+    const backendTypeNames = Object.keys(contract.types).sort();
+    const backendEnumValues = Object.fromEntries(
+      Object.entries(contract.types)
+        .filter(([, descriptor]) => descriptor.kind === "enum")
+        .map(([name, descriptor]) => [name, descriptor.values ?? []]),
+    );
+
+    expect([...API_CONTRACT_TYPE_NAMES]).toEqual(backendTypeNames);
+    expect(API_CONTRACT_ENUM_VALUES).toEqual(backendEnumValues);
+    expect(API_CONTRACT_ENUM_VALUES.DocumentBlockType).toEqual([
+      "TITLE",
+      "NARRATIVE",
+      "TABLE",
+      "LIST",
+      "QA",
+      "APPENDIX",
+      "SLIDE",
+      "CAPTION",
+    ]);
+  });
+
   it("keeps canonical editable metadata fields present in local builders", () => {
     const metadata: MaterialMetadata = DEFAULT_MATERIAL_METADATA;
 

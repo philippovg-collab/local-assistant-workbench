@@ -1,4 +1,4 @@
-import { isApiClientError } from "@/api/client";
+import { isApiClientError } from "@/api/errors";
 import { translateCommonApiError } from "@/api/errorMessages";
 import type { BadgeProps } from "@/components/ui/badge";
 import type {

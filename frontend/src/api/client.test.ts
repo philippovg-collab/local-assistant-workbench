@@ -1,7 +1,17 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { apiClient, isApiClientError } from "./client";
+import { buildChatRunCurlExample } from "./curlExample";
 
 describe("apiClient", () => {
+  beforeEach(() => {
+    stubWindowLocation({
+      origin: "http://127.0.0.1:5173",
+      port: "5173",
+      protocol: "http:",
+      hostname: "127.0.0.1",
+    });
+  });
+
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
@@ -46,6 +56,45 @@ describe("apiClient", () => {
     );
   });
 
+  it("uses same-origin API calls when the app is served from the default nginx port 8080", async () => {
+    vi.stubGlobal(
+      "window",
+      Object.create(window, {
+        location: {
+          value: {
+            origin: "http://localhost:8080",
+            port: "8080",
+            protocol: "http:",
+            hostname: "localhost",
+          },
+        },
+      }),
+    );
+
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          application: "spring-backend",
+          status: "UP",
+          timestamp: "2026-04-17T10:00:00Z",
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        },
+      ),
+    );
+
+    await apiClient.fetchHealth();
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "http://localhost:8080/api/health",
+      expect.objectContaining({ credentials: "include", signal: undefined }),
+    );
+  });
+
   it("uses same-origin API calls on production hosts without falling back to localhost", async () => {
     vi.stubGlobal(
       "window",
@@ -86,7 +135,7 @@ describe("apiClient", () => {
   });
 
   it("builds curl examples against the backend origin instead of the vite dev server", () => {
-    const curl = apiClient.buildCurlExample({
+    const curl = buildChatRunCurlExample({
       mode: "direct",
       model: "qwen2.5:7b",
       prompt: "ping",
@@ -148,6 +197,48 @@ describe("apiClient", () => {
       "http://127.0.0.1:8080/api/materials?offset=100&limit=100",
       expect.objectContaining({ credentials: "include", signal: undefined }),
     );
+  });
+
+  it("creates LLM providers without echoing secrets through the URL", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          id: "provider-1",
+          name: "Corp LLM",
+          providerType: "OPENAI_COMPATIBLE",
+          purpose: "CHAT",
+          baseUrl: "http://10.10.20.15:8000",
+          hasApiKey: true,
+          activeChat: false,
+          activeEmbedding: false,
+          status: "UNKNOWN",
+          temperature: 0.2,
+          timeoutSeconds: 600,
+        }),
+        {
+          status: 201,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        },
+      ),
+    );
+
+    await apiClient.createLlmProvider({
+      name: "Corp LLM",
+      providerType: "OPENAI_COMPATIBLE",
+      purpose: "CHAT",
+      baseUrl: "http://10.10.20.15:8000",
+      apiKey: "secret-key",
+    });
+
+    const requestInit = fetchSpy.mock.calls[0]?.[1] as RequestInit;
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "http://127.0.0.1:8080/api/llm-providers",
+      expect.objectContaining({ credentials: "include", method: "POST" }),
+    );
+    expect(String(fetchSpy.mock.calls[0]?.[0])).not.toContain("secret-key");
+    expect(String(requestInit.body)).toContain("secret-key");
   });
 
   it("uploads controlled material versions as multipart form data", async () => {
@@ -526,7 +617,7 @@ describe("apiClient", () => {
   });
 
   it("builds curl examples with a quoted here-doc instead of single-quoted JSON", () => {
-    const curl = apiClient.buildCurlExample({
+    const curl = buildChatRunCurlExample({
       mode: "direct",
       model: "qwen2.5:7b",
       prompt: "quote ' and command ; echo nope",
@@ -538,3 +629,14 @@ describe("apiClient", () => {
     expect(curl).not.toContain("-d '{");
   });
 });
+
+function stubWindowLocation(location: Pick<Location, "origin" | "port" | "protocol" | "hostname">) {
+  vi.stubGlobal(
+    "window",
+    Object.create(window, {
+      location: {
+        value: location,
+      },
+    }),
+  );
+}

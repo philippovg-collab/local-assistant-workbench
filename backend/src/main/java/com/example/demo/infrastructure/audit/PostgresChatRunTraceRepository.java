@@ -1,6 +1,21 @@
 package com.example.demo.infrastructure.audit;
 
-import com.example.demo.api.ApiException;
+import static com.example.demo.infrastructure.audit.PostgresChatRunTraceValueMapper.answerModeOf;
+import static com.example.demo.infrastructure.audit.PostgresChatRunTraceValueMapper.clip;
+import static com.example.demo.infrastructure.audit.PostgresChatRunTraceValueMapper.firstNonBlank;
+import static com.example.demo.infrastructure.audit.PostgresChatRunTraceValueMapper.normalizeOptionalWorkspaceKey;
+import static com.example.demo.infrastructure.audit.PostgresChatRunTraceValueMapper.nullToEmpty;
+import static com.example.demo.infrastructure.audit.PostgresChatRunTraceValueMapper.readInstructionTrace;
+import static com.example.demo.infrastructure.audit.PostgresChatRunTraceValueMapper.readJson;
+import static com.example.demo.infrastructure.audit.PostgresChatRunTraceValueMapper.readMessages;
+import static com.example.demo.infrastructure.audit.PostgresChatRunTraceValueMapper.readSources;
+import static com.example.demo.infrastructure.audit.PostgresChatRunTraceValueMapper.readTree;
+import static com.example.demo.infrastructure.audit.PostgresChatRunTraceValueMapper.toInstant;
+import static com.example.demo.infrastructure.audit.PostgresChatRunTraceValueMapper.toInstantOrNull;
+import static com.example.demo.infrastructure.audit.PostgresChatRunTraceValueMapper.writeJson;
+
+import com.example.demo.error.ErrorType;
+import com.example.demo.error.StorageException;
 import com.example.demo.model.AnswerMode;
 import com.example.demo.model.ChatAuditRunDetail;
 import com.example.demo.model.ChatAuditRunSummary;
@@ -13,7 +28,6 @@ import com.example.demo.model.ChatRunOutputTrace;
 import com.example.demo.model.ChatRunRequestSnapshot;
 import com.example.demo.model.ChatRunTraceDetail;
 import com.example.demo.model.ChatSource;
-import com.example.demo.model.InstructionTraceEntry;
 import com.example.demo.model.KnowledgeScopeResolved;
 import com.example.demo.model.LlmCallTrace;
 import com.example.demo.model.PromptPolicySnapshot;
@@ -23,8 +37,6 @@ import com.example.demo.model.RetrievalTrace;
 import com.example.demo.service.audit.ChatRunHeaderStatus;
 import com.example.demo.service.audit.ChatRunLeaseToken;
 import com.example.demo.service.audit.port.ChatRunTraceRepository;
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.JsonNode;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
@@ -33,7 +45,6 @@ import java.util.Optional;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataAccessException;
-import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
@@ -43,15 +54,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Repository
 public class PostgresChatRunTraceRepository implements ChatRunTraceRepository {
 
-    private static final ChatTraceJsonCodec JSON_CODEC = new ChatTraceJsonCodec();
-    private static final TypeReference<List<ChatRunMessage>> MESSAGES_TYPE = new TypeReference<>() {
-    };
-    private static final TypeReference<List<InstructionTraceEntry>> INSTRUCTION_TRACE_TYPE = new TypeReference<>() {
-    };
-    private static final TypeReference<List<ChatSource>> SOURCES_TYPE = new TypeReference<>() {
-    };
-
-    private static final RowMapper<HeaderRow> HEADER_ROW_MAPPER = (resultSet, rowNum) -> new HeaderRow(
+    private static final RowMapper<PostgresChatRunHeaderRow> HEADER_ROW_MAPPER = (resultSet, rowNum) -> new PostgresChatRunHeaderRow(
         resultSet.getObject("id").toString(),
         ChatMode.valueOf(resultSet.getString("mode")),
         resultSet.getString("status"),
@@ -113,22 +116,23 @@ public class PostgresChatRunTraceRepository implements ChatRunTraceRepository {
         ));
     }
 
-    public void saveRequestSnapshot(
+    public boolean saveRequestSnapshot(
         String runId,
         ChatExecutionRequest request,
         ChatExecutionRequest normalizedRequest
     ) {
-        write(() -> jdbcTemplate.update(
-            """
-                WITH mutable_run AS (
-                    SELECT id
-                    FROM chat_run_headers
-                    WHERE id = ?
-                      AND status <> 'FAILED'
-                      AND status <> 'COMPLETED'
-                      AND status <> 'CANCELLED'
-                    FOR UPDATE
-                )
+        return saveRequestSnapshot(runId, request, normalizedRequest, null);
+    }
+
+    public boolean saveRequestSnapshot(
+        String runId,
+        ChatExecutionRequest request,
+        ChatExecutionRequest normalizedRequest,
+        ChatRunLeaseToken leaseToken
+    ) {
+        int[] updatedCount = {0};
+        write(() -> updatedCount[0] = jdbcTemplate.update(
+            mutableRunCte(leaseToken) + """
                 INSERT INTO chat_run_request_snapshots (
                     run_id,
                     request_jsonb,
@@ -146,31 +150,31 @@ public class PostgresChatRunTraceRepository implements ChatRunTraceRepository {
                     knowledge_scope_jsonb = EXCLUDED.knowledge_scope_jsonb,
                     retrieval_filters_jsonb = EXCLUDED.retrieval_filters_jsonb
                 """,
-            UUID.fromString(runId),
-            writeJson(request),
-            writeJson(normalizedRequest),
-            normalizedRequest.prompt(),
-            writeJson(normalizedRequest.knowledgeScope()),
-            writeJson(normalizedRequest.retrievalFilters())
+            mutableRunArgs(
+                runId,
+                leaseToken,
+                writeJson(request),
+                writeJson(normalizedRequest),
+                normalizedRequest.prompt(),
+                writeJson(normalizedRequest.knowledgeScope()),
+                writeJson(normalizedRequest.retrievalFilters())
+            )
         ));
+        return updatedCount[0] > 0;
     }
 
-    public void savePromptSnapshot(String runId, PromptPolicySnapshot snapshot) {
+    public boolean savePromptSnapshot(String runId, PromptPolicySnapshot snapshot) {
+        return savePromptSnapshot(runId, snapshot, null);
+    }
+
+    public boolean savePromptSnapshot(String runId, PromptPolicySnapshot snapshot, ChatRunLeaseToken leaseToken) {
         PromptPolicySnapshot safeSnapshot = snapshot == null
             ? new PromptPolicySnapshot(null, null, null, null, null, null, null, null, null, List.of(), null, List.of(), null, false)
             : snapshot;
+        int[] updatedCount = {0};
         write(() -> {
-            jdbcTemplate.update(
-                """
-                    WITH mutable_run AS (
-                        SELECT id
-                        FROM chat_run_headers
-                        WHERE id = ?
-                          AND status <> 'FAILED'
-                          AND status <> 'COMPLETED'
-                          AND status <> 'CANCELLED'
-                        FOR UPDATE
-                    )
+            updatedCount[0] = jdbcTemplate.update(
+                mutableRunCte(leaseToken) + """
                     INSERT INTO chat_run_prompt_snapshots (
                         run_id,
                         base_system_prompt,
@@ -207,66 +211,73 @@ public class PostgresChatRunTraceRepository implements ChatRunTraceRepository {
                         knowledge_scope_resolved_jsonb = EXCLUDED.knowledge_scope_resolved_jsonb,
                         updated_at = EXCLUDED.updated_at
                     """,
-                UUID.fromString(runId),
-                safeSnapshot.baseSystemPrompt(),
-                safeSnapshot.systemInstructionsText(),
-                safeSnapshot.safetyInstructionsText(),
-                safeSnapshot.contextInstructionsText(),
-                safeSnapshot.userInstructionsText(),
-                safeSnapshot.temporaryInstructionText(),
-                safeSnapshot.answerModeBlockText(),
-                safeSnapshot.groundingBlockText(),
-                safeSnapshot.groundingRulesApplied(),
-                safeSnapshot.resolvedSystemPrompt(),
-                writeJson(safeSnapshot.messages()),
-                safeSnapshot.promptHash(),
-                writeJson(safeSnapshot.instructionTrace()),
-                writeJson(safeSnapshot.knowledgeScopeResolved()),
-                Timestamp.from(Instant.now())
+                mutableRunArgs(
+                    runId,
+                    leaseToken,
+                    safeSnapshot.baseSystemPrompt(),
+                    safeSnapshot.systemInstructionsText(),
+                    safeSnapshot.safetyInstructionsText(),
+                    safeSnapshot.contextInstructionsText(),
+                    safeSnapshot.userInstructionsText(),
+                    safeSnapshot.temporaryInstructionText(),
+                    safeSnapshot.answerModeBlockText(),
+                    safeSnapshot.groundingBlockText(),
+                    safeSnapshot.groundingRulesApplied(),
+                    safeSnapshot.resolvedSystemPrompt(),
+                    writeJson(safeSnapshot.messages()),
+                    safeSnapshot.promptHash(),
+                    writeJson(safeSnapshot.instructionTrace()),
+                    writeJson(safeSnapshot.knowledgeScopeResolved()),
+                    Timestamp.from(Instant.now())
+                )
             );
         });
+        return updatedCount[0] > 0;
     }
 
-    public void savePromptMessages(String runId, List<ChatRunMessage> messages) {
-        write(() -> jdbcTemplate.update(
-            """
+    public boolean savePromptMessages(String runId, List<ChatRunMessage> messages) {
+        return savePromptMessages(runId, messages, null);
+    }
+
+    public boolean savePromptMessages(String runId, List<ChatRunMessage> messages, ChatRunLeaseToken leaseToken) {
+        int[] updatedCount = {0};
+        write(() -> updatedCount[0] = jdbcTemplate.update(
+            mutableRunCte(leaseToken) + """
                 UPDATE chat_run_prompt_snapshots
                 SET messages_jsonb = ?::jsonb,
                     updated_at = ?
-                WHERE run_id = (
-                    SELECT id
-                    FROM chat_run_headers
-                    WHERE id = ?
-                      AND status <> 'FAILED'
-                      AND status <> 'COMPLETED'
-                      AND status <> 'CANCELLED'
-                    FOR UPDATE
-                )
+                WHERE run_id = (SELECT id FROM mutable_run)
                 """,
-            writeJson(messages == null ? List.of() : messages),
-            Timestamp.from(Instant.now()),
-            UUID.fromString(runId)
+            mutableRunArgs(
+                runId,
+                leaseToken,
+                writeJson(messages == null ? List.of() : messages),
+                Timestamp.from(Instant.now())
+            )
         ));
+        return updatedCount[0] > 0;
     }
 
-    public void saveRetrievalSummary(
+    public boolean saveRetrievalSummary(
         String runId,
         String retrievalStatus,
         RetrievalTrace trace,
         RetrievalDebug debug
     ) {
+        return saveRetrievalSummary(runId, retrievalStatus, trace, debug, null);
+    }
+
+    public boolean saveRetrievalSummary(
+        String runId,
+        String retrievalStatus,
+        RetrievalTrace trace,
+        RetrievalDebug debug,
+        ChatRunLeaseToken leaseToken
+    ) {
+        int[] updatedCount = {0};
         write(() -> {
-            jdbcTemplate.update(
-                """
-                    WITH mutable_run AS (
-                        SELECT id
-                        FROM chat_run_headers
-                        WHERE id = ?
-                          AND status <> 'FAILED'
-                          AND status <> 'COMPLETED'
-                          AND status <> 'CANCELLED'
-                        FOR UPDATE
-                    )
+            updatedCount[0] = jdbcTemplate.update(
+                mutableRunCte(leaseToken) + """
                     INSERT INTO chat_run_retrieval_summaries (
                         run_id,
                         retrieval_status,
@@ -292,33 +303,33 @@ public class PostgresChatRunTraceRepository implements ChatRunTraceRepository {
                         rollout_flags_jsonb = EXCLUDED.rollout_flags_jsonb,
                         applied_capabilities_jsonb = EXCLUDED.applied_capabilities_jsonb
                     """,
-                UUID.fromString(runId),
-                retrievalStatus,
-                writeJson(trace),
-                writeJson(debug),
-                debug == null ? null : debug.relevanceProfile(),
-                writeJson(debug == null ? null : debug.queryHints()),
-                writeJson(debug == null ? null : debug.manualFilters()),
-                writeJson(debug == null ? null : debug.effectiveFilters()),
-                writeJson(debug == null ? null : debug.activeRolloutFlags()),
-                writeJson(debug == null ? List.of() : debug.appliedCapabilities())
+                mutableRunArgs(
+                    runId,
+                    leaseToken,
+                    retrievalStatus,
+                    writeJson(trace),
+                    writeJson(debug),
+                    debug == null ? null : debug.relevanceProfile(),
+                    writeJson(debug == null ? null : debug.queryHints()),
+                    writeJson(debug == null ? null : debug.manualFilters()),
+                    writeJson(debug == null ? null : debug.effectiveFilters()),
+                    writeJson(debug == null ? null : debug.activeRolloutFlags()),
+                    writeJson(debug == null ? List.of() : debug.appliedCapabilities())
+                )
             );
         });
+        return updatedCount[0] > 0;
     }
 
-    public void insertLlmCall(String runId, LlmCallTrace call) {
+    public boolean insertLlmCall(String runId, LlmCallTrace call) {
+        return insertLlmCall(runId, call, null);
+    }
+
+    public boolean insertLlmCall(String runId, LlmCallTrace call, ChatRunLeaseToken leaseToken) {
+        int[] updatedCount = {0};
         write(() -> {
-            jdbcTemplate.update(
-                """
-                    WITH mutable_run AS (
-                        SELECT id
-                        FROM chat_run_headers
-                        WHERE id = ?
-                          AND status <> 'FAILED'
-                          AND status <> 'COMPLETED'
-                          AND status <> 'CANCELLED'
-                        FOR UPDATE
-                    )
+            updatedCount[0] = jdbcTemplate.update(
+                mutableRunCte(leaseToken) + """
                     INSERT INTO chat_run_llm_calls (
                         id,
                         run_id,
@@ -341,43 +352,43 @@ public class PostgresChatRunTraceRepository implements ChatRunTraceRepository {
                     SELECT ?, mutable_run.id, ?, ?, ?::jsonb, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
                     FROM mutable_run
                     """,
-                UUID.fromString(runId),
-                UUID.fromString(call.id()),
-                call.provider(),
-                call.model(),
-                writeJson(call.requestMessages()),
-                call.rawResponseText(),
-                call.parsedAnswerText(),
-                call.promptTokens(),
-                call.completionTokens(),
-                call.totalTokens(),
-                call.latencyMs(),
-                call.retryCount(),
-                call.timeoutSeconds(),
-                call.finishReason(),
-                call.errorCode(),
-                call.errorMessage(),
-                Timestamp.from(call.createdAt())
+                mutableRunArgs(
+                    runId,
+                    leaseToken,
+                    UUID.fromString(call.id()),
+                    call.provider(),
+                    call.model(),
+                    writeJson(call.requestMessages()),
+                    call.rawResponseText(),
+                    call.parsedAnswerText(),
+                    call.promptTokens(),
+                    call.completionTokens(),
+                    call.totalTokens(),
+                    call.latencyMs(),
+                    call.retryCount(),
+                    call.timeoutSeconds(),
+                    call.finishReason(),
+                    call.errorCode(),
+                    call.errorMessage(),
+                    Timestamp.from(call.createdAt())
+                )
             );
         });
+        return updatedCount[0] > 0;
     }
 
-    public void saveOutput(String runId, ChatRunOutputTrace output) {
+    public boolean saveOutput(String runId, ChatRunOutputTrace output) {
+        return saveOutput(runId, output, null);
+    }
+
+    public boolean saveOutput(String runId, ChatRunOutputTrace output, ChatRunLeaseToken leaseToken) {
         ChatRunOutputTrace safeOutput = output == null
             ? new ChatRunOutputTrace(null, null, List.of(), null, null, null)
             : output;
+        int[] updatedCount = {0};
         write(() -> {
-            jdbcTemplate.update(
-                """
-                    WITH mutable_run AS (
-                        SELECT id
-                        FROM chat_run_headers
-                        WHERE id = ?
-                          AND status <> 'FAILED'
-                          AND status <> 'COMPLETED'
-                          AND status <> 'CANCELLED'
-                        FOR UPDATE
-                    )
+            updatedCount[0] = jdbcTemplate.update(
+                mutableRunCte(leaseToken) + """
                     INSERT INTO chat_run_outputs (
                         run_id,
                         raw_model_answer,
@@ -397,15 +408,19 @@ public class PostgresChatRunTraceRepository implements ChatRunTraceRepository {
                         abstained = EXCLUDED.abstained,
                         strict_sources_blocked_answer = EXCLUDED.strict_sources_blocked_answer
                     """,
-                UUID.fromString(runId),
-                safeOutput.rawModelAnswer(),
-                safeOutput.finalUserAnswer(),
-                writeJson(safeOutput.sources()),
-                writeJson(safeOutput.postprocess()),
-                safeOutput.abstained(),
-                safeOutput.strictSourcesBlockedAnswer()
+                mutableRunArgs(
+                    runId,
+                    leaseToken,
+                    safeOutput.rawModelAnswer(),
+                    safeOutput.finalUserAnswer(),
+                    writeJson(safeOutput.sources()),
+                    writeJson(safeOutput.postprocess()),
+                    safeOutput.abstained(),
+                    safeOutput.strictSourcesBlockedAnswer()
+                )
             );
         });
+        return updatedCount[0] > 0;
     }
 
     public boolean transitionStage(String runId, String status, ChatRunLeaseToken leaseToken) {
@@ -650,18 +665,19 @@ public class PostgresChatRunTraceRepository implements ChatRunTraceRepository {
     }
 
     public boolean insertEventIfRunMutable(String runId, String eventType, Object payload, Instant createdAt) {
+        return insertEventIfRunMutable(runId, eventType, payload, createdAt, null);
+    }
+
+    public boolean insertEventIfRunMutable(
+        String runId,
+        String eventType,
+        Object payload,
+        Instant createdAt,
+        ChatRunLeaseToken leaseToken
+    ) {
         int[] insertedCount = {0};
         write(() -> insertedCount[0] = jdbcTemplate.update(
-            """
-                WITH mutable_run AS (
-                    SELECT id
-                    FROM chat_run_headers
-                    WHERE id = ?
-                      AND status <> 'FAILED'
-                      AND status <> 'COMPLETED'
-                      AND status <> 'CANCELLED'
-                    FOR UPDATE
-                )
+            mutableRunCte(leaseToken) + """
                 INSERT INTO chat_run_events (
                     id,
                     run_id,
@@ -672,11 +688,14 @@ public class PostgresChatRunTraceRepository implements ChatRunTraceRepository {
                 SELECT ?, mutable_run.id, ?, ?::jsonb, ?
                 FROM mutable_run
                 """,
-            UUID.fromString(runId),
-            UUID.randomUUID(),
-            eventType,
-            writeJson(payload),
-            Timestamp.from(createdAt)
+            mutableRunArgs(
+                runId,
+                leaseToken,
+                UUID.randomUUID(),
+                eventType,
+                writeJson(payload),
+                Timestamp.from(createdAt)
+            )
         ));
         return insertedCount[0] > 0;
     }
@@ -716,7 +735,7 @@ public class PostgresChatRunTraceRepository implements ChatRunTraceRepository {
                 LIMIT ?
                 """,
             (resultSet, rowNum) -> {
-                HeaderRow header = HEADER_ROW_MAPPER.mapRow(resultSet, rowNum);
+                PostgresChatRunHeaderRow header = HEADER_ROW_MAPPER.mapRow(resultSet, rowNum);
                 return new ChatAuditRunSummary(
                     header.id(),
                     header.mode(),
@@ -771,11 +790,11 @@ public class PostgresChatRunTraceRepository implements ChatRunTraceRepository {
 
     public Optional<ChatRunTraceDetail> findTrace(String runId) {
         String normalizedRunId = UUID.fromString(runId).toString();
-        Optional<HeaderRow> header = findHeader(normalizedRunId);
+        Optional<PostgresChatRunHeaderRow> header = findHeader(normalizedRunId);
         if (header.isEmpty()) {
             return Optional.empty();
         }
-        HeaderRow row = header.get();
+        PostgresChatRunHeaderRow row = header.get();
         return Optional.of(new ChatRunTraceDetail(
             row.id(),
             row.mode(),
@@ -818,7 +837,7 @@ public class PostgresChatRunTraceRepository implements ChatRunTraceRepository {
         return deletedCount[0];
     }
 
-    private Optional<HeaderRow> findHeader(String runId) {
+    private Optional<PostgresChatRunHeaderRow> findHeader(String runId) {
         return queryOptional(
             """
                 SELECT id, mode, status, requested_model, resolved_model, requested_answer_mode,
@@ -874,9 +893,9 @@ public class PostgresChatRunTraceRepository implements ChatRunTraceRepository {
                 resultSet.getString("answer_mode_block_text"),
                 resultSet.getString("grounding_block_text"),
                 resultSet.getString("resolved_system_prompt"),
-                readJson(resultSet.getString("messages_jsonb"), MESSAGES_TYPE, "chat_run_prompt_snapshots.messages_jsonb"),
+                readMessages(resultSet.getString("messages_jsonb"), "chat_run_prompt_snapshots.messages_jsonb"),
                 resultSet.getString("prompt_hash"),
-                readJson(resultSet.getString("instruction_trace_jsonb"), INSTRUCTION_TRACE_TYPE, "chat_run_prompt_snapshots.instruction_trace_jsonb"),
+                readInstructionTrace(resultSet.getString("instruction_trace_jsonb"), "chat_run_prompt_snapshots.instruction_trace_jsonb"),
                 readJson(resultSet.getString("knowledge_scope_resolved_jsonb"), KnowledgeScopeResolved.class, "chat_run_prompt_snapshots.knowledge_scope_resolved_jsonb"),
                 resultSet.getBoolean("grounding_rules_applied")
             ),
@@ -926,7 +945,7 @@ public class PostgresChatRunTraceRepository implements ChatRunTraceRepository {
                 resultSet.getObject("id").toString(),
                 resultSet.getString("provider"),
                 resultSet.getString("model"),
-                readJson(resultSet.getString("request_messages_jsonb"), MESSAGES_TYPE, "chat_run_llm_calls.request_messages_jsonb"),
+                readMessages(resultSet.getString("request_messages_jsonb"), "chat_run_llm_calls.request_messages_jsonb"),
                 resultSet.getString("raw_response_text"),
                 resultSet.getString("parsed_answer_text"),
                 resultSet.getObject("prompt_tokens", Integer.class),
@@ -956,7 +975,7 @@ public class PostgresChatRunTraceRepository implements ChatRunTraceRepository {
             (resultSet, rowNum) -> new ChatRunOutputTrace(
                 resultSet.getString("raw_model_answer"),
                 resultSet.getString("final_user_answer"),
-                readJson(resultSet.getString("sources_jsonb"), SOURCES_TYPE, "chat_run_outputs.sources_jsonb"),
+                readSources(resultSet.getString("sources_jsonb"), "chat_run_outputs.sources_jsonb"),
                 readTree(resultSet.getString("postprocess_jsonb"), "chat_run_outputs.postprocess_jsonb"),
                 resultSet.getObject("abstained", Boolean.class),
                 resultSet.getObject("strict_sources_blocked_answer", Boolean.class)
@@ -988,6 +1007,53 @@ public class PostgresChatRunTraceRepository implements ChatRunTraceRepository {
             stageSql(leaseToken),
             stageArgs(runId, status, leaseToken)
         );
+    }
+
+    private String mutableRunCte(ChatRunLeaseToken leaseToken) {
+        if (leaseToken == null) {
+            return """
+                WITH mutable_run AS (
+                    SELECT id
+                    FROM chat_run_headers
+                    WHERE id = ?
+                      AND status <> 'FAILED'
+                      AND status <> 'COMPLETED'
+                      AND status <> 'CANCELLED'
+                    FOR UPDATE
+                )
+                """;
+        }
+        return """
+            WITH mutable_run AS (
+                SELECT h.id
+                FROM chat_run_headers h
+                WHERE h.id = ?
+                  AND h.status <> 'FAILED'
+                  AND h.status <> 'COMPLETED'
+                  AND h.status <> 'CANCELLED'
+                  AND EXISTS (
+                      SELECT 1
+                      FROM chat_run_queue q
+                      WHERE q.run_id = h.id
+                        AND q.delivery_state = 'IN_PROGRESS'
+                        AND q.lease_owner = ?
+                        AND q.attempt_count = ?
+                  )
+                FOR UPDATE
+            )
+            """;
+    }
+
+    private Object[] mutableRunArgs(String runId, ChatRunLeaseToken leaseToken, Object... args) {
+        int prefixLength = leaseToken == null ? 1 : 3;
+        Object[] values = new Object[prefixLength + args.length];
+        values[0] = UUID.fromString(runId);
+        if (leaseToken != null) {
+            values[1] = leaseToken.leaseOwner();
+            values[2] = leaseToken.attemptCount();
+        }
+        System.arraycopy(args, 0, values, prefixLength, args.length);
+        return values;
     }
 
     private String stageSql(ChatRunLeaseToken leaseToken) {
@@ -1241,8 +1307,8 @@ public class PostgresChatRunTraceRepository implements ChatRunTraceRepository {
                 return null;
             });
         } catch (DataAccessException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new StorageException(
+                ErrorType.STORAGE_FAILURE,
                 "chat_trace.storage_write_failed",
                 "Unable to persist chat run trace in PostgreSQL",
                 exception
@@ -1254,8 +1320,8 @@ public class PostgresChatRunTraceRepository implements ChatRunTraceRepository {
         try {
             operation.execute();
         } catch (DataAccessException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new StorageException(
+                ErrorType.STORAGE_FAILURE,
                 "chat_trace.storage_write_failed",
                 "Unable to persist chat run trace in PostgreSQL",
                 exception
@@ -1267,94 +1333,13 @@ public class PostgresChatRunTraceRepository implements ChatRunTraceRepository {
         try {
             return operation.execute();
         } catch (DataAccessException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new StorageException(
+                ErrorType.STORAGE_FAILURE,
                 "chat_trace.storage_read_failed",
                 "Unable to load chat run trace from PostgreSQL",
                 exception
             );
         }
-    }
-
-    private String writeJson(Object value) {
-        return JSON_CODEC.write(value);
-    }
-
-    private JsonNode readTree(String rawJson, String context) {
-        return JSON_CODEC.readTree(rawJson, context);
-    }
-
-    private <T> T readJson(String rawJson, Class<T> type, String context) {
-        return JSON_CODEC.read(rawJson, type, context);
-    }
-
-    private <T> T readJson(String rawJson, TypeReference<T> type, String context) {
-        return JSON_CODEC.read(rawJson, type, context);
-    }
-
-    private static Instant toInstant(Timestamp timestamp) {
-        return timestamp == null ? Instant.now() : timestamp.toInstant();
-    }
-
-    private static Instant toInstantOrNull(Timestamp timestamp) {
-        return timestamp == null ? null : timestamp.toInstant();
-    }
-
-    private static AnswerMode answerModeOf(String rawValue) {
-        return rawValue == null ? null : AnswerMode.fromValue(rawValue);
-    }
-
-    private String clip(String value, int limit) {
-        if (value == null || value.isBlank()) {
-            return "";
-        }
-        String normalized = value.replaceAll("\\s+", " ").trim();
-        if (normalized.length() <= limit) {
-            return normalized;
-        }
-        return normalized.substring(0, limit) + "...";
-    }
-
-    private static String firstNonBlank(String... values) {
-        if (values == null) {
-            return "";
-        }
-        for (String value : values) {
-            if (value != null && !value.isBlank()) {
-                return value;
-            }
-        }
-        return "";
-    }
-
-    private static String nullToEmpty(String value) {
-        return value == null ? "" : value;
-    }
-
-    private static String normalizeOptionalWorkspaceKey(String workspaceKey) {
-        if (workspaceKey == null || workspaceKey.isBlank()) {
-            return null;
-        }
-        return workspaceKey.trim().toLowerCase(java.util.Locale.ROOT);
-    }
-
-    private record HeaderRow(
-        String id,
-        ChatMode mode,
-        String status,
-        String requestedModel,
-        String resolvedModel,
-        AnswerMode requestedAnswerMode,
-        AnswerMode appliedAnswerMode,
-        String contextStatus,
-        Instant createdAt,
-        Instant completedAt,
-        Instant failedAt,
-        Long latencyMsTotal,
-        String failureStage,
-        String failureCode,
-        String failureMessage
-    ) {
     }
 
     @FunctionalInterface

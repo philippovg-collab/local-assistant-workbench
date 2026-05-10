@@ -22,6 +22,15 @@ const buildHealthResponse = (overrides: Partial<HealthResponse> = {}): HealthRes
   application: "Local Assistant Workbench",
   status: "UP",
   timestamp: "2026-04-16T10:00:00Z",
+  contextFeatures: {
+    context: true,
+    conversations: true,
+    history: true,
+    sticky: true,
+    rewrite: true,
+    summary: true,
+    longTermMemory: true,
+  },
   directStatus: "UP",
   ragStatus: "UP",
   llmStatus: "UP",
@@ -805,6 +814,27 @@ describe("App", () => {
     vi.restoreAllMocks();
   });
 
+  it("hides memory review when long-term memory is disabled by health flags", async () => {
+    currentHealthResponse = buildHealthResponse({
+      contextFeatures: {
+        context: true,
+        conversations: true,
+        history: true,
+        sticky: true,
+        rewrite: true,
+        summary: true,
+        longTermMemory: false,
+      },
+    });
+
+    render(<App />);
+
+    await screen.findByRole("button", { name: /дашборд/i });
+
+    expect(screen.queryByRole("button", { name: /память/i })).toBeNull();
+    expect(getRequestPathnames()).not.toContain("/api/memory-entries");
+  });
+
   const assertRagPresentationAcrossSections = async ({
     user,
     overviewHeadline,
@@ -1065,6 +1095,8 @@ describe("App", () => {
     const referencesButton = screen.getByRole("button", { name: /справочники/i });
     const ragButton = screen.getByRole("button", { name: /rag studio/i });
     const directButton = screen.getByRole("button", { name: /direct studio/i });
+    const memoryButton = screen.getByRole("button", { name: /память/i });
+    const settingsButton = screen.getByRole("button", { name: /настройки/i });
 
     const desktopNavigation = container.querySelector("aside nav") as HTMLElement;
     expect(within(desktopNavigation).getAllByRole("button").map((button) => button.textContent)).toEqual([
@@ -1074,6 +1106,8 @@ describe("App", () => {
       expect.stringContaining("RAG Studio"),
       expect.stringContaining("Direct Studio"),
       expect.stringContaining("Справочники"),
+      expect.stringContaining("Память"),
+      expect.stringContaining("Настройки"),
     ]);
     const desktopSidebar = container.querySelector("aside") as HTMLElement;
     expect(within(desktopSidebar).queryByText("Models")).toBeNull();
@@ -1086,6 +1120,8 @@ describe("App", () => {
     expect(referencesButton.getAttribute("aria-current")).toBeNull();
     expect(ragButton.getAttribute("aria-current")).toBeNull();
     expect(directButton.getAttribute("aria-current")).toBeNull();
+    expect(memoryButton.getAttribute("aria-current")).toBeNull();
+    expect(settingsButton.getAttribute("aria-current")).toBeNull();
 
     const overviewPanel = container.querySelector("#panel-overview") as HTMLElement;
     const materialsPanel = container.querySelector("#panel-materials") as HTMLElement;

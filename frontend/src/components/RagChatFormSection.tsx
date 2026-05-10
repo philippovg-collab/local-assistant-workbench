@@ -40,11 +40,16 @@ type RagChatFormSectionProps = {
   helperText: string;
   isBlocked: boolean;
   isSubmitting: boolean;
+  isCancelling?: boolean;
+  currentRunId?: string | null;
   currentRunStatus?: string | null;
+  useLongTermMemory?: boolean;
+  onUseLongTermMemoryChange?: (value: boolean) => void;
   error: string | null;
   knowledgeControls: NonNullable<ChatFormProps["knowledgeControls"]>;
   activeProjectLabel: string;
   onSubmit: () => Promise<unknown>;
+  onCancelCurrentRun?: () => Promise<unknown>;
 };
 
 export function RagChatFormSection({
@@ -74,11 +79,16 @@ export function RagChatFormSection({
   helperText,
   isBlocked,
   isSubmitting,
+  isCancelling,
+  currentRunId,
   currentRunStatus,
+  useLongTermMemory,
+  onUseLongTermMemoryChange,
   error,
   knowledgeControls,
   activeProjectLabel,
   onSubmit,
+  onCancelCurrentRun,
 }: RagChatFormSectionProps) {
   const activeHintChips = buildRetrievalFilterChips(hintOwnedFields, effectiveRetrievalFilters);
   const activeManualChips = buildRetrievalFilterChips(manualOwnedFields, retrievalFilters);
@@ -157,21 +167,25 @@ export function RagChatFormSection({
 
       <ChatForm
         answerMode={answerMode}
+        currentRunId={currentRunId}
         error={error}
         helperText={isSubmitting && currentRunStatus ? `${helperText} Статус запуска: ${currentRunStatus}.` : helperText}
         instructionEmptyStateMessage="Сначала создай chat/scenario инструкцию во вкладке библиотеки."
         instructions={instructions}
+        isCancelling={isCancelling}
         isSubmitDisabled={isSubmitting || !prompt.trim() || isBlocked}
         isSubmitting={isSubmitting}
         knowledgeControls={knowledgeControls}
         models={models}
         modelsError={modelsError}
         onAnswerModeChange={onAnswerModeChange}
+        onCancelCurrentRun={onCancelCurrentRun}
         onModelChange={onModelChange}
         onPromptChange={onPromptChange}
         onSubmit={onSubmit}
         onTemporaryInstructionChange={onTemporaryInstructionChange}
         onToggleInstruction={onToggleInstruction}
+        onUseLongTermMemoryChange={onUseLongTermMemoryChange}
         prompt={prompt}
         promptLabel="Вопрос"
         promptPlaceholder="Например: Какие условия тарифа Премиум?"
@@ -184,6 +198,7 @@ export function RagChatFormSection({
         temporaryInstructionLabel="Временная инструкция на этот запрос"
         temporaryInstructionPlaceholder="Например: если в источниках нет подтверждения, скажи об этом прямо."
         temporaryInstructionRows={4}
+        useLongTermMemory={useLongTermMemory}
       />
     </>
   );

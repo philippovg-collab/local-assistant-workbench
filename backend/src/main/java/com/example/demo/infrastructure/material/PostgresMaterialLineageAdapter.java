@@ -1,12 +1,12 @@
 package com.example.demo.infrastructure.material;
 
-import com.example.demo.api.ApiException;
+import com.example.demo.error.ErrorType;
+import com.example.demo.error.StorageException;
 import com.example.demo.service.material.MaterialLineageIdentity;
 import com.example.demo.service.material.port.MaterialLineageRepository;
 import java.sql.Timestamp;
 import java.time.Instant;
 import org.springframework.dao.DataAccessException;
-import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
 
@@ -55,8 +55,8 @@ final class PostgresMaterialLineageAdapter extends PostgresMaterialJdbcSupport i
                 Timestamp.from(Instant.now())
             );
         } catch (DataAccessException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new StorageException(
+                ErrorType.STORAGE_FAILURE,
                 "material.storage_write_failed",
                 "Unable to resolve material lineage identity in PostgreSQL",
                 exception
@@ -75,8 +75,8 @@ final class PostgresMaterialLineageAdapter extends PostgresMaterialJdbcSupport i
                 sourceKey
             );
         } catch (DataAccessException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new StorageException(
+                ErrorType.STORAGE_FAILURE,
                 "material.storage_write_failed",
                 "Unable to lock material lineage in PostgreSQL",
                 exception

@@ -1,0 +1,56 @@
+{
+  "version": 2,
+  "description": "Known architecture debt. Do not add entries except during audited baseline migration with risk id, owner phase, reason, and removal criterion.",
+  "allowed": [
+    {
+      "id": "ARCH-001-config-service-import-MaterialProperties-ChunkProfile",
+      "rule": "config-service-import",
+      "path": "backend/src/main/java/com/example/demo/config/MaterialProperties.java",
+      "imported": "com.example.demo.service.material.ChunkProfile",
+      "riskId": "ARCH-001",
+      "ownerPhase": "Phase 3",
+      "reason": "Pre-existing config dependency on a service-layer type.",
+      "removalCriterion": "Shared config enum/type is moved to a neutral model/config package or mapped without importing service classes."
+    },
+    {
+      "id": "ARCH-001-config-service-import-RagProperties-RelevanceProfile",
+      "rule": "config-service-import",
+      "path": "backend/src/main/java/com/example/demo/config/RagProperties.java",
+      "imported": "com.example.demo.service.RelevanceProfile",
+      "riskId": "ARCH-001",
+      "ownerPhase": "Phase 3",
+      "reason": "Pre-existing config dependency on a service-layer type.",
+      "removalCriterion": "Shared config enum/type is moved to a neutral model/config package or mapped without importing service classes."
+    },
+    {
+      "id": "ARCH-001-config-service-import-RagProperties-LexicalProviderMode",
+      "rule": "config-service-import",
+      "path": "backend/src/main/java/com/example/demo/config/RagProperties.java",
+      "imported": "com.example.demo.service.material.LexicalProviderMode",
+      "riskId": "ARCH-001",
+      "ownerPhase": "Phase 3",
+      "reason": "Pre-existing config dependency on a service-layer type.",
+      "removalCriterion": "Shared config enum/type is moved to a neutral model/config package or mapped without importing service classes."
+    },
+    {
+      "id": "ARCH-001-infrastructure-service-usecase-import-LegacyInstructionImporter-InstructionService",
+      "rule": "infrastructure-service-usecase-import",
+      "path": "backend/src/main/java/com/example/demo/infrastructure/instruction/LegacyInstructionImporter.java",
+      "imported": "com.example.demo.service.InstructionService",
+      "riskId": "ARCH-001",
+      "ownerPhase": "Phase 3",
+      "reason": "Pre-existing infrastructure dependency on a concrete service/use-case class.",
+      "removalCriterion": "Infrastructure depends only on service ports and stored value/domain types, not concrete application services."
+    },
+    {
+      "id": "ARCH-001-infrastructure-service-usecase-import-LegacyMaterialImporter-MaterialService",
+      "rule": "infrastructure-service-usecase-import",
+      "path": "backend/src/main/java/com/example/demo/infrastructure/material/LegacyMaterialImporter.java",
+      "imported": "com.example.demo.service.MaterialService",
+      "riskId": "ARCH-001",
+      "ownerPhase": "Phase 3",
+      "reason": "Pre-existing infrastructure dependency on a concrete service/use-case class.",
+      "removalCriterion": "Infrastructure depends only on service ports and stored value/domain types, not concrete application services."
+    }
+  ]
+}

@@ -1,10 +1,10 @@
 package com.example.demo.service;
 
-import com.example.demo.api.ApiException;
+import com.example.demo.error.ApplicationException;
+import com.example.demo.error.ErrorType;
 import com.example.demo.service.material.LexicalProviderMode;
 import com.example.demo.service.material.LexicalProviderType;
 import java.util.List;
-import org.springframework.http.HttpStatus;
 
 final class RetrievalFallbackPolicy {
 
@@ -43,16 +43,16 @@ final class RetrievalFallbackPolicy {
             return defaultLimit;
         }
         if (limit <= 0) {
-            throw new ApiException(
-                HttpStatus.BAD_REQUEST,
+            throw new ApplicationException(
+                ErrorType.INVALID_REQUEST,
                 "search.invalid_limit",
                 "Field 'limit' must be greater than zero"
             );
         }
         int maxSearchLimit = Math.max(1, maxLimit);
         if (limit > maxSearchLimit) {
-            throw new ApiException(
-                HttpStatus.BAD_REQUEST,
+            throw new ApplicationException(
+                ErrorType.INVALID_REQUEST,
                 "search.limit_too_large",
                 "Field 'limit' must not exceed " + maxSearchLimit
             );

@@ -9,7 +9,8 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import com.example.demo.api.ApiException;
+import com.example.demo.error.ApplicationException;
+import com.example.demo.error.ErrorType;
 import com.example.demo.config.LlmProperties;
 import com.example.demo.config.MaterialProperties;
 import com.example.demo.config.OcrProperties;
@@ -830,7 +831,7 @@ class MaterialServiceTest {
             null
         );
 
-        ApiException exception = assertThrows(ApiException.class, () -> service.saveUploadVersion(
+        ApplicationException exception = assertThrows(ApplicationException.class, () -> service.saveUploadVersion(
             first.id(),
             null,
             new MockMultipartFile(
@@ -859,7 +860,7 @@ class MaterialServiceTest {
             )
         );
 
-        ApiException exception = assertThrows(ApiException.class, () -> service.saveUploadVersion(
+        ApplicationException exception = assertThrows(ApplicationException.class, () -> service.saveUploadVersion(
             first.id(),
             null,
             new MockMultipartFile(
@@ -1012,7 +1013,7 @@ class MaterialServiceTest {
         MaterialSummary first = service.saveText("Grid policy", "Первая редакция.");
         service.editMaterial(first.id(), "Grid policy v2", "Вторая редакция.", null);
 
-        ApiException exception = assertThrows(ApiException.class, () -> service.editMaterial(
+        ApplicationException exception = assertThrows(ApplicationException.class, () -> service.editMaterial(
             first.id(),
             "Grid policy v3",
             "Третья редакция.",
@@ -1058,7 +1059,7 @@ class MaterialServiceTest {
     void rejectsBlankTextMaterials() {
         MaterialService service = createService(new DeterministicEmbeddingClient());
 
-        ApiException exception = assertThrows(ApiException.class, () -> service.saveText("Pricing", "   "));
+        ApplicationException exception = assertThrows(ApplicationException.class, () -> service.saveText("Pricing", "   "));
 
         assertEquals("material.empty_text", exception.getCode());
     }
@@ -1073,7 +1074,7 @@ class MaterialServiceTest {
             new byte[8_388_609]
         );
 
-        ApiException exception = assertThrows(ApiException.class, () -> service.saveUpload("Big", file));
+        ApplicationException exception = assertThrows(ApplicationException.class, () -> service.saveUpload("Big", file));
 
         assertEquals("material.upload_too_large", exception.getCode());
     }
@@ -1088,7 +1089,7 @@ class MaterialServiceTest {
             "not-supported".getBytes(StandardCharsets.UTF_8)
         );
 
-        ApiException exception = assertThrows(ApiException.class, () -> service.saveUpload("Diagram", file));
+        ApplicationException exception = assertThrows(ApplicationException.class, () -> service.saveUpload("Diagram", file));
 
         assertEquals("material.unsupported_format", exception.getCode());
     }
@@ -1103,7 +1104,7 @@ class MaterialServiceTest {
             createBrokenDocx()
         );
 
-        ApiException exception = assertThrows(ApiException.class, () -> service.saveUpload("Broken", file));
+        ApplicationException exception = assertThrows(ApplicationException.class, () -> service.saveUpload("Broken", file));
 
         assertEquals("material.extraction_failed", exception.getCode());
     }
@@ -1176,6 +1177,25 @@ class MaterialServiceTest {
             lifecycleService,
             Runnable::run
         );
+        MaterialAutoTaggingLifecycleService autoTaggingLifecycleService = autoTaggingService == null
+            ? null
+            : new MaterialAutoTaggingLifecycleService(
+                repository,
+                repository,
+                autoTaggingService,
+                lifecycleService,
+                indexingService,
+                afterCommitExecutor,
+                effectiveRolloutProperties
+            );
+        MaterialAutoTaggingWorkerService autoTaggingWorkerService = autoTaggingLifecycleService == null
+            ? null
+            : new MaterialAutoTaggingWorkerService(
+                repository,
+                autoTaggingLifecycleService,
+                properties,
+                Runnable::run
+            );
         return new MaterialService(
             new MaterialQueryService(
                 repository,
@@ -1188,7 +1208,8 @@ class MaterialServiceTest {
                 indexingService,
                 afterCommitExecutor,
                 effectiveRolloutProperties,
-                new MaterialMetadataResolver(new com.example.demo.support.NoopReferenceDataRepository())
+                new MaterialMetadataResolver(new com.example.demo.support.NoopReferenceDataRepository()),
+                autoTaggingLifecycleService
             ),
             new MaterialIngestionService(
                 repository,
@@ -1201,7 +1222,8 @@ class MaterialServiceTest {
                 indexingService,
                 afterCommitExecutor,
                 effectiveRolloutProperties,
-                autoTaggingService
+                autoTaggingLifecycleService,
+                autoTaggingWorkerService
             ),
             TestMaterialServices.retrievalService(
                 repository,
@@ -1231,6 +1253,11 @@ class MaterialServiceTest {
             requests.add(request);
             return tags;
         }
+
+        @Override
+        public boolean isEnabled() {
+            return true;
+        }
     }
 
     private static final class TimeoutLlmClient implements LlmClient {
@@ -1247,8 +1274,8 @@ class MaterialServiceTest {
         public ChatResult chat(ChatRequest request) {
             chatCalls++;
             lastRequest = request;
-            throw new ApiException(
-                org.springframework.http.HttpStatus.GATEWAY_TIMEOUT,
+            throw new ApplicationException(
+                ErrorType.PROVIDER_TIMEOUT,
                 "llm.provider_interrupted",
                 "LLM request timed out in the test"
             );
@@ -1267,9 +1294,9 @@ class MaterialServiceTest {
             throw failure();
         }
 
-        private ApiException failure() {
-            return new ApiException(
-                org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE,
+        private ApplicationException failure() {
+            return new ApplicationException(
+                ErrorType.PROVIDER_UNAVAILABLE,
                 "embedding.provider_unavailable",
                 "Embedding provider is unavailable in the test"
             );

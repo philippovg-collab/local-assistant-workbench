@@ -1,6 +1,7 @@
 package com.example.demo.infrastructure.audit;
 
-import com.example.demo.api.ApiException;
+import com.example.demo.error.ErrorType;
+import com.example.demo.error.StorageException;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.DeserializationContext;
@@ -10,7 +11,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.deser.DeserializationProblemHandler;
 import com.fasterxml.jackson.databind.json.JsonMapper;
 import java.io.IOException;
-import org.springframework.http.HttpStatus;
 
 final class ChatTraceJsonCodec {
 
@@ -51,8 +51,8 @@ final class ChatTraceJsonCodec {
         try {
             return objectMapper.writeValueAsString(value);
         } catch (JsonProcessingException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new StorageException(
+                ErrorType.STORAGE_FAILURE,
                 "chat_trace.storage_encode_failed",
                 "Unable to encode chat trace JSON",
                 exception
@@ -93,10 +93,10 @@ final class ChatTraceJsonCodec {
         }
     }
 
-    private ApiException decodeException(String context, JsonProcessingException exception) {
+    private StorageException decodeException(String context, JsonProcessingException exception) {
         String suffix = context == null || context.isBlank() ? "" : " at " + context;
-        return new ApiException(
-            HttpStatus.INTERNAL_SERVER_ERROR,
+        return new StorageException(
+            ErrorType.STORAGE_FAILURE,
             "chat_trace.storage_decode_failed",
             "Unable to decode chat trace JSON" + suffix,
             exception

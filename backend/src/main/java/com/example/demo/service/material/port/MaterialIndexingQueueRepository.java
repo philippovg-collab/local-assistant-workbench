@@ -26,6 +26,8 @@ public interface MaterialIndexingQueueRepository {
 
     void rescheduleIndexing(String materialId, String code, String message, Instant updatedAt, Instant nextRetryAt);
 
+    int markActiveMaterialsIndexingPending(String reasonCode, String reasonMessage, Instant updatedAt);
+
     void resetExpiredIndexingClaims(Instant staleBefore, Instant now);
 
     Optional<MaterialIndexingLease> claimNextIndexing(Instant now);

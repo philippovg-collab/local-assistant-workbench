@@ -6,7 +6,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-import com.example.demo.api.ApiException;
+import com.example.demo.error.ApplicationException;
+import com.example.demo.error.ErrorType;
 import com.example.demo.model.CreateKnowledgePresetRequest;
 import com.example.demo.model.DocumentStatus;
 import com.example.demo.model.DocumentType;
@@ -42,7 +43,7 @@ class KnowledgePresetServiceTest {
             Instant.parse("2026-04-18T10:00:00Z")
         )));
 
-        ApiException exception = assertThrows(ApiException.class, () -> service.resolveScope(
+        ApplicationException exception = assertThrows(ApplicationException.class, () -> service.resolveScope(
             new KnowledgeScope(List.of(presetId), List.of(), List.of(), null, false)
         ));
 
@@ -57,7 +58,7 @@ class KnowledgePresetServiceTest {
             .mapToObj(index -> "tag-" + index)
             .toList();
 
-        ApiException exception = assertThrows(ApiException.class, () -> service.createPreset(
+        ApplicationException exception = assertThrows(ApplicationException.class, () -> service.createPreset(
             new CreateKnowledgePresetRequest(
                 "Large scope",
                 "Too many tags",
@@ -217,7 +218,7 @@ class KnowledgePresetServiceTest {
             now
         )));
 
-        ApiException exception = assertThrows(ApiException.class, () -> service.resolveScope(
+        ApplicationException exception = assertThrows(ApplicationException.class, () -> service.resolveScope(
             new KnowledgeScope(List.of(facetId), List.of(), List.of(), null, false)
         ));
 

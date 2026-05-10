@@ -1,6 +1,7 @@
 package com.example.demo.infrastructure.material;
 
 import com.example.demo.service.material.port.LexicalSearchProvider;
+import com.example.demo.service.material.port.MaterialAutoTaggingTaskRepository;
 import com.example.demo.service.material.port.MaterialCatalogRepository;
 import com.example.demo.service.material.port.MaterialChunkingRepository;
 import com.example.demo.service.material.port.MaterialIndexingQueueRepository;
@@ -47,6 +48,14 @@ public class MaterialInfrastructureConfig {
         PlatformTransactionManager transactionManager
     ) {
         return new PostgresMaterialIndexingQueueAdapter(jdbcTemplate, transactionManager);
+    }
+
+    @Bean
+    MaterialAutoTaggingTaskRepository postgresMaterialAutoTaggingTaskRepository(
+        JdbcTemplate jdbcTemplate,
+        PlatformTransactionManager transactionManager
+    ) {
+        return new PostgresMaterialAutoTaggingTaskAdapter(jdbcTemplate, transactionManager);
     }
 
     @Bean

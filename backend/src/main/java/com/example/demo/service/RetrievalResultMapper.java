@@ -31,7 +31,9 @@ final class RetrievalResultMapper {
     }
 
     List<MaterialSearchHit> buildSearchHits(RetrievalSearchExecution execution, boolean includeNeighbors) {
-        Map<String, List<StoredMaterialChunk>> chunksByMaterialId = includeNeighbors ? new LinkedHashMap<>() : Map.of();
+        Map<String, List<StoredMaterialChunk>> chunksByMaterialId = includeNeighbors
+            ? loadChunksForNeighbors(execution.rankedMatches(), execution.chunksByMaterialId())
+            : Map.of();
         List<MaterialSearchHit> hits = new ArrayList<>();
         for (HybridChunkRanker.RankedChunk rankedChunk : execution.rankedMatches()) {
             MaterialChunkSearchMatch match = rankedChunk.match();
@@ -64,6 +66,40 @@ final class RetrievalResultMapper {
             ));
         }
         return List.copyOf(hits);
+    }
+
+    private Map<String, List<StoredMaterialChunk>> loadChunksForNeighbors(
+        List<HybridChunkRanker.RankedChunk> rankedMatches,
+        Map<String, List<StoredMaterialChunk>> preloadedChunksByMaterialId
+    ) {
+        if (rankedMatches == null || rankedMatches.isEmpty()) {
+            return Map.of();
+        }
+        List<String> materialIds = rankedMatches.stream()
+            .map(rankedChunk -> rankedChunk.match().materialId())
+            .distinct()
+            .toList();
+        Map<String, List<StoredMaterialChunk>> chunksByMaterialId = new LinkedHashMap<>();
+        Map<String, List<StoredMaterialChunk>> safePreloaded = preloadedChunksByMaterialId == null
+            ? Map.of()
+            : preloadedChunksByMaterialId;
+        safePreloaded.forEach((materialId, chunks) -> chunksByMaterialId.put(
+            materialId,
+            chunks == null ? List.of() : chunks
+        ));
+
+        List<String> missingMaterialIds = materialIds.stream()
+            .filter(materialId -> !chunksByMaterialId.containsKey(materialId))
+            .toList();
+        if (!missingMaterialIds.isEmpty()) {
+            Map<String, List<StoredMaterialChunk>> loadedChunks = chunkingRepository.findChunksByMaterialIds(missingMaterialIds);
+            Map<String, List<StoredMaterialChunk>> safeLoadedChunks = loadedChunks == null ? Map.of() : loadedChunks;
+            missingMaterialIds.forEach(materialId -> chunksByMaterialId.put(
+                materialId,
+                safeLoadedChunks.getOrDefault(materialId, List.of())
+            ));
+        }
+        return chunksByMaterialId;
     }
 
     ChatSource buildChatSource(
@@ -104,7 +140,7 @@ final class RetrievalResultMapper {
         int chunkIndex,
         Map<String, List<StoredMaterialChunk>> chunksByMaterialId
     ) {
-        List<StoredMaterialChunk> chunks = chunksByMaterialId.computeIfAbsent(materialId, chunkingRepository::findChunks);
+        List<StoredMaterialChunk> chunks = chunksByMaterialId.getOrDefault(materialId, List.of());
         if (chunks.isEmpty()) {
             return List.of();
         }

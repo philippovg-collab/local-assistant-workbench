@@ -1,6 +1,7 @@
 package com.example.demo.infrastructure.audit;
 
-import com.example.demo.api.ApiException;
+import com.example.demo.error.ErrorType;
+import com.example.demo.error.StorageException;
 import com.example.demo.model.ChatExecutionRequest;
 import com.example.demo.model.ChatMode;
 import com.example.demo.service.audit.ChatRunQueueLease;
@@ -18,7 +19,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.dao.DataAccessException;
-import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
@@ -315,14 +315,18 @@ public class PostgresChatRunQueueRepository implements ChatRunQueueRepository {
         });
     }
 
-    public void deleteQueueEntry(String runId) {
+    public boolean deletePendingQueueEntry(String runId) {
         if (runId == null || runId.isBlank()) {
-            return;
+            return false;
         }
-        write(() -> {
-            deleteQueueEntry(UUID.fromString(runId));
-            return null;
-        });
+        return write(() -> jdbcTemplate.update(
+            """
+                DELETE FROM chat_run_queue
+                WHERE run_id = ?
+                  AND delivery_state = 'PENDING'
+                """,
+            UUID.fromString(runId)
+        ) > 0);
     }
 
     public boolean hasPendingRuns() {
@@ -466,8 +470,8 @@ public class PostgresChatRunQueueRepository implements ChatRunQueueRepository {
         try {
             return transactionTemplate.execute(status -> operation.execute());
         } catch (DataAccessException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new StorageException(
+                ErrorType.STORAGE_FAILURE,
                 "chat_run.queue_write_failed",
                 "Unable to persist chat run queue state in PostgreSQL",
                 exception
@@ -479,8 +483,8 @@ public class PostgresChatRunQueueRepository implements ChatRunQueueRepository {
         try {
             return operation.execute();
         } catch (DataAccessException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new StorageException(
+                ErrorType.STORAGE_FAILURE,
                 "chat_run.queue_read_failed",
                 "Unable to load chat run queue state from PostgreSQL",
                 exception
@@ -492,8 +496,8 @@ public class PostgresChatRunQueueRepository implements ChatRunQueueRepository {
         try {
             return JSON_MAPPER.writeValueAsString(value);
         } catch (JsonProcessingException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new StorageException(
+                ErrorType.STORAGE_FAILURE,
                 "chat_run.queue_encode_failed",
                 "Unable to encode chat run queue JSON",
                 exception
@@ -505,8 +509,8 @@ public class PostgresChatRunQueueRepository implements ChatRunQueueRepository {
         try {
             return JSON_MAPPER.readValue(rawJson, type);
         } catch (JsonProcessingException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new StorageException(
+                ErrorType.STORAGE_FAILURE,
                 "chat_run.queue_decode_failed",
                 "Unable to decode chat run queue JSON",
                 exception

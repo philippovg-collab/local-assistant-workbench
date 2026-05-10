@@ -28,6 +28,8 @@ app:
     temperature: 0.2
     timeout-seconds: 600
     system-prompt: Ты локальная LLM модель. Отвечай по делу и понятно на русском языке.
+  llm-provider:
+    secret-key: "${APP_LLM_PROVIDER_SECRET_KEY:}"
   materials:
     max-upload-bytes: 8388608
     max-upload-request-bytes: 9437184
@@ -90,6 +92,43 @@ app:
     search-api-v1: false
     reranker-v1: false
     query-hints-v1: false
+  context:
+    enabled: false
+    conversations-enabled: false
+    history-enabled: false
+    sticky-state-enabled: false
+    retrieval-query-resolution-enabled: false
+    summary-enabled: false
+    long-term-memory-enabled: false
+    max-recent-turns: 6
+    max-history-tokens: 2000
+    summary-refresh-turns: 6
+    summary-max-input-turns: 12
+    summary-max-output-chars: 2500
+    summary-max-facts: 12
+    summary-max-active-entities: 20
+    summary-max-source-refs: 20
+    summary-max-attempts: 3
+    summary-retry-base-seconds: 30
+    summary-retry-max-seconds: 300
+    memory-extraction-lease-seconds: 120
+    memory-extraction-max-attempts: 3
+    memory-extraction-retry-base-seconds: 30
+    memory-extraction-retry-max-seconds: 300
+    memory-extraction-worker-count: 1
+    memory-extraction-drain-max-jobs: 50
+    memory-selection-limit: 8
+    retention:
+      enabled: true
+      snapshot-days: 30
+      summary-job-days: 14
+      memory-rejected-days: 30
+      memory-deleted-days: 30
+      memory-job-days: 14
+      deleted-conversation-days: 30
+      empty-conversation-days: 7
+      keep-latest-snapshots-per-conversation: 5
+      batch-size: 500
   health:
     readiness-cache-seconds: 30
     readiness-probe-interval-millis: 30000
@@ -102,6 +141,8 @@ app:
     store-raw-llm-response: "${APP_AUDIT_STORE_RAW_LLM_RESPONSE:false}"
     store-request-messages: "${APP_AUDIT_STORE_REQUEST_MESSAGES:true}"
     max-stored-text-chars: "${APP_AUDIT_MAX_STORED_TEXT_CHARS:12000}"
+  operator-audit:
+    retention-days: "${APP_OPERATOR_AUDIT_RETENTION_DAYS:90}"
   request:
     max-json-bytes: 1048576
   security:

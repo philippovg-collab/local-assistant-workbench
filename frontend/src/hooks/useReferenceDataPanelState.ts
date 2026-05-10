@@ -2,7 +2,6 @@ import { useMemo, useState, type FormEvent } from "react";
 import type { RagProjectInput, RagProjectSummary, ReferenceProject, ReferenceWorkspace } from "@/types";
 import {
   ALL_WORKSPACES_VALUE,
-  buildFallbackRagProjectController,
   buildProjectInput,
   buildProjectUpdateInput,
   buildRagProjectInput,
@@ -31,7 +30,7 @@ import {
 
 type UseReferenceDataPanelStateParams = {
   referenceData: ReferenceDataController;
-  ragProjectsController?: RagProjectController;
+  ragProjectsController: RagProjectController;
   activeRagProjectKey: string | null;
   onActiveRagProjectChange: (projectKey: string) => void;
 };
@@ -42,7 +41,7 @@ export function useReferenceDataPanelState({
   activeRagProjectKey,
   onActiveRagProjectChange,
 }: UseReferenceDataPanelStateParams) {
-  const ragProjects = ragProjectsController ?? buildFallbackRagProjectController(referenceData);
+  const ragProjects = ragProjectsController;
   const [activeTab, setActiveTab] = useState<ReferenceTab>("ragProjects");
   const [ragProjectCreateForm, setRagProjectCreateForm] = useState<RagProjectFormState>(initialRagProjectForm);
   const [editingRagProjectKey, setEditingRagProjectKey] = useState<string | null>(null);

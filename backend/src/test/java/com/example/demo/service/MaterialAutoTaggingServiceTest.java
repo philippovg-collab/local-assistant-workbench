@@ -2,6 +2,7 @@ package com.example.demo.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.example.demo.config.LlmProperties;
@@ -44,41 +45,47 @@ class MaterialAutoTaggingServiceTest {
     }
 
     @Test
-    void returnsEmptyWhenLlmReturnsInvalidJson() {
+    void throwsParseFailureWhenLlmReturnsInvalidJson() {
         CapturingLlmClient llmClient = new CapturingLlmClient();
         llmClient.nextAnswer = "теги: защита, трансформатор";
         MaterialAutoTaggingService service = createService(llmClient);
 
-        List<String> tags = service.suggestTags(new MaterialAutoTaggingService.TaggingRequest(
-            "Grid memo",
-            "text",
-            null,
-            "text/plain",
-            "Описание защиты трансформатора и диспетчерского процесса.",
-            List.of(),
-            MaterialMetadataHints.empty()
-        ));
+        MaterialAutoTaggingService.AutoTaggingException exception = assertThrows(
+            MaterialAutoTaggingService.AutoTaggingException.class,
+            () -> service.suggestTags(new MaterialAutoTaggingService.TaggingRequest(
+                "Grid memo",
+                "text",
+                null,
+                "text/plain",
+                "Описание защиты трансформатора и диспетчерского процесса.",
+                List.of(),
+                MaterialMetadataHints.empty()
+            ))
+        );
 
-        assertEquals(List.of(), tags);
+        assertEquals(MaterialAutoTaggingService.FailureKind.PARSE, exception.kind());
     }
 
     @Test
-    void returnsEmptyWhenLlmThrows() {
+    void throwsProviderFailureWhenLlmThrows() {
         CapturingLlmClient llmClient = new CapturingLlmClient();
         llmClient.failure = new IllegalStateException("provider down");
         MaterialAutoTaggingService service = createService(llmClient);
 
-        List<String> tags = service.suggestTags(new MaterialAutoTaggingService.TaggingRequest(
-            "Grid memo",
-            "text",
-            null,
-            "text/plain",
-            "Описание защиты трансформатора и диспетчерского процесса.",
-            List.of(),
-            MaterialMetadataHints.empty()
-        ));
+        MaterialAutoTaggingService.AutoTaggingException exception = assertThrows(
+            MaterialAutoTaggingService.AutoTaggingException.class,
+            () -> service.suggestTags(new MaterialAutoTaggingService.TaggingRequest(
+                "Grid memo",
+                "text",
+                null,
+                "text/plain",
+                "Описание защиты трансформатора и диспетчерского процесса.",
+                List.of(),
+                MaterialMetadataHints.empty()
+            ))
+        );
 
-        assertEquals(List.of(), tags);
+        assertEquals(MaterialAutoTaggingService.FailureKind.PROVIDER, exception.kind());
     }
 
     @Test

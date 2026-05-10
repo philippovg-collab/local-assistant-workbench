@@ -1,7 +1,8 @@
 package com.example.demo.service;
 
-import com.example.demo.api.ApiException;
-import com.example.demo.api.InputLimits;
+import com.example.demo.error.ApplicationException;
+import com.example.demo.error.ErrorType;
+import com.example.demo.validation.InputLimits;
 import com.example.demo.model.ChatExecutionRequest;
 import com.example.demo.model.CreateInstructionRequest;
 import com.example.demo.model.InstructionTraceEntry;
@@ -24,7 +25,6 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -50,8 +50,8 @@ public class InstructionService {
         String instructionId = requireValidInstructionId(sanitize(id, "id"));
         return repository.findById(instructionId)
             .map(this::toDetail)
-            .orElseThrow(() -> new ApiException(
-                HttpStatus.NOT_FOUND,
+            .orElseThrow(() -> new ApplicationException(
+                ErrorType.NOT_FOUND,
                 "instruction.not_found",
                 "Instruction '" + instructionId + "' does not exist"
             ));
@@ -77,8 +77,8 @@ public class InstructionService {
                 .filter(id -> !resolvedIds.contains(id))
                 .findFirst()
                 .orElse("unknown");
-            throw new ApiException(
-                HttpStatus.NOT_FOUND,
+            throw new ApplicationException(
+                ErrorType.NOT_FOUND,
                 "instruction.not_found",
                 "Instruction '" + missingId + "' does not exist"
             );
@@ -193,8 +193,8 @@ public class InstructionService {
         InputLimits.validateInstructionRequest(request);
         String instructionId = requireValidInstructionId(sanitize(id, "id"));
         StoredInstructionRecord existingRecord = repository.findById(instructionId)
-            .orElseThrow(() -> new ApiException(
-                HttpStatus.NOT_FOUND,
+            .orElseThrow(() -> new ApplicationException(
+                ErrorType.NOT_FOUND,
                 "instruction.not_found",
                 "Instruction '" + instructionId + "' does not exist"
             ));
@@ -240,8 +240,8 @@ public class InstructionService {
         String instructionId = requireValidInstructionId(sanitize(id, "id"));
         return repository.findRevision(instructionId, revision)
             .map(this::toRevisionDetail)
-            .orElseThrow(() -> new ApiException(
-                HttpStatus.NOT_FOUND,
+            .orElseThrow(() -> new ApplicationException(
+                ErrorType.NOT_FOUND,
                 "instruction.revision_not_found",
                 "Instruction revision '" + revision + "' does not exist"
             ));
@@ -250,15 +250,15 @@ public class InstructionService {
     public InstructionDetail restoreRevision(String id, int revision) {
         String instructionId = requireValidInstructionId(sanitize(id, "id"));
         StoredInstructionRecord currentRecord = repository.findById(instructionId)
-            .orElseThrow(() -> new ApiException(
-                HttpStatus.NOT_FOUND,
+            .orElseThrow(() -> new ApplicationException(
+                ErrorType.NOT_FOUND,
                 "instruction.not_found",
                 "Instruction '" + instructionId + "' does not exist"
             ));
 
         StoredInstructionRevisionRecord revisionRecord = repository.findRevision(instructionId, revision)
-            .orElseThrow(() -> new ApiException(
-                HttpStatus.NOT_FOUND,
+            .orElseThrow(() -> new ApplicationException(
+                ErrorType.NOT_FOUND,
                 "instruction.revision_not_found",
                 "Instruction revision '" + revision + "' does not exist"
             ));
@@ -398,8 +398,8 @@ public class InstructionService {
 
     private String sanitize(String value, String fieldName) {
         if (!StringUtils.hasText(value)) {
-            throw new ApiException(
-                HttpStatus.BAD_REQUEST,
+            throw new ApplicationException(
+                ErrorType.INVALID_REQUEST,
                 "instruction.invalid_" + fieldName,
                 "Field '%s' must not be blank".formatted(fieldName)
             );
@@ -413,8 +413,8 @@ public class InstructionService {
         try {
             return InstructionCategory.fromValue(category);
         } catch (IllegalArgumentException exception) {
-            throw new ApiException(
-                HttpStatus.BAD_REQUEST,
+            throw new ApplicationException(
+                ErrorType.INVALID_REQUEST,
                 "instruction.invalid_category",
                 "Field 'category' must be one of: system, user, context, safety",
                 exception
@@ -431,8 +431,8 @@ public class InstructionService {
             UUID.fromString(id);
             return id;
         } catch (IllegalArgumentException exception) {
-            throw new ApiException(
-                HttpStatus.BAD_REQUEST,
+            throw new ApplicationException(
+                ErrorType.INVALID_REQUEST,
                 "instruction.invalid_id",
                 "Instruction id must be a valid UUID",
                 exception
@@ -494,8 +494,8 @@ public class InstructionService {
             .filter(instruction -> !instruction.active())
             .findFirst()
             .ifPresent(instruction -> {
-                throw new ApiException(
-                    HttpStatus.BAD_REQUEST,
+                throw new ApplicationException(
+                    ErrorType.INVALID_REQUEST,
                     "instruction.inactive",
                     "Instruction '%s' is inactive and cannot be applied to chat execution".formatted(instruction.id())
                 );

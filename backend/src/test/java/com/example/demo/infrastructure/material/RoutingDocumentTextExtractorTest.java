@@ -1,8 +1,8 @@
 package com.example.demo.infrastructure.material;
 
 import com.example.demo.service.material.DocumentBlock;
-import com.example.demo.service.material.DocumentBlockConfidence;
-import com.example.demo.service.material.DocumentBlockType;
+import com.example.demo.model.DocumentBlockConfidence;
+import com.example.demo.model.DocumentBlockType;
 import com.example.demo.service.material.DocumentParseResult;
 import com.example.demo.service.material.DocumentParserProfile;
 import com.example.demo.service.material.MaterialMetadataHints;
@@ -10,7 +10,8 @@ import com.example.demo.service.material.MaterialMetadataHints;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
-import com.example.demo.api.ApiException;
+import com.example.demo.error.ErrorType;
+import com.example.demo.error.ApplicationException;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -50,7 +51,7 @@ class RoutingDocumentTextExtractorTest {
             new StubStrategy(true, "plain-text")
         ));
 
-        ApiException exception = assertThrows(ApiException.class, () ->
+        ApplicationException exception = assertThrows(ApplicationException.class, () ->
             extractor.extract("sample.txt", "text/plain", pngHeader()));
 
         assertEquals("material.unsupported_format", exception.getCode());
@@ -62,7 +63,7 @@ class RoutingDocumentTextExtractorTest {
             new StubStrategy(false, "ignored")
         ));
 
-        ApiException exception = assertThrows(ApiException.class, () ->
+        ApplicationException exception = assertThrows(ApplicationException.class, () ->
             extractor.extract("sample.bin", "application/octet-stream", new byte[0]));
 
         assertEquals("material.unsupported_format", exception.getCode());

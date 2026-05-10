@@ -2,7 +2,8 @@ package com.example.demo.infrastructure.material;
 
 import static com.example.demo.infrastructure.material.MaterialJdbcRowMappers.CHUNK_SEARCH_ROW_MAPPER;
 
-import com.example.demo.api.ApiException;
+import com.example.demo.error.ErrorType;
+import com.example.demo.error.StorageException;
 import com.example.demo.model.RetrievalFilters;
 import com.example.demo.service.material.LexicalProviderType;
 import com.example.demo.service.material.MaterialChunkSearchMatch;
@@ -12,7 +13,6 @@ import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import org.springframework.dao.DataAccessException;
-import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 final class PostgresMaterialRetrievalSearchDao {
@@ -112,8 +112,8 @@ final class PostgresMaterialRetrievalSearchDao {
                 CHUNK_SEARCH_ROW_MAPPER
             );
         } catch (DataAccessException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new StorageException(
+                ErrorType.STORAGE_FAILURE,
                 "material.vector_query_failed",
                 "Unable to execute semantic retrieval",
                 exception
@@ -201,8 +201,8 @@ final class PostgresMaterialRetrievalSearchDao {
                 CHUNK_SEARCH_ROW_MAPPER
             );
         } catch (DataAccessException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new StorageException(
+                ErrorType.STORAGE_FAILURE,
                 "material.lexical_query_failed",
                 "Unable to execute lexical retrieval",
                 exception

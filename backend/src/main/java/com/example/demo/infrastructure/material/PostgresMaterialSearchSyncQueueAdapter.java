@@ -2,7 +2,8 @@ package com.example.demo.infrastructure.material;
 
 import static com.example.demo.infrastructure.material.MaterialJdbcRowMappers.SEARCH_SYNC_QUEUE_ROW_MAPPER;
 
-import com.example.demo.api.ApiException;
+import com.example.demo.error.ErrorType;
+import com.example.demo.error.StorageException;
 import com.example.demo.service.material.MaterialSearchSyncQueueEntry;
 import com.example.demo.service.material.SearchSyncDeliveryState;
 import com.example.demo.service.material.SearchSyncOperationType;
@@ -16,7 +17,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.dao.DataAccessException;
-import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.BatchPreparedStatementSetter;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -136,8 +136,8 @@ final class PostgresMaterialSearchSyncQueueAdapter
                 }
             );
         } catch (DataAccessException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new StorageException(
+                ErrorType.STORAGE_FAILURE,
                 "material.storage_write_failed",
                 "Unable to enqueue material search sync queue entries in PostgreSQL",
                 exception
@@ -168,8 +168,8 @@ final class PostgresMaterialSearchSyncQueueAdapter
                 SEARCH_SYNC_QUEUE_ROW_MAPPER
             );
         } catch (DataAccessException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new StorageException(
+                ErrorType.STORAGE_FAILURE,
                 "material.storage_read_failed",
                 "Unable to load material search sync queue entries from PostgreSQL",
                 exception
@@ -196,8 +196,8 @@ final class PostgresMaterialSearchSyncQueueAdapter
                 Timestamp.from(now)
             );
         } catch (DataAccessException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new StorageException(
+                ErrorType.STORAGE_FAILURE,
                 "material.storage_write_failed",
                 "Unable to requeue failed material search sync queue entries in PostgreSQL",
                 exception
@@ -239,8 +239,8 @@ final class PostgresMaterialSearchSyncQueueAdapter
                 Timestamp.from(staleBefore)
             );
         } catch (DataAccessException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new StorageException(
+                ErrorType.STORAGE_FAILURE,
                 "material.storage_write_failed",
                 "Unable to recover stale search sync queue claims in PostgreSQL",
                 exception
@@ -302,8 +302,8 @@ final class PostgresMaterialSearchSyncQueueAdapter
                 return loadSearchSyncQueueEntriesByMaterialIds(materialIds);
             });
         } catch (DataAccessException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new StorageException(
+                ErrorType.STORAGE_FAILURE,
                 "material.storage_write_failed",
                 "Unable to claim pending material search sync queue entries from PostgreSQL",
                 exception
@@ -326,8 +326,8 @@ final class PostgresMaterialSearchSyncQueueAdapter
             );
             return count != null && count > 0;
         } catch (DataAccessException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new StorageException(
+                ErrorType.STORAGE_FAILURE,
                 "material.storage_read_failed",
                 "Unable to inspect pending material search sync queue entries in PostgreSQL",
                 exception
@@ -377,8 +377,8 @@ final class PostgresMaterialSearchSyncQueueAdapter
                 Timestamp.from(claimedAt)
             );
         } catch (DataAccessException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new StorageException(
+                ErrorType.STORAGE_FAILURE,
                 "material.storage_write_failed",
                 "Unable to complete material search sync queue entry in PostgreSQL",
                 exception
@@ -449,8 +449,8 @@ final class PostgresMaterialSearchSyncQueueAdapter
                 )
             );
         } catch (DataAccessException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new StorageException(
+                ErrorType.STORAGE_FAILURE,
                 "material.storage_read_failed",
                 "Unable to inspect material search sync reconcile queue state in PostgreSQL",
                 exception
@@ -549,8 +549,8 @@ final class PostgresMaterialSearchSyncQueueAdapter
                 Timestamp.from(claimedAt)
             );
         } catch (DataAccessException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new StorageException(
+                ErrorType.STORAGE_FAILURE,
                 "material.storage_write_failed",
                 "Unable to update material search sync queue entry in PostgreSQL",
                 exception

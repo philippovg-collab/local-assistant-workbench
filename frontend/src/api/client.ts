@@ -8,6 +8,12 @@ import type {
   ChatRunSubmissionResponse,
   ChatExecutionRequest,
   ChatExecutionResponse,
+  ChatRunContextDetail,
+  ConversationCreateRequest,
+  ConversationDetail,
+  ConversationPatchRequest,
+  ConversationRunDetail,
+  ConversationSummary,
   CreateKnowledgePresetRequest,
   CreateInstructionRequest,
   HealthResponse,
@@ -18,7 +24,18 @@ import type {
   KnowledgePresetDetail,
   KnowledgePresetRevisionDetail,
   KnowledgePresetSummary,
+  LlmProviderActivateRequest,
+  LlmProviderConfigResponse,
+  LlmProviderInput,
+  LlmProviderModelInfo,
+  LlmProviderProbeResult,
   InstructionSummary,
+  MemoryEntryRequest,
+  MemoryEntryResponse,
+  MemoryEntryStatus,
+  MemoryEntryType,
+  MemoryEntryUpdateRequest,
+  MemoryReviewActionRequest,
   MaterialDetail,
   MaterialListResponse,
   MaterialMetadataInput,
@@ -35,13 +52,37 @@ import type {
   ReferenceWorkspace,
   ReferenceWorkspaceInput,
 } from "../types";
+import { ApiClientError } from "./errors";
+
+export { ApiClientError, isApiClientError } from "./errors";
 
 const API_URL = (import.meta.env.VITE_API_URL ?? "").trim().replace(/\/$/, "");
 const BACKEND_ORIGIN = (import.meta.env.VITE_BACKEND_ORIGIN ?? "").trim().replace(/\/$/, "");
 const DEFAULT_BACKEND_ORIGIN = "http://127.0.0.1:8080";
-const FRONTEND_SAME_ORIGIN_PORTS = new Set(["8088"]);
+const FRONTEND_SAME_ORIGIN_PORTS = new Set(["8080", "8088"]);
 const FRONTEND_DEV_PORTS = new Set(["5173", "4173"]);
 const LOCAL_HOSTNAMES = new Set(["127.0.0.1", "localhost"]);
+
+const resolvePort = (origin: string, port: string) => {
+  if (port) {
+    return port;
+  }
+
+  try {
+    return new URL(origin).port;
+  } catch {
+    return "";
+  }
+};
+
+const isFrontendDevOrigin = (origin: string) => {
+  try {
+    const url = new URL(origin);
+    return LOCAL_HOSTNAMES.has(url.hostname) && FRONTEND_DEV_PORTS.has(resolvePort(url.origin, url.port));
+  } catch {
+    return false;
+  }
+};
 
 const resolveApiBaseUrl = () => {
   if (typeof window === "undefined") {
@@ -57,9 +98,10 @@ const resolveApiBaseUrl = () => {
   }
 
   const { hostname, origin, port, protocol } = window.location;
+  const resolvedPort = resolvePort(origin, port);
   const isLocalHostname = LOCAL_HOSTNAMES.has(hostname);
 
-  if (!port || FRONTEND_SAME_ORIGIN_PORTS.has(port)) {
+  if (!resolvedPort || FRONTEND_SAME_ORIGIN_PORTS.has(resolvedPort)) {
     return origin;
   }
 
@@ -67,8 +109,8 @@ const resolveApiBaseUrl = () => {
     return origin;
   }
 
-  if (FRONTEND_DEV_PORTS.has(port)) {
-    if (API_URL) {
+  if (FRONTEND_DEV_PORTS.has(resolvedPort)) {
+    if (API_URL && !isFrontendDevOrigin(API_URL)) {
       return API_URL;
     }
 
@@ -104,32 +146,16 @@ type ApiErrorPayload = {
   timestamp?: string;
 };
 
-export class ApiClientError extends Error {
-  code?: string;
+export type ClientEventInput = {
+  severity: "info" | "warn" | "error" | "fatal";
+  type: string;
+  message?: string;
+  stack?: string;
+  componentStack?: string;
+  path?: string;
   requestId?: string;
-  status: number;
-  timestamp?: string;
-
-  constructor(
-    message: string,
-    options: {
-      code?: string;
-      requestId?: string;
-      status: number;
-      timestamp?: string;
-    },
-  ) {
-    super(message);
-    this.name = "ApiClientError";
-    this.code = options.code;
-    this.requestId = options.requestId;
-    this.status = options.status;
-    this.timestamp = options.timestamp;
-  }
-}
-
-export const isApiClientError = (error: unknown): error is ApiClientError =>
-  error instanceof ApiClientError;
+  metadata?: Record<string, unknown>;
+};
 
 const readErrorPayload = async (response: Response): Promise<ApiErrorPayload> => {
   const contentType = response.headers.get("content-type") ?? "";
@@ -246,6 +272,68 @@ export const apiClient = {
   },
   fetchModels(signal?: AbortSignal) {
     return requestJson<ModelInfo[]>("/api/models", { signal });
+  },
+  fetchLlmProviders(signal?: AbortSignal) {
+    return requestJson<LlmProviderConfigResponse[]>("/api/llm-providers", { signal });
+  },
+  createLlmProvider(input: LlmProviderInput) {
+    return requestJson<LlmProviderConfigResponse>("/api/llm-providers", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(input),
+    });
+  },
+  updateLlmProvider(providerId: string, input: LlmProviderInput) {
+    return requestJson<LlmProviderConfigResponse>(`/api/llm-providers/${providerId}`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(input),
+    });
+  },
+  deleteLlmProvider(providerId: string) {
+    return requestVoid(`/api/llm-providers/${providerId}`, {
+      method: "DELETE",
+    });
+  },
+  probeLlmProvider(providerId: string) {
+    return requestJson<LlmProviderProbeResult>(`/api/llm-providers/${providerId}/probe`, {
+      method: "POST",
+    });
+  },
+  fetchLlmProviderModels(providerId: string, signal?: AbortSignal) {
+    return requestJson<LlmProviderModelInfo[]>(`/api/llm-providers/${providerId}/models`, { signal });
+  },
+  activateLlmProvider(providerId: string, input: LlmProviderActivateRequest) {
+    return requestJson<LlmProviderConfigResponse>(`/api/llm-providers/${providerId}/activate`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(input),
+    });
+  },
+  activateLlmFallback(input: LlmProviderActivateRequest) {
+    return requestVoid("/api/llm-providers/fallback/activate", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(input),
+    });
+  },
+  logClientEvent(input: ClientEventInput, signal?: AbortSignal) {
+    return requestVoid("/api/client-events", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(input),
+      signal,
+    });
   },
   fetchMaterials(input: { offset?: number; limit?: number; workspaceKey?: string | null } = {}, signal?: AbortSignal) {
     const params = new URLSearchParams();
@@ -571,6 +659,41 @@ export const apiClient = {
       method: "DELETE",
     });
   },
+  fetchConversations(input: { workspaceKey?: string | null; mode?: string | null } = {}, signal?: AbortSignal) {
+    const params = new URLSearchParams();
+    if (input.workspaceKey?.trim()) {
+      params.set("workspaceKey", input.workspaceKey.trim());
+    }
+    if (input.mode?.trim()) {
+      params.set("mode", input.mode.trim());
+    }
+    const query = params.toString();
+    return requestJson<ConversationSummary[]>(`/api/conversations${query ? `?${query}` : ""}`, { signal });
+  },
+  createConversation(input: ConversationCreateRequest) {
+    return requestJson<ConversationDetail>("/api/conversations", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(input),
+    });
+  },
+  fetchConversation(conversationId: string, signal?: AbortSignal) {
+    return requestJson<ConversationDetail>(`/api/conversations/${conversationId}`, { signal });
+  },
+  patchConversation(conversationId: string, input: ConversationPatchRequest) {
+    return requestJson<ConversationDetail>(`/api/conversations/${conversationId}`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(input),
+    });
+  },
+  fetchConversationRuns(conversationId: string, signal?: AbortSignal) {
+    return requestJson<ConversationRunDetail[]>(`/api/conversations/${conversationId}/runs`, { signal });
+  },
   fetchChatRuns(input: { workspaceKey?: string | null } = {}, signal?: AbortSignal) {
     const params = new URLSearchParams();
     if (input.workspaceKey?.trim()) {
@@ -601,6 +724,70 @@ export const apiClient = {
   fetchChatRunResult(runId: string, signal?: AbortSignal) {
     return requestJson<ChatExecutionResponse>(`/api/chat-runs/${runId}/result`, { signal });
   },
+  fetchChatRunContext(runId: string, signal?: AbortSignal) {
+    return requestJson<ChatRunContextDetail>(`/api/chat-runs/${runId}/context`, { signal });
+  },
+  fetchMemoryEntries(input: {
+    status?: MemoryEntryStatus | null;
+    type?: MemoryEntryType | null;
+    workspaceKey?: string | null;
+    projectKey?: string | null;
+  } = {}, signal?: AbortSignal) {
+    const params = new URLSearchParams();
+    if (input.status?.trim()) {
+      params.set("status", input.status.trim());
+    }
+    if (input.type?.trim()) {
+      params.set("type", input.type.trim());
+    }
+    if (input.workspaceKey?.trim()) {
+      params.set("workspaceKey", input.workspaceKey.trim());
+    }
+    if (input.projectKey?.trim()) {
+      params.set("projectKey", input.projectKey.trim());
+    }
+    const query = params.toString();
+    return requestJson<MemoryEntryResponse[]>(`/api/memory-entries${query ? `?${query}` : ""}`, { signal });
+  },
+  createMemoryEntry(input: MemoryEntryRequest) {
+    return requestJson<MemoryEntryResponse>("/api/memory-entries", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(input),
+    });
+  },
+  updateMemoryEntry(entryId: string, input: MemoryEntryUpdateRequest) {
+    return requestJson<MemoryEntryResponse>(`/api/memory-entries/${entryId}`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(input),
+    });
+  },
+  approveMemoryEntry(entryId: string, input: MemoryReviewActionRequest = {}) {
+    return memoryAction(entryId, "approve", input);
+  },
+  rejectMemoryEntry(entryId: string, input: MemoryReviewActionRequest = {}) {
+    return memoryAction(entryId, "reject", input);
+  },
+  pinMemoryEntry(entryId: string, input: MemoryReviewActionRequest = {}) {
+    return memoryAction(entryId, "pin", input);
+  },
+  unpinMemoryEntry(entryId: string, input: MemoryReviewActionRequest = {}) {
+    return memoryAction(entryId, "unpin", input);
+  },
+  deleteMemoryEntry(entryId: string, input: MemoryReviewActionRequest = {}) {
+    return requestJson<MemoryEntryResponse>(`/api/memory-entries/${entryId}`, {
+      method: "DELETE",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(input),
+    });
+  },
   cancelChatRun(runId: string, signal?: AbortSignal) {
     return requestJson<ChatRunTraceDetail>(`/api/chat-runs/${runId}/cancel`, {
       method: "POST",
@@ -620,13 +807,13 @@ export const apiClient = {
       signal,
     });
   },
-  buildCurlExample(input: ChatExecutionRequest) {
-    const curlBaseUrl = resolveApiBaseUrl();
-
-    return `curl ${curlBaseUrl}/api/chat-runs \\
-  -H "Content-Type: application/json" \\
-  --data-binary @- <<'JSON'
-${JSON.stringify(input, null, 2)}
-JSON`;
-  },
 };
+
+const memoryAction = (entryId: string, action: "approve" | "reject" | "pin" | "unpin", input: MemoryReviewActionRequest) =>
+  requestJson<MemoryEntryResponse>(`/api/memory-entries/${entryId}/${action}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(input),
+  });

@@ -8,7 +8,9 @@ import com.example.demo.service.material.StoredMaterialSegment;
 import com.example.demo.service.material.port.MaterialChunkingRepository;
 import com.example.demo.service.material.port.MaterialIndexingQueueRepository;
 
-import com.example.demo.api.ApiException;
+import com.example.demo.error.ApplicationException;
+import com.example.demo.error.CodedException;
+import com.example.demo.error.ErrorType;
 import com.example.demo.config.MaterialProperties;
 import com.example.demo.embedding.EmbeddingClient;
 import com.example.demo.model.MaterialIndexingStatus;
@@ -20,10 +22,10 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -115,6 +117,8 @@ public class MaterialIndexingService {
 
     private void processLease(MaterialIndexingLease lease) {
         StoredMaterialRecord record = lease.record();
+        MDC.put("materialId", record.id());
+        MDC.put("attempt", String.valueOf(lease.attemptNumber()));
         try {
             List<StoredMaterialChunk> rawChunks = chunkingRepository.findChunks(record.id());
             if (rawChunks.isEmpty()) {
@@ -155,10 +159,13 @@ public class MaterialIndexingService {
                 successStatus,
                 embeddedChunks.size()
             );
-        } catch (ApiException exception) {
+        } catch (CodedException exception) {
             handleFailure(record, lease.attemptNumber(), exception.getCode(), exception.getMessage(), exception);
         } catch (RuntimeException exception) {
             handleFailure(record, lease.attemptNumber(), "material.indexing_failed", rootMessage(exception), exception);
+        } finally {
+            MDC.remove("materialId");
+            MDC.remove("attempt");
         }
     }
 
@@ -211,8 +218,8 @@ public class MaterialIndexingService {
             chunks.stream().map(StoredMaterialChunk::text).toList()
         );
         if (embeddings.size() != chunks.size()) {
-            throw new ApiException(
-                HttpStatus.BAD_GATEWAY,
+            throw new ApplicationException(
+                ErrorType.PROVIDER_BAD_RESPONSE,
                 "embedding.provider_empty_embedding",
                 "Embedding provider returned a different number of vectors than requested"
             );

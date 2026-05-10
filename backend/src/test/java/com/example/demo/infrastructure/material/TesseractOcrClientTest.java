@@ -3,7 +3,8 @@ package com.example.demo.infrastructure.material;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
-import com.example.demo.api.ApiException;
+import com.example.demo.error.ErrorType;
+import com.example.demo.error.ProviderException;
 import com.example.demo.config.OcrProperties;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -21,7 +22,7 @@ class TesseractOcrClientTest {
         properties.setBinaryPath(tempDir.resolve("missing-tesseract").toString());
         TesseractOcrClient client = new TesseractOcrClient(properties);
 
-        ApiException exception = assertThrows(ApiException.class, () ->
+        ProviderException exception = assertThrows(ProviderException.class, () ->
             client.extract(tempDir.resolve("image.png"), 1));
 
         assertEquals("material.ocr_unavailable", exception.getCode());
@@ -38,7 +39,7 @@ class TesseractOcrClientTest {
         properties.setTimeoutSeconds(1);
         TesseractOcrClient client = new TesseractOcrClient(properties);
 
-        ApiException exception = assertThrows(ApiException.class, () ->
+        ProviderException exception = assertThrows(ProviderException.class, () ->
             client.extract(tempDir.resolve("image.png"), 1));
 
         assertEquals("material.ocr_timeout", exception.getCode());
@@ -54,7 +55,7 @@ class TesseractOcrClientTest {
         properties.setBinaryPath(script.toString());
         TesseractOcrClient client = new TesseractOcrClient(properties);
 
-        ApiException exception = assertThrows(ApiException.class, () ->
+        ProviderException exception = assertThrows(ProviderException.class, () ->
             client.extract(tempDir.resolve("image.png"), 1));
 
         assertEquals("material.ocr_language_data_missing", exception.getCode());

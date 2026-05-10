@@ -4,7 +4,9 @@ import com.example.demo.service.material.DocumentParseResult;
 import com.example.demo.service.material.MaterialFormatRegistry;
 import com.example.demo.service.material.port.DocumentTextExtractor;
 
-import com.example.demo.api.ApiException;
+import com.example.demo.error.ApplicationException;
+import com.example.demo.error.ErrorType;
+import com.example.demo.error.ProviderException;
 import java.io.ByteArrayInputStream;
 import java.util.List;
 import org.apache.tika.detect.DefaultDetector;
@@ -12,7 +14,6 @@ import org.apache.tika.detect.Detector;
 import org.apache.tika.metadata.Metadata;
 import org.apache.tika.metadata.TikaCoreProperties;
 import org.apache.tika.mime.MediaType;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
@@ -80,8 +81,8 @@ public class RoutingDocumentTextExtractor implements DocumentTextExtractor {
             MediaType detected = detector.detect(inputStream, metadata);
             return detected == null ? null : detected.toString();
         } catch (Exception exception) {
-            throw new ApiException(
-                HttpStatus.BAD_REQUEST,
+            throw new ApplicationException(
+                ErrorType.INVALID_REQUEST,
                 "material.unsupported_format",
                 "Unable to determine uploaded file format",
                 exception
@@ -113,9 +114,9 @@ public class RoutingDocumentTextExtractor implements DocumentTextExtractor {
         return false;
     }
 
-    private ApiException unsupportedFormat() {
-        return new ApiException(
-            HttpStatus.BAD_REQUEST,
+    private ApplicationException unsupportedFormat() {
+        return new ApplicationException(
+            ErrorType.INVALID_REQUEST,
             "material.unsupported_format",
             "Unsupported file format. Use one of the configured text or document formats, or paste text directly."
         );

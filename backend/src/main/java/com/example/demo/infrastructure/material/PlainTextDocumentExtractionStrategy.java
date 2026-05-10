@@ -2,7 +2,7 @@ package com.example.demo.infrastructure.material;
 
 import com.example.demo.service.material.DocumentBlock;
 import com.example.demo.service.material.DocumentBlockBuilder;
-import com.example.demo.service.material.DocumentBlockType;
+import com.example.demo.model.DocumentBlockType;
 import com.example.demo.service.material.DocumentParseResult;
 import com.example.demo.service.material.DocumentParserProfile;
 import com.example.demo.service.material.MaterialFormatRegistry;

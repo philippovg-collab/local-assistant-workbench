@@ -1,6 +1,7 @@
 package com.example.demo.service;
 
 import com.example.demo.config.LlmProperties;
+import com.example.demo.llmprovider.ActiveLlmProviderResolver;
 import com.example.demo.model.AppliedInstruction;
 import com.example.demo.model.AnswerMode;
 import com.example.demo.model.ChatRunMessage;
@@ -15,6 +16,7 @@ import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.function.Predicate;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
@@ -22,9 +24,16 @@ import org.springframework.util.StringUtils;
 public class PromptPolicyResolver {
 
     private final LlmProperties properties;
+    private final ActiveLlmProviderResolver activeProviderResolver;
+
+    @Autowired
+    public PromptPolicyResolver(LlmProperties properties, ActiveLlmProviderResolver activeProviderResolver) {
+        this.properties = properties;
+        this.activeProviderResolver = activeProviderResolver;
+    }
 
     public PromptPolicyResolver(LlmProperties properties) {
-        this.properties = properties;
+        this(properties, null);
     }
 
     /**
@@ -42,7 +51,7 @@ public class PromptPolicyResolver {
     ) {
         String model = StringUtils.hasText(request.model())
             ? request.model().trim()
-            : properties.getModel();
+            : defaultModel();
 
         String baseSystemPrompt = properties.getSystemPrompt();
         AnswerMode answerMode = request.answerMode() == null ? AnswerMode.BRIEF : request.answerMode();
@@ -196,6 +205,12 @@ public class PromptPolicyResolver {
                     - Do not pretend that external documents were used.
                     """.strip();
         };
+    }
+
+    private String defaultModel() {
+        return activeProviderResolver == null
+            ? properties.getModel()
+            : activeProviderResolver.defaultChatModel();
     }
 
     private String sha256(String value) {

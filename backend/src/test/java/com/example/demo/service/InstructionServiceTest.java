@@ -4,7 +4,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
-import com.example.demo.api.ApiException;
+import com.example.demo.error.ApplicationException;
+import com.example.demo.error.ErrorType;
 import com.example.demo.model.ChatExecutionRequest;
 import com.example.demo.model.ChatMode;
 import com.example.demo.model.CreateInstructionRequest;
@@ -67,7 +68,7 @@ class InstructionServiceTest {
             false
         )).id();
 
-        ApiException exception = assertThrows(ApiException.class, () -> service.resolveRuntimeInstructions(
+        ApplicationException exception = assertThrows(ApplicationException.class, () -> service.resolveRuntimeInstructions(
             new ChatExecutionRequest(
                 ChatMode.DIRECT,
                 "qwen2.5:7b",
@@ -88,7 +89,7 @@ class InstructionServiceTest {
     void rejectsOversizedInstructionContent() {
         InstructionService service = new InstructionService(new InMemoryInstructionRepository());
 
-        ApiException exception = assertThrows(ApiException.class, () -> service.createInstruction(
+        ApplicationException exception = assertThrows(ApplicationException.class, () -> service.createInstruction(
             new CreateInstructionRequest("Rule", "system", "x".repeat(20_001))
         ));
 

@@ -4,7 +4,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
-import com.example.demo.api.ApiException;
+import com.example.demo.error.ErrorType;
+import com.example.demo.error.ProviderException;
 import com.example.demo.config.LlmProperties;
 import com.example.demo.model.OllamaModelInfo;
 import com.example.demo.service.cancellation.ChatCancellationHandle;
@@ -17,7 +18,6 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
-import org.springframework.http.HttpStatus;
 
 class OllamaLlmClientTest {
 
@@ -90,32 +90,32 @@ class OllamaLlmClientTest {
 
         OllamaLlmClient client = new OllamaLlmClient(transport, defaultProperties());
 
-        ApiException exception = assertThrows(ApiException.class, () -> client.chat(new LlmClient.ChatRequest(
+        ProviderException exception = assertThrows(ProviderException.class, () -> client.chat(new LlmClient.ChatRequest(
             "qwen2.5:7b",
             List.of(new LlmClient.Message("user", "Привет"))
         )));
 
-        assertEquals(HttpStatus.BAD_GATEWAY, exception.getStatus());
+        assertEquals(ErrorType.PROVIDER_BAD_RESPONSE, exception.getType());
         assertEquals("llm.provider_parse_failed", exception.getCode());
     }
 
     @Test
     void chatMapsUnavailableProviderToServiceUnavailable() {
         RecordingTransport transport = new RecordingTransport(objectMapper);
-        transport.postFailure = new ApiException(
-            HttpStatus.SERVICE_UNAVAILABLE,
+        transport.postFailure = new ProviderException(
+            ErrorType.PROVIDER_UNAVAILABLE,
             "llm.provider_unavailable",
             "Unable to reach the local LLM provider"
         );
 
         OllamaLlmClient client = new OllamaLlmClient(transport, defaultProperties());
 
-        ApiException exception = assertThrows(ApiException.class, () -> client.chat(new LlmClient.ChatRequest(
+        ProviderException exception = assertThrows(ProviderException.class, () -> client.chat(new LlmClient.ChatRequest(
             "qwen2.5:7b",
             List.of(new LlmClient.Message("user", "Привет"))
         )));
 
-        assertEquals(HttpStatus.SERVICE_UNAVAILABLE, exception.getStatus());
+        assertEquals(ErrorType.PROVIDER_UNAVAILABLE, exception.getType());
         assertEquals("llm.provider_unavailable", exception.getCode());
     }
 
@@ -172,6 +172,25 @@ class OllamaLlmClientTest {
         assertEquals("deepseek-r1:8b", models.get(1).name());
     }
 
+    @Test
+    void listModelsFallsBackToConfiguredModelWhenModelsEndpointIsUnsupported() {
+        RecordingTransport transport = new RecordingTransport(objectMapper);
+        transport.getFailure = new ProviderException(
+            ErrorType.PROVIDER_BAD_RESPONSE,
+            "llm.provider_bad_response",
+            "LLM provider returned an invalid status while listing models: returned HTTP 404"
+        );
+        LlmProperties properties = defaultProperties();
+        properties.setModel("qwen2.5:7b");
+
+        OllamaLlmClient client = new OllamaLlmClient(transport, properties);
+
+        List<OllamaModelInfo> models = client.listModels();
+
+        assertEquals(1, models.size());
+        assertEquals("qwen2.5:7b", models.getFirst().name());
+    }
+
     private LlmProperties defaultProperties() {
         LlmProperties properties = new LlmProperties();
         properties.setBaseUrl("http://127.0.0.1:11434");
@@ -209,7 +228,8 @@ class OllamaLlmClientTest {
         private Duration lastPostTimeout;
         private String chatResponseJson;
         private String tagsResponseJson;
-        private ApiException postFailure;
+        private ProviderException getFailure;
+        private ProviderException postFailure;
         private ChatCancellationToken lastCancellationToken;
         private Runnable onCancellablePost = () -> {
         };
@@ -238,11 +258,14 @@ class OllamaLlmClientTest {
             String invalidConfigurationMessage
         ) {
             lastGetPath = path;
+            if (getFailure != null) {
+                throw getFailure;
+            }
             try {
                 return objectMapper.readValue(tagsResponseJson, responseType);
             } catch (IOException exception) {
-                throw new ApiException(
-                    HttpStatus.BAD_GATEWAY,
+                throw new ProviderException(
+                    ErrorType.PROVIDER_BAD_RESPONSE,
                     parseFailedCode,
                     parseFailedMessage,
                     exception
@@ -279,8 +302,8 @@ class OllamaLlmClientTest {
             try {
                 return objectMapper.readValue(chatResponseJson, responseType);
             } catch (IOException exception) {
-                throw new ApiException(
-                    HttpStatus.BAD_GATEWAY,
+                throw new ProviderException(
+                    ErrorType.PROVIDER_BAD_RESPONSE,
                     parseFailedCode,
                     parseFailedMessage,
                     exception

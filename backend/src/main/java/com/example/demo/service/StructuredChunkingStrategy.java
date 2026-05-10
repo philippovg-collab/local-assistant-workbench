@@ -2,8 +2,8 @@ package com.example.demo.service;
 
 import com.example.demo.service.material.ChunkProfile;
 import com.example.demo.service.material.DocumentBlock;
-import com.example.demo.service.material.DocumentBlockConfidence;
-import com.example.demo.service.material.DocumentBlockType;
+import com.example.demo.model.DocumentBlockConfidence;
+import com.example.demo.model.DocumentBlockType;
 import com.example.demo.service.material.StoredMaterialChunk;
 import com.example.demo.service.material.StoredMaterialSegment;
 

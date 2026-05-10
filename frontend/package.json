@@ -7,6 +7,9 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
+    "generate:api-types": "node ../scripts/generate-frontend-types.mjs",
+    "check:api-types": "node ../scripts/generate-frontend-types.mjs --check",
+    "generate:types": "npm run generate:api-types",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage"
   },

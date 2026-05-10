@@ -9,7 +9,8 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.example.demo.api.ApiException;
+import com.example.demo.error.ApplicationException;
+import com.example.demo.error.ErrorType;
 import com.example.demo.service.audit.ChatRunHeaderStatus;
 import com.example.demo.service.audit.port.ChatAuditRepository;
 import com.example.demo.service.audit.port.ChatRunTraceRepository;
@@ -27,7 +28,6 @@ import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.http.HttpStatus;
 
 class ChatRunQueryServiceTest {
 
@@ -78,9 +78,9 @@ class ChatRunQueryServiceTest {
             null
         )));
 
-        ApiException exception = assertThrows(ApiException.class, () -> service.getResult(runId));
+        ApplicationException exception = assertThrows(ApplicationException.class, () -> service.getResult(runId));
 
-        assertEquals(HttpStatus.CONFLICT, exception.getStatus());
+        assertEquals(ErrorType.CONFLICT, exception.getType());
         assertEquals("chat_run.result_unavailable", exception.getCode());
         assertEquals("Chat run completed but result output is unavailable", exception.getMessage());
     }
@@ -98,9 +98,9 @@ class ChatRunQueryServiceTest {
             null
         )));
 
-        ApiException exception = assertThrows(ApiException.class, () -> service.getResult(runId));
+        ApplicationException exception = assertThrows(ApplicationException.class, () -> service.getResult(runId));
 
-        assertEquals(HttpStatus.CONFLICT, exception.getStatus());
+        assertEquals(ErrorType.CONFLICT, exception.getType());
         assertEquals("chat_run.result_unavailable", exception.getCode());
         assertEquals("Chat run completed but result output is unavailable", exception.getMessage());
     }
@@ -118,9 +118,9 @@ class ChatRunQueryServiceTest {
             null
         )));
 
-        ApiException exception = assertThrows(ApiException.class, () -> service.getResult(runId));
+        ApplicationException exception = assertThrows(ApplicationException.class, () -> service.getResult(runId));
 
-        assertEquals(HttpStatus.CONFLICT, exception.getStatus());
+        assertEquals(ErrorType.CONFLICT, exception.getType());
         assertEquals("chat_run.result_unavailable", exception.getCode());
         assertEquals("Chat run completed but result output is unavailable", exception.getMessage());
     }
@@ -226,8 +226,8 @@ class ChatRunQueryServiceTest {
             "FAILED",
             "model exploded"
         )));
-        ApiException failed = assertThrows(ApiException.class, () -> service.getResult(failedRunId));
-        assertEquals(HttpStatus.CONFLICT, failed.getStatus());
+        ApplicationException failed = assertThrows(ApplicationException.class, () -> service.getResult(failedRunId));
+        assertEquals(ErrorType.CONFLICT, failed.getType());
         assertEquals("chat_run.failed", failed.getCode());
         assertEquals("model exploded", failed.getMessage());
 
@@ -237,8 +237,8 @@ class ChatRunQueryServiceTest {
             "CANCELLED",
             null
         )));
-        ApiException cancelled = assertThrows(ApiException.class, () -> service.getResult(cancelledRunId));
-        assertEquals(HttpStatus.CONFLICT, cancelled.getStatus());
+        ApplicationException cancelled = assertThrows(ApplicationException.class, () -> service.getResult(cancelledRunId));
+        assertEquals(ErrorType.CONFLICT, cancelled.getType());
         assertEquals("chat_run.cancelled", cancelled.getCode());
 
         String runningRunId = UUID.randomUUID().toString();
@@ -247,8 +247,8 @@ class ChatRunQueryServiceTest {
             "LLM_DONE",
             null
         )));
-        ApiException running = assertThrows(ApiException.class, () -> service.getResult(runningRunId));
-        assertEquals(HttpStatus.CONFLICT, running.getStatus());
+        ApplicationException running = assertThrows(ApplicationException.class, () -> service.getResult(runningRunId));
+        assertEquals(ErrorType.CONFLICT, running.getType());
         assertEquals("chat_run.not_completed", running.getCode());
         verify(traceRepository, never()).findResult(any());
         verify(traceRepository, never()).findTrace(any());

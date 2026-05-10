@@ -1,10 +1,10 @@
 package com.example.demo.infrastructure.material;
 
-import com.example.demo.api.ApiException;
+import com.example.demo.error.ErrorType;
+import com.example.demo.error.StorageException;
 import com.example.demo.service.material.QualityLayerCoverageSnapshot;
 import com.example.demo.service.material.port.QualityLayerMetricsRepository;
 import org.springframework.dao.DataAccessException;
-import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
 
@@ -63,8 +63,8 @@ final class PostgresQualityLayerMetricsAdapter extends PostgresMaterialJdbcSuppo
                 )
             );
         } catch (DataAccessException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new StorageException(
+                ErrorType.STORAGE_FAILURE,
                 "material.storage_read_failed",
                 "Unable to load quality-layer coverage metrics from PostgreSQL",
                 exception

@@ -78,4 +78,35 @@ describe("ChatForm", () => {
     expect(screen.getByRole("alert").textContent).toContain("Unable to reach the local LLM provider");
     expect(submitButton.disabled).toBe(true);
   });
+
+  it("renders explicit cancellation only while a durable run is active", async () => {
+    const user = userEvent.setup();
+    const onCancelCurrentRun = vi.fn(async () => undefined);
+
+    const { rerender } = render(
+      <ChatForm
+        {...defaultProps({
+          isSubmitting: true,
+          currentRunId: null,
+          onCancelCurrentRun,
+        })}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: "Отменить запуск" })).toBeNull();
+
+    rerender(
+      <ChatForm
+        {...defaultProps({
+          isSubmitting: true,
+          currentRunId: "run-1",
+          onCancelCurrentRun,
+        })}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Отменить запуск" }));
+
+    expect(onCancelCurrentRun).toHaveBeenCalledTimes(1);
+  });
 });

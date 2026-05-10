@@ -8,6 +8,8 @@ BACKEND_CONTRACT_TESTS=(
   SecurityConfigTest
   SecurityPropertiesTest
   WebConfigCorsTest
+  ApiContractSchemaTest
+  DtoSerializationCompatibilityTest
   MaterialMetadataSnapshotTest
   MaterialMetadataResolverTest
   MaterialIndexingServiceTest
@@ -15,8 +17,17 @@ BACKEND_CONTRACT_TESTS=(
   ChatControllerContractTest
   ChatRunCommandControllerContractTest
   ChatRunQueryControllerContractTest
+  ChatRunSubmissionCoordinatorTest
   ChatRunExecutionServiceTest
   ChatRunTraceServiceTest
+  AuditRedactionServiceTest
+  ContextAssemblyQueryServiceTest
+  ContextLayerHealthServiceTest
+  ConversationSummaryServiceTest
+  HistorySelectorTest
+  MemoryCandidateExtractionServiceTest
+  MemorySelectorTest
+  RetrievalQueryResolutionServiceTest
 )
 
 FRONTEND_CONTRACT_TESTS=(
@@ -43,7 +54,9 @@ run_static_gates() {
   echo "== Static quality gates =="
   cd "$ROOT_DIR"
   python3 scripts/phase5-static-gate.py
+  python3 scripts/frontend-boundary-gate.py
   python3 scripts/architecture-boundary-gate.py
+  python3 scripts/test_architecture_boundary_gate.py
   python3 scripts/complexity-budget-gate.py
   python3 scripts/review-contract.py --skip-body
 }
@@ -59,7 +72,8 @@ run_backend_contract_tests() {
 run_frontend_contract_tests() {
   echo "== Frontend contract quality tests =="
   cd "$ROOT_DIR/frontend"
-  npm run test -- "${FRONTEND_CONTRACT_TESTS[@]}"
+  npm run check:api-types
+  VITE_API_URL= VITE_BACKEND_ORIGIN=http://127.0.0.1:8080 npm run test -- "${FRONTEND_CONTRACT_TESTS[@]}"
 }
 
 run_backend_coverage() {
@@ -71,13 +85,13 @@ run_backend_coverage() {
 run_frontend_coverage_and_build() {
   echo "== Frontend coverage ratchet =="
   cd "$ROOT_DIR/frontend"
-  npm run test:coverage
+  VITE_API_URL= VITE_BACKEND_ORIGIN=http://127.0.0.1:8080 npm run test:coverage
   cd "$ROOT_DIR"
   python3 scripts/coverage-ratchet.py frontend
 
   echo "== Frontend production build =="
   cd "$ROOT_DIR/frontend"
-  npm run build
+  VITE_API_URL= VITE_BACKEND_ORIGIN=http://127.0.0.1:8080 npm run build
 }
 
 run_backend_verify() {

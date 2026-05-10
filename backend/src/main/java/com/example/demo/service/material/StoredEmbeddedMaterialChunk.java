@@ -1,5 +1,8 @@
 package com.example.demo.service.material;
 
+import com.example.demo.model.DocumentBlockConfidence;
+import com.example.demo.model.DocumentBlockType;
+
 public record StoredEmbeddedMaterialChunk(
     int index,
     String text,

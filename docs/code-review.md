@@ -16,7 +16,7 @@ bash scripts/quality-gates.sh fast
 bash scripts/quality-gates.sh full
 ```
 
-3. Fill the PR template. Every PR must include risk, touched boundaries, tests/evidence, security/data/deploy impact, anti-sprawl declaration, complexity delta, and rollback plan.
+3. Fill the PR template. Every PR must include risk level, risk ids, touched boundaries, tests/evidence, security/data/deploy impact, anti-sprawl declaration, complexity delta, and rollback plan.
 
 4. Review in this order:
 
@@ -30,6 +30,7 @@ bash scripts/quality-gates.sh full
 ## Anti-Sprawl Rules
 
 - A new `legacy`, `fallback`, `rollout`, `bestEffort`, or compatibility path must document its reason, owner scenario, test coverage, and removal criterion.
+- A temporary architecture boundary exception must reference a risk id, owner phase, reason, and removal criterion in `scripts/architecture-boundary-baseline.json`; new production code should not add baseline debt.
 - A new behavior branch needs at least one unit, integration, hook, or component test.
 - Do not grow `Material*`, `Chat*`, `KnowledgePreset*`, or `Elasticsearch*` services with a new independent use case unless the change also introduces an appropriate decomposition.
 - PostgreSQL remains the source of truth for materials, lineage, readiness, and embeddings.
@@ -45,7 +46,7 @@ bash scripts/quality-gates.sh full
 
 ## Automation
 
-- `.github/workflows/ci.yml` runs static gates, fast quality gates, backend coverage ratchets, frontend coverage/build, Docker-backed integration checks, and SonarCloud Quality Gate.
-- `.github/workflows/review-contract.yml` validates that the PR body contains review focus, test evidence, high-risk path proof, anti-sprawl details, complexity delta, and rollback plan.
+- `.github/workflows/ci.yml` runs static gates, fast quality gates, backend coverage ratchets, frontend coverage/build, and Docker-backed integration checks.
+- `.github/workflows/review-contract.yml` validates that the PR body contains risk ids, review focus, test evidence, high-risk path proof, anti-sprawl details, complexity delta, and rollback plan.
 - `scripts/review-contract.py` flags new production-code sprawl keywords unless the PR declares the path and fills the required anti-sprawl details.
 - `scripts/quality-gates.sh fast|full|ci` is the primary local/CI entrypoint for Phase 7 gates.

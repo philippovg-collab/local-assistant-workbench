@@ -26,7 +26,17 @@ public record ChatExecutionRequest(
     @Size(max = 32)
     List<String> scenarioInstructionIds,
     @Size(max = 8000)
-    String temporaryInstruction
+    String temporaryInstruction,
+    @Size(max = 36)
+    String conversationId,
+    @Size(max = 36)
+    String parentRunId,
+    @Size(max = 128)
+    String clientTurnId,
+    Boolean persistConversation,
+    Boolean contextDebug,
+    @Valid
+    ContextOptions contextOptions
 ) {
     public ChatExecutionRequest(
         ChatMode mode,
@@ -91,6 +101,42 @@ public record ChatExecutionRequest(
             null,
             scenarioInstructionIds,
             temporaryInstruction
+        );
+    }
+
+    public ChatExecutionRequest(
+        ChatMode mode,
+        String model,
+        String prompt,
+        String systemPrompt,
+        List<String> instructionIds,
+        AnswerMode answerMode,
+        KnowledgeScope knowledgeScope,
+        String instructionWorkspaceKey,
+        RetrievalFilters retrievalFilters,
+        List<String> dismissedRetrievalHintKeys,
+        List<String> scenarioInstructionIds,
+        String temporaryInstruction
+    ) {
+        this(
+            mode,
+            model,
+            prompt,
+            systemPrompt,
+            instructionIds,
+            answerMode,
+            knowledgeScope,
+            instructionWorkspaceKey,
+            retrievalFilters,
+            dismissedRetrievalHintKeys,
+            scenarioInstructionIds,
+            temporaryInstruction,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null
         );
     }
 }

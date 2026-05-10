@@ -1,8 +1,7 @@
 import { useId, type FormEvent } from "react";
-import { Info, LibraryBig, ShieldCheck } from "lucide-react";
+import { LibraryBig } from "lucide-react";
+import { ChatFormActions } from "@/components/ChatFormActions";
 import { InstructionSelector } from "@/components/InstructionSelector";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import {
@@ -60,12 +59,18 @@ export type ChatFormProps = {
   instructionEmptyStateMessage: string;
   knowledgeControls?: KnowledgeControls;
   isSubmitting: boolean;
+  isCancelling?: boolean;
+  currentRunId?: string | null;
+  useLongTermMemory?: boolean;
+  onUseLongTermMemoryChange?: (value: boolean) => void;
   isSubmitDisabled: boolean;
   submitIdleLabel: string;
   submitBusyLabel: string;
+  cancelLabel?: string;
   helperText: string;
   error: string | null;
   onSubmit: () => Promise<unknown>;
+  onCancelCurrentRun?: () => Promise<unknown>;
 };
 
 export function ChatForm({
@@ -91,12 +96,18 @@ export function ChatForm({
   instructionEmptyStateMessage,
   knowledgeControls,
   isSubmitting,
+  isCancelling = false,
+  currentRunId = null,
+  useLongTermMemory,
+  onUseLongTermMemoryChange,
   isSubmitDisabled,
   submitIdleLabel,
   submitBusyLabel,
+  cancelLabel = "Отменить запуск",
   helperText,
   error,
   onSubmit,
+  onCancelCurrentRun,
 }: ChatFormProps) {
   const modelLabelId = useId();
   const answerModeLabelId = useId();
@@ -293,6 +304,25 @@ export function ChatForm({
 
       <Separator />
 
+      {onUseLongTermMemoryChange ? (
+        <>
+          <label className="flex items-start gap-3 rounded-[18px] border border-border bg-surface-subtle/80 px-4 py-3">
+            <Checkbox
+              aria-label="Использовать approved long-term memory"
+              checked={useLongTermMemory === true}
+              onCheckedChange={(checked) => onUseLongTermMemoryChange(checked === true)}
+            />
+            <span className="min-w-0">
+              <span className="block text-sm font-semibold text-foreground">Long-term memory</span>
+              <span className="block text-xs leading-5 text-muted-foreground">
+                Approved записи могут попасть в context snapshot для этой беседы.
+              </span>
+            </span>
+          </label>
+          <Separator />
+        </>
+      ) : null}
+
       <InstructionSelector
         emptyStateMessage={instructionEmptyStateMessage}
         instructions={instructions}
@@ -301,35 +331,19 @@ export function ChatForm({
         onToggleInstruction={onToggleInstruction}
       />
 
-      <div className="surface-subtle flex flex-col gap-4 rounded-[24px] p-4">
-        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <Button disabled={isSubmitDisabled || isModelCatalogUnavailable} type="submit">
-            {isSubmitting ? submitBusyLabel : submitIdleLabel}
-          </Button>
-
-          <div className="flex items-start gap-3 rounded-[20px] border border-field-border bg-field px-4 py-3 text-sm text-muted-foreground md:max-w-xl">
-            <Info className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-            <p className="leading-6">
-              {modelsError ? `Список моделей сейчас недоступен: ${modelsError}` : helperText}
-            </p>
-          </div>
-        </div>
-
-        <div className="flex items-start gap-3 rounded-[20px] border border-field-border bg-field px-4 py-3 text-sm text-muted-foreground">
-          <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-          <p className="leading-6">
-            Системная и workspace-инструкции подставляются автоматически. Здесь ты управляешь режимом ответа,
-            временной инструкцией и сценарными инструкциями для текущего запроса.
-          </p>
-        </div>
-
-        {error ? (
-          <Alert variant="destructive">
-            <AlertTitle>Не удалось выполнить запрос</AlertTitle>
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        ) : null}
-      </div>
+      <ChatFormActions
+        cancelLabel={cancelLabel}
+        currentRunId={currentRunId}
+        error={error}
+        helperText={helperText}
+        isCancelling={isCancelling}
+        isSubmitDisabled={isSubmitDisabled || isModelCatalogUnavailable}
+        isSubmitting={isSubmitting}
+        modelsError={modelsError}
+        submitBusyLabel={submitBusyLabel}
+        submitIdleLabel={submitIdleLabel}
+        onCancelCurrentRun={onCancelCurrentRun}
+      />
     </form>
   );
 }

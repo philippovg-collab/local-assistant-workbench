@@ -12,6 +12,7 @@ bash scripts/quality-gates.sh fast
 
 - `scripts/phase5-static-gate.py`;
 - `scripts/architecture-boundary-gate.py`;
+- `scripts/test_architecture_boundary_gate.py`;
 - `scripts/complexity-budget-gate.py`;
 - `scripts/review-contract.py --skip-body`;
 - targeted backend tests для auth/security, metadata, indexing, chat-run contracts;
@@ -39,7 +40,8 @@ bash scripts/quality-gates.sh ci
 | Gate | Команда | Защищает |
 | --- | --- | --- |
 | Static anti-regression | `python3 scripts/phase5-static-gate.py` | слабые runtime credentials, service/infrastructure boundaries, metadata alias invariants, durable chat execution path |
-| Architecture boundary | `python3 scripts/architecture-boundary-gate.py` | запрет прямых imports из `infrastructure` в service layer |
+| Architecture boundary | `python3 scripts/architecture-boundary-gate.py` | backend layer boundaries: model не импортирует service/api/config/infrastructure, service/provider/infrastructure не импортируют API layer, infrastructure не импортирует concrete services, config/service debt stays explicit |
+| Architecture gate fixtures | `python3 scripts/test_architecture_boundary_gate.py` | fixture-proof для boundary rules, stale baseline detection, frontend direct `apiClient` rule |
 | Complexity budget | `python3 scripts/complexity-budget-gate.py` | запрет роста известных больших файлов и новых god-files |
 | Review contract | `python3 scripts/review-contract.py` | заполненность PR evidence, anti-sprawl declaration, high-risk path proof |
 | Backend coverage | `mvn -B clean verify -Pcoverage` + `scripts/coverage-ratchet.py backend` | unit + Docker-backed integration coverage для global line coverage и critical packages: controller, config, service, audit/material infrastructure |
@@ -78,11 +80,26 @@ The gate fails when a tracked file grows. It also fails when a tracked file shri
 
 Add a new baseline entry only for known pre-existing debt. New files should be split before merge instead of allowlisted.
 
+## Architecture Baseline
+
+Architecture baseline lives in:
+
+```text
+scripts/architecture-boundary-baseline.json
+```
+
+The baseline uses schema version 2. Each entry must include rule, path, imported symbol/call, risk id, owner phase, reason, and removal criterion. The gate reports source line numbers for current violations, but the baseline identity intentionally excludes line numbers so harmless formatting does not churn the debt ledger.
+
+The same gate also blocks direct frontend component/App network calls through `apiClient`. `frontend/src/api/**` and `frontend/src/hooks/**` remain the allowed network layers; `apiClient.buildCurlExample(...)` is allowed as a non-network preview helper.
+
+Do not add architecture baseline entries for new code. A temporary exception requires an explicit risk id, owner phase, removal criterion, and reviewer-visible justification in the PR.
+
 ## Review Contract
 
 PRs must fill:
 
 - risk level and touched boundaries;
+- risk ids from `docs/refactor-risk-register.md`, or `N/A` only for trivial changes outside the refactor ledger;
 - tests/evidence;
 - security, data integrity, migration/deploy, and docs/runbook impact;
 - anti-sprawl declaration for new `legacy`, `fallback`, `rollout`, `bestEffort`, or compatibility paths;

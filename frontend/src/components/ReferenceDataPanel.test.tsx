@@ -2,7 +2,7 @@ import { cleanup, render, screen, waitFor, within } from "@testing-library/react
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ReferenceDataPanel } from "./ReferenceDataPanel";
-import type { ReferenceProject, ReferenceWorkspace } from "@/types";
+import type { RagProjectSummary, ReferenceProject, ReferenceWorkspace } from "@/types";
 
 const workspaces: ReferenceWorkspace[] = [
   {
@@ -55,7 +55,43 @@ const projects: ReferenceProject[] = [
   },
 ];
 
-const renderPanel = (overrides: Partial<Parameters<typeof ReferenceDataPanel>[0]["referenceData"]> = {}) => {
+const ragProjects: RagProjectSummary[] = [
+  {
+    key: "general",
+    name: "Общая",
+    active: true,
+    sortOrder: 0,
+    isDefault: true,
+    materialCount: 7,
+    readyMaterialCount: 5,
+    updatedAt: "2026-04-20T10:00:00Z",
+  },
+  {
+    key: "north-upgrade",
+    name: "Северная модернизация",
+    active: true,
+    sortOrder: 1,
+    isDefault: false,
+    materialCount: 3,
+    readyMaterialCount: 1,
+    updatedAt: "2026-04-20T10:00:00Z",
+  },
+  {
+    key: "archive",
+    name: "Архивная область",
+    active: false,
+    sortOrder: 2,
+    isDefault: false,
+    materialCount: 2,
+    readyMaterialCount: 0,
+    updatedAt: "2026-04-20T10:00:00Z",
+  },
+];
+
+const renderPanel = (
+  referenceOverrides: Partial<Parameters<typeof ReferenceDataPanel>[0]["referenceData"]> = {},
+  ragOverrides: Partial<Parameters<typeof ReferenceDataPanel>[0]["ragProjects"]> = {},
+) => {
   const referenceData = {
     workspaces,
     projects,
@@ -68,7 +104,18 @@ const renderPanel = (overrides: Partial<Parameters<typeof ReferenceDataPanel>[0]
     updateWorkspace: vi.fn().mockResolvedValue(workspaces[0]),
     createProject: vi.fn().mockResolvedValue(projects[0]),
     updateProject: vi.fn().mockResolvedValue(projects[0]),
-    ...overrides,
+    ...referenceOverrides,
+  };
+  const ragProjectController = {
+    projects: ragProjects,
+    isLoading: false,
+    error: null,
+    actionError: null,
+    message: null,
+    reload: vi.fn().mockResolvedValue(null),
+    createProject: vi.fn().mockResolvedValue(ragProjects[0]),
+    updateProject: vi.fn().mockResolvedValue(ragProjects[0]),
+    ...ragOverrides,
   };
   const knowledgePresets = {
     presets: [],
@@ -88,8 +135,14 @@ const renderPanel = (overrides: Partial<Parameters<typeof ReferenceDataPanel>[0]
     onDeletePreset: vi.fn().mockResolvedValue(null),
   };
 
-  render(<ReferenceDataPanel knowledgePresets={knowledgePresets} referenceData={referenceData} />);
-  return referenceData;
+  render(
+    <ReferenceDataPanel
+      knowledgePresets={knowledgePresets}
+      ragProjects={ragProjectController}
+      referenceData={referenceData}
+    />,
+  );
+  return { ragProjectController, referenceData };
 };
 
 const chooseSelectOption = async (
@@ -121,6 +174,7 @@ describe("ReferenceDataPanel", () => {
     expect(screen.getByText("Активный RAG-проект")).toBeTruthy();
     expect(screen.getAllByRole("button", { name: "Создать RAG-проект" }).length).toBeGreaterThan(0);
     expect(screen.getByText("Архивная область")).toBeTruthy();
+    expect(screen.getByText("Материалы: 7; ready: 5; порядок: 0")).toBeTruthy();
     expect(screen.getAllByText("неактивен").length).toBeGreaterThan(0);
     expect(screen.queryByRole("button", { name: "Рабочие области" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Проекты" })).toBeNull();
@@ -133,7 +187,7 @@ describe("ReferenceDataPanel", () => {
 
   it("creates a RAG-project with explicit fields", async () => {
     const user = userEvent.setup();
-    const referenceData = renderPanel();
+    const { ragProjectController } = renderPanel();
 
     await user.type(screen.getByLabelText("Ключ"), "south-grid");
     await user.type(screen.getByLabelText("Название"), "Южная сеть");
@@ -147,9 +201,9 @@ describe("ReferenceDataPanel", () => {
     await user.click(createRagProjectButton as HTMLButtonElement);
 
     await waitFor(() => {
-      expect(referenceData.createWorkspace).toHaveBeenCalledWith({
+      expect(ragProjectController.createProject).toHaveBeenCalledWith({
         key: "south-grid",
-        nameRu: "Южная сеть",
+        name: "Южная сеть",
         description: null,
         active: true,
         sortOrder: 5,
@@ -160,7 +214,7 @@ describe("ReferenceDataPanel", () => {
 
   it("edits and deactivates a RAG-project through update", async () => {
     const user = userEvent.setup();
-    const referenceData = renderPanel();
+    const { ragProjectController } = renderPanel();
     const workspaceArticle = screen.getByRole("heading", { name: "Общая" }).closest("article") as HTMLElement;
 
     await user.click(within(workspaceArticle).getByRole("button", { name: "Редактировать" }));
@@ -169,10 +223,10 @@ describe("ReferenceDataPanel", () => {
     await user.click(within(workspaceArticle).getByRole("button", { name: "Сохранить" }));
 
     await waitFor(() => {
-      expect(referenceData.updateWorkspace).toHaveBeenCalledWith(
+      expect(ragProjectController.updateProject).toHaveBeenCalledWith(
         "general",
         expect.objectContaining({
-          nameRu: "Общая область",
+          name: "Общая область",
           active: true,
           sortOrder: 0,
           isDefault: true,
@@ -182,10 +236,10 @@ describe("ReferenceDataPanel", () => {
 
     await user.click(within(workspaceArticle).getByRole("button", { name: "Деактивировать" }));
     await waitFor(() => {
-      expect(referenceData.updateWorkspace).toHaveBeenCalledWith(
+      expect(ragProjectController.updateProject).toHaveBeenCalledWith(
         "general",
         expect.objectContaining({
-          nameRu: "Общая",
+          name: "Общая",
           active: false,
           sortOrder: 0,
           isDefault: true,
@@ -196,7 +250,7 @@ describe("ReferenceDataPanel", () => {
 
   it("validates RAG-project key and name", async () => {
     const user = userEvent.setup();
-    const referenceData = renderPanel();
+    const { ragProjectController } = renderPanel();
 
     const createRagProjectButton = screen
       .getAllByRole("button", { name: "Создать RAG-проект" })
@@ -205,10 +259,22 @@ describe("ReferenceDataPanel", () => {
 
     await user.click(createRagProjectButton as HTMLButtonElement);
     expect(await screen.findByText("Укажите ключ RAG-проекта.")).toBeTruthy();
-    expect(referenceData.createWorkspace).not.toHaveBeenCalled();
+    expect(ragProjectController.createProject).not.toHaveBeenCalled();
 
     await user.type(screen.getByLabelText("Ключ"), "south-grid");
     await user.click(createRagProjectButton as HTMLButtonElement);
     expect(await screen.findByText("Укажите название RAG-проекта.")).toBeTruthy();
+  });
+
+  it("does not synthesize RAG-projects from reference workspaces when the RAG API fails", () => {
+    renderPanel({}, {
+      projects: [],
+      error: "Не удалось загрузить RAG-проекты",
+    });
+
+    expect(screen.getAllByText("Не удалось загрузить RAG-проекты").length).toBeGreaterThan(0);
+    expect(screen.getByText("RAG-проектов пока нет")).toBeTruthy();
+    expect(screen.queryByText("Материалы: 0; ready: 0; порядок: 0")).toBeNull();
+    expect(screen.queryByText("0/0 ready")).toBeNull();
   });
 });

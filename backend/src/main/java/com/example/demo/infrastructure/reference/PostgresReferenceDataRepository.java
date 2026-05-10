@@ -1,6 +1,7 @@
 package com.example.demo.infrastructure.reference;
 
-import com.example.demo.api.ApiException;
+import com.example.demo.error.ErrorType;
+import com.example.demo.error.StorageException;
 import com.example.demo.service.reference.StoredReferenceProjectRecord;
 import com.example.demo.service.reference.StoredReferenceWorkspaceRecord;
 import com.example.demo.service.reference.port.ReferenceDataRepository;
@@ -9,7 +10,6 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.dao.DataAccessException;
-import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
@@ -59,8 +59,8 @@ public class PostgresReferenceDataRepository implements ReferenceDataRepository 
                 activeOnly
             );
         } catch (DataAccessException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new StorageException(
+                ErrorType.STORAGE_FAILURE,
                 "reference_workspace.storage_read_failed",
                 "Unable to read reference workspaces from PostgreSQL",
                 exception
@@ -82,8 +82,8 @@ public class PostgresReferenceDataRepository implements ReferenceDataRepository 
             );
             return records.stream().findFirst();
         } catch (DataAccessException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new StorageException(
+                ErrorType.STORAGE_FAILURE,
                 "reference_workspace.storage_read_failed",
                 "Unable to load reference workspace from PostgreSQL",
                 exception
@@ -100,8 +100,8 @@ public class PostgresReferenceDataRepository implements ReferenceDataRepository 
             );
             return Boolean.TRUE.equals(exists);
         } catch (DataAccessException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new StorageException(
+                ErrorType.STORAGE_FAILURE,
                 "reference_workspace.storage_read_failed",
                 "Unable to check reference workspace existence in PostgreSQL",
                 exception
@@ -117,8 +117,8 @@ public class PostgresReferenceDataRepository implements ReferenceDataRepository 
             );
             return count == null ? 0 : count;
         } catch (DataAccessException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new StorageException(
+                ErrorType.STORAGE_FAILURE,
                 "reference_workspace.storage_read_failed",
                 "Unable to count default reference workspaces in PostgreSQL",
                 exception
@@ -140,8 +140,8 @@ public class PostgresReferenceDataRepository implements ReferenceDataRepository 
                 key
             );
         } catch (DataAccessException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new StorageException(
+                ErrorType.STORAGE_FAILURE,
                 "reference_workspace.storage_write_failed",
                 "Unable to update default reference workspace in PostgreSQL",
                 exception
@@ -182,55 +182,10 @@ public class PostgresReferenceDataRepository implements ReferenceDataRepository 
             );
             return findWorkspaceByKey(record.key()).orElse(record);
         } catch (DataAccessException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new StorageException(
+                ErrorType.STORAGE_FAILURE,
                 "reference_workspace.storage_write_failed",
                 "Unable to persist reference workspace in PostgreSQL",
-                exception
-            );
-        }
-    }
-
-    public int countMaterialsByWorkspace(String workspaceKey) {
-        try {
-            Integer count = jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM materials WHERE workspace_key = ?",
-                Integer.class,
-                workspaceKey
-            );
-            return count == null ? 0 : count;
-        } catch (DataAccessException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
-                "reference_workspace.storage_read_failed",
-                "Unable to count reference workspace materials in PostgreSQL",
-                exception
-            );
-        }
-    }
-
-    public int countReadyMaterialsByWorkspace(String workspaceKey) {
-        try {
-            Integer count = jdbcTemplate.queryForObject(
-                """
-                    SELECT COUNT(*)
-                    FROM materials
-                    WHERE workspace_key = ?
-                      AND version_state = 'ACTIVE'
-                      AND indexing_status IN ('READY', 'PARTIAL_READY')
-                      AND COALESCE(document_status, 'ACTIVE') = 'ACTIVE'
-                      AND (period_start IS NULL OR period_start <= CURRENT_DATE)
-                      AND (period_end IS NULL OR period_end >= CURRENT_DATE)
-                    """,
-                Integer.class,
-                workspaceKey
-            );
-            return count == null ? 0 : count;
-        } catch (DataAccessException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
-                "reference_workspace.storage_read_failed",
-                "Unable to count ready reference workspace materials in PostgreSQL",
                 exception
             );
         }
@@ -252,8 +207,8 @@ public class PostgresReferenceDataRepository implements ReferenceDataRepository 
                 workspaceKey
             );
         } catch (DataAccessException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new StorageException(
+                ErrorType.STORAGE_FAILURE,
                 "reference_project.storage_read_failed",
                 "Unable to read reference projects from PostgreSQL",
                 exception
@@ -275,28 +230,10 @@ public class PostgresReferenceDataRepository implements ReferenceDataRepository 
             );
             return records.stream().findFirst();
         } catch (DataAccessException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new StorageException(
+                ErrorType.STORAGE_FAILURE,
                 "reference_project.storage_read_failed",
                 "Unable to load reference project from PostgreSQL",
-                exception
-            );
-        }
-    }
-
-    public boolean projectHasMaterialReferences(String key) {
-        try {
-            Boolean exists = jdbcTemplate.queryForObject(
-                "SELECT EXISTS (SELECT 1 FROM materials WHERE project_key = ?)",
-                Boolean.class,
-                key
-            );
-            return Boolean.TRUE.equals(exists);
-        } catch (DataAccessException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
-                "reference_project.storage_read_failed",
-                "Unable to check reference project usage in PostgreSQL",
                 exception
             );
         }
@@ -332,8 +269,8 @@ public class PostgresReferenceDataRepository implements ReferenceDataRepository 
             );
             return findProjectByKey(record.key()).orElse(record);
         } catch (DataAccessException exception) {
-            throw new ApiException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
+            throw new StorageException(
+                ErrorType.STORAGE_FAILURE,
                 "reference_project.storage_write_failed",
                 "Unable to persist reference project in PostgreSQL",
                 exception

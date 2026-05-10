@@ -3,7 +3,8 @@ package com.example.demo.embedding;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
-import com.example.demo.api.ApiException;
+import com.example.demo.error.ErrorType;
+import com.example.demo.error.ProviderException;
 import com.example.demo.config.EmbeddingProperties;
 import com.example.demo.config.LlmProperties;
 import com.example.demo.llm.OllamaApiTransport;
@@ -12,7 +13,6 @@ import java.io.IOException;
 import java.time.Duration;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
-import org.springframework.http.HttpStatus;
 
 class OllamaEmbeddingClientTest {
 
@@ -47,11 +47,23 @@ class OllamaEmbeddingClientTest {
         EmbeddingProperties embeddingProperties = embeddingProperties(4);
         OllamaEmbeddingClient client = new OllamaEmbeddingClient(transport, embeddingProperties, llmProperties());
 
-        ApiException exception = assertThrows(ApiException.class, () -> client.embed("healthcheck"));
+        ProviderException exception = assertThrows(ProviderException.class, () -> client.embed("healthcheck"));
 
-        assertEquals(HttpStatus.BAD_GATEWAY, exception.getStatus());
+        assertEquals(ErrorType.PROVIDER_BAD_RESPONSE, exception.getType());
         assertEquals("embedding.provider_dimension_mismatch", exception.getCode());
         assertEquals("Embedding provider returned 3 dimensions, expected 4", exception.getMessage());
+    }
+
+    @Test
+    void rejectsMissingEmbeddingModelBeforeCallingProvider() {
+        RecordingTransport transport = new RecordingTransport(objectMapper);
+        EmbeddingProperties embeddingProperties = embeddingProperties(3);
+        embeddingProperties.setModel("");
+        OllamaEmbeddingClient client = new OllamaEmbeddingClient(transport, embeddingProperties, llmProperties());
+
+        ProviderException exception = assertThrows(ProviderException.class, () -> client.embed("healthcheck"));
+
+        assertEquals("embedding.model_unavailable", exception.getCode());
     }
 
     private EmbeddingProperties embeddingProperties(int expectedDimension) {
@@ -100,8 +112,8 @@ class OllamaEmbeddingClientTest {
             try {
                 return objectMapper.readValue(embeddingResponseJson, responseType);
             } catch (IOException exception) {
-                throw new ApiException(
-                    HttpStatus.BAD_GATEWAY,
+                throw new ProviderException(
+                    ErrorType.PROVIDER_BAD_RESPONSE,
                     parseFailedCode,
                     parseFailedMessage,
                     exception

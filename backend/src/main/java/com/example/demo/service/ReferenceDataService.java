@@ -1,7 +1,9 @@
 package com.example.demo.service;
 
-import com.example.demo.api.ApiException;
+import com.example.demo.error.ApplicationException;
+import com.example.demo.error.ErrorType;
 import com.example.demo.service.reference.port.ReferenceDataRepository;
+import com.example.demo.service.reference.port.ReferenceUsageRepository;
 import com.example.demo.service.reference.StoredReferenceProjectRecord;
 import com.example.demo.service.reference.StoredReferenceWorkspaceRecord;
 import com.example.demo.model.ReferenceProject;
@@ -11,7 +13,6 @@ import com.example.demo.model.ReferenceWorkspaceRequest;
 import java.time.Instant;
 import java.util.List;
 import java.util.regex.Pattern;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -22,9 +23,14 @@ public class ReferenceDataService {
     private static final Pattern MACHINE_KEY_PATTERN = Pattern.compile("^[a-z0-9]+(?:-[a-z0-9]+)*$");
 
     private final ReferenceDataRepository repository;
+    private final ReferenceUsageRepository usageRepository;
 
-    public ReferenceDataService(ReferenceDataRepository repository) {
+    public ReferenceDataService(
+        ReferenceDataRepository repository,
+        ReferenceUsageRepository usageRepository
+    ) {
         this.repository = repository;
+        this.usageRepository = usageRepository;
     }
 
     public List<ReferenceWorkspace> listWorkspaces(boolean activeOnly) {
@@ -36,8 +42,8 @@ public class ReferenceDataService {
         String key = requireMachineKey(request == null ? null : request.key(), "reference_workspace.invalid_key");
         String nameRu = requireNameRu(request == null ? null : request.nameRu(), "reference_workspace.invalid_name");
         if (repository.findWorkspaceByKey(key).isPresent()) {
-            throw new ApiException(
-                HttpStatus.CONFLICT,
+            throw new ApplicationException(
+                ErrorType.CONFLICT,
                 "reference_workspace.already_exists",
                 "Reference workspace '" + key + "' already exists"
             );
@@ -68,8 +74,8 @@ public class ReferenceDataService {
         String key = requireMachineKey(pathKey, "reference_workspace.invalid_key");
         requireMatchingBodyKey(key, request == null ? null : request.key(), "reference_workspace.key_mismatch");
         StoredReferenceWorkspaceRecord current = repository.findWorkspaceByKey(key)
-            .orElseThrow(() -> new ApiException(
-                HttpStatus.NOT_FOUND,
+            .orElseThrow(() -> new ApplicationException(
+                ErrorType.NOT_FOUND,
                 "reference_workspace.not_found",
                 "Reference workspace '" + key + "' does not exist"
             ));
@@ -83,8 +89,8 @@ public class ReferenceDataService {
         int sortOrder = request == null || request.sortOrder() == null ? current.sortOrder() : request.sortOrder();
 
         if (current.isDefault() && (!active || !isDefault) && repository.countDefaultWorkspaces() <= 1) {
-            throw new ApiException(
-                HttpStatus.CONFLICT,
+            throw new ApplicationException(
+                ErrorType.CONFLICT,
                 "reference_workspace.default_required",
                 "The only default reference workspace cannot be deactivated or unset as default"
             );
@@ -124,8 +130,8 @@ public class ReferenceDataService {
         );
         String nameRu = requireNameRu(request == null ? null : request.nameRu(), "reference_project.invalid_name");
         if (repository.findProjectByKey(key).isPresent()) {
-            throw new ApiException(
-                HttpStatus.CONFLICT,
+            throw new ApplicationException(
+                ErrorType.CONFLICT,
                 "reference_project.already_exists",
                 "Reference project '" + key + "' already exists"
             );
@@ -149,8 +155,8 @@ public class ReferenceDataService {
         String key = requireMachineKey(pathKey, "reference_project.invalid_key");
         requireMatchingBodyKey(key, request == null ? null : request.key(), "reference_project.key_mismatch");
         StoredReferenceProjectRecord current = repository.findProjectByKey(key)
-            .orElseThrow(() -> new ApiException(
-                HttpStatus.NOT_FOUND,
+            .orElseThrow(() -> new ApplicationException(
+                ErrorType.NOT_FOUND,
                 "reference_project.not_found",
                 "Reference project '" + key + "' does not exist"
             ));
@@ -161,9 +167,9 @@ public class ReferenceDataService {
         );
         requireExistingWorkspace(workspaceKey);
         String nameRu = requireNameRu(request == null ? null : request.nameRu(), "reference_project.invalid_name");
-        if (!current.workspaceKey().equals(workspaceKey) && repository.projectHasMaterialReferences(key)) {
-            throw new ApiException(
-                HttpStatus.CONFLICT,
+        if (!current.workspaceKey().equals(workspaceKey) && usageRepository.projectHasMaterialReferences(key)) {
+            throw new ApplicationException(
+                ErrorType.CONFLICT,
                 "reference_project.workspace_change_blocked_by_materials",
                 "Reference project '" + key + "' cannot move to another workspace because it is used by materials"
             );
@@ -183,8 +189,8 @@ public class ReferenceDataService {
 
     private void requireExistingWorkspace(String workspaceKey) {
         if (!repository.workspaceExists(workspaceKey)) {
-            throw new ApiException(
-                HttpStatus.BAD_REQUEST,
+            throw new ApplicationException(
+                ErrorType.INVALID_REQUEST,
                 "reference_project.workspace_not_found",
                 "Reference workspace '" + workspaceKey + "' does not exist"
             );
@@ -193,8 +199,8 @@ public class ReferenceDataService {
 
     private void validateDefaultWorkspaceState(boolean active, boolean isDefault) {
         if (isDefault && !active) {
-            throw new ApiException(
-                HttpStatus.CONFLICT,
+            throw new ApplicationException(
+                ErrorType.CONFLICT,
                 "reference_workspace.default_must_be_active",
                 "Default reference workspace must be active"
             );
@@ -204,8 +210,8 @@ public class ReferenceDataService {
     private void requireMatchingBodyKey(String pathKey, String bodyKey, String code) {
         String normalizedBodyKey = normalizeOptionalMachineKey(bodyKey, code);
         if (normalizedBodyKey != null && !pathKey.equals(normalizedBodyKey)) {
-            throw new ApiException(
-                HttpStatus.BAD_REQUEST,
+            throw new ApplicationException(
+                ErrorType.INVALID_REQUEST,
                 code,
                 "Request body key must match path key"
             );
@@ -215,8 +221,8 @@ public class ReferenceDataService {
     private String requireMachineKey(String rawValue, String code) {
         String key = normalizeOptionalMachineKey(rawValue, code);
         if (key == null) {
-            throw new ApiException(
-                HttpStatus.BAD_REQUEST,
+            throw new ApplicationException(
+                ErrorType.INVALID_REQUEST,
                 code,
                 "Reference key must be a lower-kebab-case machine key"
             );
@@ -230,8 +236,8 @@ public class ReferenceDataService {
         }
         String key = rawValue.trim();
         if (!MACHINE_KEY_PATTERN.matcher(key).matches()) {
-            throw new ApiException(
-                HttpStatus.BAD_REQUEST,
+            throw new ApplicationException(
+                ErrorType.INVALID_REQUEST,
                 code,
                 "Reference key must be a lower-kebab-case machine key"
             );
@@ -241,8 +247,8 @@ public class ReferenceDataService {
 
     private String requireNameRu(String rawValue, String code) {
         if (!StringUtils.hasText(rawValue)) {
-            throw new ApiException(
-                HttpStatus.BAD_REQUEST,
+            throw new ApplicationException(
+                ErrorType.INVALID_REQUEST,
                 code,
                 "Field 'nameRu' must not be blank"
             );

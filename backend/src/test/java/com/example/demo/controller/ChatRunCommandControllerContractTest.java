@@ -3,6 +3,7 @@ package com.example.demo.controller;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -10,15 +11,22 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.example.demo.api.ApiExceptionHandler;
+import com.example.demo.config.ChatExecutionProperties;
 import com.example.demo.config.MaterialProperties;
 import com.example.demo.model.ChatExecutionRequest;
 import com.example.demo.model.ChatMode;
 import com.example.demo.model.ChatRunSubmissionResponse;
 import com.example.demo.model.ChatRunTraceDetail;
+import com.example.demo.service.ChatExecutionService;
 import com.example.demo.service.ChatRunExecutionService;
+import com.example.demo.service.ChatRunQueryService;
+import com.example.demo.service.ChatRunTraceService;
+import com.example.demo.service.audit.port.ChatRunQueueRepository;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ScheduledExecutorService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -75,6 +83,40 @@ class ChatRunCommandControllerContractTest {
         ArgumentCaptor<ChatExecutionRequest> requestCaptor = ArgumentCaptor.forClass(ChatExecutionRequest.class);
         verify(chatRunExecutionService).submit(requestCaptor.capture());
         assertEquals(List.of("documentNumber", "project"), requestCaptor.getValue().dismissedRetrievalHintKeys());
+    }
+
+    @Test
+    void rejectsInvalidNestedChatRunRequestBeforeDurableEnqueue() throws Exception {
+        ChatRunQueueRepository queueRepository = mock(ChatRunQueueRepository.class);
+        ChatRunExecutionService realService = new ChatRunExecutionService(
+            mock(ExecutorService.class),
+            mock(ScheduledExecutorService.class),
+            new ChatExecutionProperties(),
+            queueRepository,
+            mock(ChatExecutionService.class),
+            mock(ChatRunTraceService.class),
+            mock(ChatRunQueryService.class)
+        );
+        MockMvc localMockMvc = MockMvcBuilders
+            .standaloneSetup(new ChatRunCommandController(realService))
+            .setControllerAdvice(new ApiExceptionHandler(new MaterialProperties()))
+            .setMessageConverters(new MappingJackson2HttpMessageConverter())
+            .build();
+
+        localMockMvc.perform(post("/api/chat-runs")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "mode": "rag",
+                      "prompt": "Что по договору?",
+                      "dismissedRetrievalHintKeys": ["%s"]
+                    }
+                    """.formatted("x".repeat(129))))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.code").value("request.field_too_large"))
+            .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("chat.dismissedRetrievalHintKeys[]")));
+
+        verify(queueRepository, never()).enqueue(any(), any(), any());
     }
 
     @Test

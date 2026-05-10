@@ -12,7 +12,8 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.example.demo.api.ApiException;
+import com.example.demo.error.ApplicationException;
+import com.example.demo.error.ErrorType;
 import com.example.demo.config.ChatExecutionProperties;
 import com.example.demo.service.audit.ChatRunQueueLease;
 import com.example.demo.service.audit.EnqueuedChatRun;
@@ -28,6 +29,7 @@ import com.example.demo.model.RetrievalTrace;
 import com.example.demo.service.cancellation.ChatCancellationHandle;
 import com.example.demo.service.cancellation.ChatCancellationToken;
 import com.example.demo.service.cancellation.ChatRunCancelledException;
+import com.example.demo.service.cancellation.ChatRunLeaseLostException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -65,6 +67,34 @@ class ChatRunExecutionServiceTest {
         assertEquals("/api/chat-runs/" + runId + "/status", response.statusUrl());
         assertEquals(1, executor.taskCount());
         verify(queueRepository).enqueue(eq(request), eq(ChatMode.DIRECT), any(Instant.class));
+    }
+
+    @Test
+    void submitRejectsInvalidNestedRequestBeforeDurableEnqueue() {
+        ManualExecutorService executor = new ManualExecutorService();
+        ChatRunQueueRepository queueRepository = mock(ChatRunQueueRepository.class);
+        ChatRunExecutionService service = service(executor, queueRepository);
+        ChatExecutionRequest request = new ChatExecutionRequest(
+            ChatMode.RAG,
+            "qwen2.5:7b",
+            "What changed?",
+            null,
+            List.of(),
+            null,
+            null,
+            null,
+            null,
+            List.of("x".repeat(129)),
+            null,
+            null
+        );
+
+        ApplicationException exception = assertThrows(ApplicationException.class, () -> service.submit(request));
+
+        assertEquals("request.field_too_large", exception.getCode());
+        assertTrue(exception.getMessage().contains("chat.dismissedRetrievalHintKeys[]"));
+        assertEquals(0, executor.taskCount());
+        verify(queueRepository, never()).enqueue(any(), any(), any());
     }
 
     @Test
@@ -129,7 +159,7 @@ class ChatRunExecutionServiceTest {
             .thenReturn(new EnqueuedChatRun(runId, Instant.parse("2026-04-19T00:00:00Z")));
         when(queryService.getStatus(runId)).thenReturn(status(runId, "FAILED", "llm.provider_unavailable", "Ollama is down"));
 
-        ApiException exception = assertThrows(ApiException.class, () -> service.submitAndWait(request, Duration.ofMillis(10)));
+        ApplicationException exception = assertThrows(ApplicationException.class, () -> service.submitAndWait(request, Duration.ofMillis(10)));
 
         assertEquals("llm.provider_unavailable", exception.getCode());
         assertEquals("Ollama is down", exception.getMessage());
@@ -153,12 +183,12 @@ class ChatRunExecutionServiceTest {
             .thenReturn(new EnqueuedChatRun(runId, Instant.parse("2026-04-19T00:00:00Z")));
         when(queryService.getStatus(runId)).thenReturn(status(runId, "RECEIVED", null, null));
 
-        ApiException exception = assertThrows(ApiException.class, () -> service.submitAndWait(request, Duration.ofMillis(1)));
+        ApplicationException exception = assertThrows(ApplicationException.class, () -> service.submitAndWait(request, Duration.ofMillis(1)));
 
         assertEquals("chat.run_still_processing", exception.getCode());
         assertTrue(exception.getMessage().contains("/api/chat-runs/" + runId + "/status"));
         assertEquals(1, executor.taskCount());
-        verify(queueRepository, never()).deleteQueueEntry(runId);
+        verify(queueRepository, never()).deletePendingQueueEntry(runId);
         verify(queueRepository, never()).deleteQueueEntryIfOwned(any());
     }
 
@@ -258,7 +288,7 @@ class ChatRunExecutionServiceTest {
         service.cancel(runId);
 
         verify(traceService).cancelRun(runId, createdAt);
-        verify(queueRepository).deleteQueueEntry(runId);
+        verify(queueRepository).deletePendingQueueEntry(runId);
     }
 
     @Test
@@ -276,7 +306,8 @@ class ChatRunExecutionServiceTest {
         String runId = UUID.randomUUID().toString();
         Instant createdAt = Instant.parse("2026-04-19T00:00:00Z");
         ChatCancellationHandle runningRun = new ChatCancellationHandle();
-        MapAccessor.runningRuns(service).put(runId, runningRun);
+        ChatRunQueueLease lease = lease(runId, request());
+        MapAccessor.runningRuns(service).put(runId, new ChatRunExecutionService.RunningChatRun(lease, runningRun));
         when(queryService.getTrace(runId)).thenReturn(trace(runId, "PROMPT"));
         when(traceService.cancelRun(runId, createdAt)).thenAnswer(invocation -> {
             assertFalse(runningRun.isCancellationRequested());
@@ -286,7 +317,8 @@ class ChatRunExecutionServiceTest {
         service.cancel(runId);
 
         assertTrue(runningRun.isCancellationRequested());
-        verify(queueRepository).deleteQueueEntry(runId);
+        verify(queueRepository, never()).deletePendingQueueEntry(runId);
+        verify(queueRepository, never()).deleteQueueEntryIfOwned(any());
     }
 
     @Test
@@ -304,7 +336,8 @@ class ChatRunExecutionServiceTest {
         String runId = UUID.randomUUID().toString();
         Instant createdAt = Instant.parse("2026-04-19T00:00:00Z");
         ChatCancellationHandle runningRun = new ChatCancellationHandle();
-        MapAccessor.runningRuns(service).put(runId, runningRun);
+        ChatRunQueueLease lease = lease(runId, request());
+        MapAccessor.runningRuns(service).put(runId, new ChatRunExecutionService.RunningChatRun(lease, runningRun));
         when(queryService.getTrace(runId)).thenReturn(trace(runId, "PROMPT"));
         when(traceService.cancelRun(runId, createdAt)).thenReturn(false);
 
@@ -312,7 +345,8 @@ class ChatRunExecutionServiceTest {
 
         assertFalse(runningRun.isCancellationRequested());
         assertTrue(MapAccessor.runningRuns(service).containsKey(runId));
-        verify(queueRepository, never()).deleteQueueEntry(runId);
+        verify(queueRepository, never()).deletePendingQueueEntry(runId);
+        verify(queueRepository, never()).deleteQueueEntryIfOwned(any());
     }
 
     @Test
@@ -350,7 +384,7 @@ class ChatRunExecutionServiceTest {
         executor.runNext();
 
         verify(traceService, never()).failRun(any(), any(), any());
-        verify(queueRepository).deleteQueueEntry(runId);
+        verify(queueRepository).deleteQueueEntryIfOwned(lease);
     }
 
     @Test
@@ -433,8 +467,45 @@ class ChatRunExecutionServiceTest {
 
         verify(traceService, never()).failRun(any(), any(), any());
         verify(queueRepository, never()).deleteQueueEntryIfOwned(any());
-        verify(queueRepository, never()).deleteQueueEntry(lease.runId());
+        verify(queueRepository, never()).deletePendingQueueEntry(lease.runId());
         verify(traceService).insertEvent(any(ChatRunTraceService.RunTraceContext.class), eq("LEASE_LOST"), any());
+    }
+
+    @Test
+    void terminalRunAfterLeaseGuardRejectionDeletesOwnedQueueRow() {
+        ManualExecutorService executor = new ManualExecutorService();
+        ChatRunQueueRepository queueRepository = mock(ChatRunQueueRepository.class);
+        ChatExecutionService chatExecutionService = mock(ChatExecutionService.class);
+        ChatRunTraceService traceService = mock(ChatRunTraceService.class);
+        ChatRunQueryService queryService = mock(ChatRunQueryService.class);
+        ChatRunQueueLease lease = lease(UUID.randomUUID().toString(), request());
+        ChatRunExecutionService service = service(
+            executor,
+            queueRepository,
+            chatExecutionService,
+            traceService,
+            queryService
+        );
+        when(queueRepository.claimNext(anyString(), any(Instant.class), any(Duration.class))).thenReturn(
+            Optional.of(lease),
+            Optional.<ChatRunQueueLease>empty()
+        );
+        when(queueRepository.hasPendingRuns()).thenReturn(false);
+        when(queryService.getTrace(lease.runId())).thenReturn(
+            trace(lease.runId(), "RECEIVED"),
+            trace(lease.runId(), "CANCELLED")
+        );
+        when(chatExecutionService.executeWithTraceContext(
+            eq(lease.request()),
+            any(ChatRunTraceService.RunTraceContext.class),
+            any(ChatCancellationToken.class)
+        )).thenThrow(new ChatRunLeaseLostException("cancelled remotely"));
+
+        service.requestProcessing();
+        executor.runNext();
+
+        verify(traceService, never()).failRun(any(), any(), any());
+        verify(queueRepository).deleteQueueEntryIfOwned(lease);
     }
 
     private ChatRunExecutionService service(
@@ -740,8 +811,8 @@ class ChatRunExecutionServiceTest {
 
     private static class MapAccessor {
         @SuppressWarnings("unchecked")
-        static java.util.Map<String, ChatCancellationHandle> runningRuns(ChatRunExecutionService service) {
-            return (java.util.Map<String, ChatCancellationHandle>) ReflectionTestUtils.getField(service, "runningRuns");
+        static java.util.Map<String, ChatRunExecutionService.RunningChatRun> runningRuns(ChatRunExecutionService service) {
+            return (java.util.Map<String, ChatRunExecutionService.RunningChatRun>) ReflectionTestUtils.getField(service, "runningRuns");
         }
     }
 

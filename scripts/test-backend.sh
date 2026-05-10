@@ -56,7 +56,6 @@ require_docker_for_testcontainers() {
   local current_endpoint
   local effective_docker_host
   local socket_path
-  local server_min_api
 
   if ! command -v docker >/dev/null 2>&1; then
     echo "Docker-backed backend proof requires the docker CLI in PATH. Run this mode from a shell or CI runtime with Docker/Testcontainers access." >&2
@@ -74,8 +73,8 @@ require_docker_for_testcontainers() {
   fi
 
   if [[ -z "${DOCKER_HOST:-}" && "$effective_docker_host" != "unix:///var/run/docker.sock" ]]; then
-    echo "Docker CLI is using context '${current_context:-unknown}' via ${effective_docker_host}, but Testcontainers will not inherit Docker CLI contexts automatically in this runtime. Export DOCKER_HOST=${effective_docker_host} before running this mode, or use a shell/CI environment where Testcontainers already sees Docker." >&2
-    exit 1
+    echo "Docker CLI is using context '${current_context:-unknown}' via ${effective_docker_host}; exporting DOCKER_HOST for Testcontainers." >&2
+    export DOCKER_HOST="$effective_docker_host"
   fi
 
   if [[ "$effective_docker_host" == unix://* ]]; then
@@ -86,12 +85,9 @@ require_docker_for_testcontainers() {
     fi
   fi
 
-  if [[ -n "${CODEX_SHELL:-}" && "$effective_docker_host" != "unix:///var/run/docker.sock" ]]; then
-    server_min_api=$(DOCKER_HOST="$effective_docker_host" docker version --format '{{.Server.MinAPIVersion}}' 2>/dev/null || true)
-    if [[ -n "$server_min_api" ]]; then
-      echo "Docker-backed backend proof is known to fail in this Codex runtime when Docker is exposed through ${effective_docker_host} (context '${current_context:-unknown}'): Testcontainers in this repo negotiates an API version older than the daemon minimum ${server_min_api}. Run ./scripts/test-backend.sh here for repo logic proof, and run Docker-backed proof from a normal shell or CI with working Testcontainers." >&2
-      exit 1
-    fi
+  if [[ "$effective_docker_host" == *"/.colima/"* && -z "${TESTCONTAINERS_RYUK_DISABLED:-}" ]]; then
+    echo "Detected Colima Docker socket; disabling Testcontainers Ryuk for this run." >&2
+    export TESTCONTAINERS_RYUK_DISABLED=true
   fi
 
   if ! DOCKER_HOST="$effective_docker_host" docker info >/dev/null 2>&1; then

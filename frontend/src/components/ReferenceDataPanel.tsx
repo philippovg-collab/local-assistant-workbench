@@ -17,7 +17,7 @@ type ReferenceDataPanelProps = {
   knowledgePresets: ComponentProps<typeof KnowledgePresetLibraryPanel>;
   knowledgeFacets?: ComponentProps<typeof KnowledgePresetLibraryPanel>;
   referenceData: ReferenceDataController;
-  ragProjects?: RagProjectController;
+  ragProjects: RagProjectController;
   activeRagProjectKey?: string | null;
   onActiveRagProjectChange?: (projectKey: string) => void;
   showRagProjectSwitcher?: boolean;
@@ -27,14 +27,14 @@ export function ReferenceDataPanel({
   knowledgePresets,
   knowledgeFacets,
   referenceData,
-  ragProjects: ragProjectsController,
+  ragProjects,
   activeRagProjectKey = "general",
   onActiveRagProjectChange = () => undefined,
   showRagProjectSwitcher = true,
 }: ReferenceDataPanelProps) {
   const state = useReferenceDataPanelState({
     referenceData,
-    ragProjectsController,
+    ragProjectsController: ragProjects,
     activeRagProjectKey,
     onActiveRagProjectChange,
   });
