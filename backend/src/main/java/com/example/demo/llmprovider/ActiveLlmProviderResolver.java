@@ -81,6 +81,7 @@ public class ActiveLlmProviderResolver {
             defaultModel,
             embeddingModel,
             provider.temperature(),
+            llmProperties.getTopP(),
             provider.timeoutSeconds(),
             provider.expectedEmbeddingDimension(),
             provider.status(),

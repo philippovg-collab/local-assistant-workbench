@@ -66,6 +66,7 @@ class OllamaLlmClientTest {
         assertEquals(2, messages.size());
         assertEquals("system", messages.get(0).get("role").asText());
         assertEquals("user", messages.get(1).get("role").asText());
+        assertEquals(0.9d, payload.get("top_p").asDouble());
     }
 
     @Test
@@ -196,6 +197,7 @@ class OllamaLlmClientTest {
         properties.setBaseUrl("http://127.0.0.1:11434");
         properties.setApiKey("EMPTY");
         properties.setTimeoutSeconds(5);
+        properties.setTopP(0.9d);
         return properties;
     }
 

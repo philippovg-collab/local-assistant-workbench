@@ -26,6 +26,7 @@ app:
     model: "${APP_LLM_MODEL:qwen2.5:7b}"
     api-key: "${APP_LLM_API_KEY:}"
     temperature: 0.2
+    top-p: "${APP_LLM_TOP_P:0.9}"
     timeout-seconds: 600
     system-prompt: Ты локальная LLM модель. Отвечай по делу и понятно на русском языке.
   llm-provider:

@@ -2,6 +2,7 @@ package com.example.demo.service.context;
 
 import com.example.demo.config.ContextProperties;
 import com.example.demo.config.LlmProperties;
+import com.example.demo.llmprovider.ActiveLlmProviderResolver;
 import com.example.demo.model.ChatExecutionResponse;
 import com.example.demo.model.ChatSource;
 import com.example.demo.model.ContextAssemblySnapshotDetail;
@@ -27,6 +28,7 @@ import java.util.UUID;
 import java.util.concurrent.Executor;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -43,6 +45,7 @@ public class ConversationSummaryWorkerService {
 
     private final ContextProperties contextProperties;
     private final LlmProperties llmProperties;
+    private final ActiveLlmProviderResolver activeProviderResolver;
     private final ConversationSummaryRepository summaryRepository;
     private final ConversationRepository conversationRepository;
     private final ChatRunTraceRepository traceRepository;
@@ -51,6 +54,29 @@ public class ConversationSummaryWorkerService {
     private final Executor executor;
     private final AtomicBoolean scheduled = new AtomicBoolean(false);
     private final String workerId = ManagementFactory.getRuntimeMXBean().getName() + "-summary-" + UUID.randomUUID();
+
+    @Autowired
+    public ConversationSummaryWorkerService(
+        ContextProperties contextProperties,
+        LlmProperties llmProperties,
+        ActiveLlmProviderResolver activeProviderResolver,
+        ConversationSummaryRepository summaryRepository,
+        ConversationRepository conversationRepository,
+        ChatRunTraceRepository traceRepository,
+        ContextAssemblyTraceRepository contextAssemblyTraceRepository,
+        ConversationSummaryService summaryService,
+        @Qualifier("conversationSummaryExecutor") Executor executor
+    ) {
+        this.contextProperties = contextProperties;
+        this.llmProperties = llmProperties;
+        this.activeProviderResolver = activeProviderResolver;
+        this.summaryRepository = summaryRepository;
+        this.conversationRepository = conversationRepository;
+        this.traceRepository = traceRepository;
+        this.contextAssemblyTraceRepository = contextAssemblyTraceRepository;
+        this.summaryService = summaryService;
+        this.executor = executor == null ? Runnable::run : executor;
+    }
 
     public ConversationSummaryWorkerService(
         ContextProperties contextProperties,
@@ -62,14 +88,17 @@ public class ConversationSummaryWorkerService {
         ConversationSummaryService summaryService,
         @Qualifier("conversationSummaryExecutor") Executor executor
     ) {
-        this.contextProperties = contextProperties;
-        this.llmProperties = llmProperties;
-        this.summaryRepository = summaryRepository;
-        this.conversationRepository = conversationRepository;
-        this.traceRepository = traceRepository;
-        this.contextAssemblyTraceRepository = contextAssemblyTraceRepository;
-        this.summaryService = summaryService;
-        this.executor = executor == null ? Runnable::run : executor;
+        this(
+            contextProperties,
+            llmProperties,
+            null,
+            summaryRepository,
+            conversationRepository,
+            traceRepository,
+            contextAssemblyTraceRepository,
+            summaryService,
+            executor
+        );
     }
 
     @EventListener(ApplicationReadyEvent.class)
@@ -244,6 +273,12 @@ public class ConversationSummaryWorkerService {
             ChatExecutionResponse response = traceRepository.findResult(turns.get(index).runId()).orElse(null);
             if (response != null && StringUtils.hasText(response.model())) {
                 return response.model();
+            }
+        }
+        if (activeProviderResolver != null) {
+            String activeDefaultModel = activeProviderResolver.defaultChatModel();
+            if (StringUtils.hasText(activeDefaultModel)) {
+                return activeDefaultModel;
             }
         }
         return llmProperties.getModel();

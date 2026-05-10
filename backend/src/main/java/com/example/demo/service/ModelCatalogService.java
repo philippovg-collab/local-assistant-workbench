@@ -36,24 +36,26 @@ public class ModelCatalogService {
     }
 
     public List<OllamaModelInfo> listModels() {
+        String embeddingModel = embeddingModel();
         return llmClient.listModels().stream()
-            .filter(model -> !isEmbeddingModel(model))
+            .filter(model -> !isEmbeddingModel(model, embeddingModel))
             .toList();
     }
 
-    private boolean isEmbeddingModel(OllamaModelInfo model) {
+    private boolean isEmbeddingModel(OllamaModelInfo model, String embeddingModel) {
         if (model == null
             || !StringUtils.hasText(model.name())
-            || (embeddingProperties == null && activeProviderResolver == null)) {
-            return false;
-        }
-        String embeddingModel = activeProviderResolver == null
-            ? embeddingProperties.getModel()
-            : activeProviderResolver.activeEmbeddingModel();
-        if (!StringUtils.hasText(embeddingModel)) {
+            || !StringUtils.hasText(embeddingModel)) {
             return false;
         }
         return normalizeModelName(model.name()).equals(normalizeModelName(embeddingModel));
+    }
+
+    private String embeddingModel() {
+        if (activeProviderResolver != null) {
+            return activeProviderResolver.activeEmbeddingModel();
+        }
+        return embeddingProperties == null ? null : embeddingProperties.getModel();
     }
 
     private String normalizeModelName(String modelName) {

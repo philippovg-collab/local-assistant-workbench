@@ -513,6 +513,7 @@ class LlmProviderServiceTest {
             null,
             embeddingModel,
             0.2,
+            0.9d,
             600,
             3,
             LlmProviderStatus.UNKNOWN,

@@ -169,6 +169,7 @@ class LlmProviderProbeServiceTest {
             provider.defaultModel(),
             provider.embeddingModel(),
             provider.temperature(),
+            0.9d,
             provider.timeoutSeconds(),
             provider.expectedEmbeddingDimension(),
             provider.status(),

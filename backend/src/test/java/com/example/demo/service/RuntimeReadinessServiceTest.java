@@ -344,6 +344,7 @@ class RuntimeReadinessServiceTest {
             model,
             null,
             0.2,
+            0.9d,
             600,
             null,
             LlmProviderStatus.UNKNOWN,

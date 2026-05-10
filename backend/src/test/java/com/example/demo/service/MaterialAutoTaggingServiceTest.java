@@ -4,11 +4,14 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import com.example.demo.config.LlmProperties;
 import com.example.demo.config.MaterialProperties;
 import com.example.demo.llm.LlmClient;
 import com.example.demo.llm.LlmTracingClient;
+import com.example.demo.llmprovider.ActiveLlmProviderResolver;
 import com.example.demo.model.OllamaModelInfo;
 import com.example.demo.service.material.MaterialMetadataHints;
 import java.util.List;
@@ -42,6 +45,28 @@ class MaterialAutoTaggingServiceTest {
         assertTrue(prompt.contains("Главный источник: текст материала"));
         assertTrue(prompt.contains("Материал описывает релейную защиту трансформатора"));
         assertTrue(prompt.contains("Ручные теги: manual grid"));
+    }
+
+    @Test
+    void usesActiveChatProviderModelForAutoTagging() {
+        CapturingLlmClient llmClient = new CapturingLlmClient();
+        llmClient.nextAnswer = "{\"tags\":[\"active model\"]}";
+        ActiveLlmProviderResolver activeProviderResolver = mock(ActiveLlmProviderResolver.class);
+        when(activeProviderResolver.defaultChatModel()).thenReturn("active-chat-model");
+        MaterialAutoTaggingService service = createService(llmClient, new MaterialProperties(), activeProviderResolver);
+
+        List<String> tags = service.suggestTags(new MaterialAutoTaggingService.TaggingRequest(
+            "Grid memo",
+            "text",
+            null,
+            "text/plain",
+            "Материал описывает релейную защиту трансформатора и диспетчерский процесс.",
+            List.of(),
+            MaterialMetadataHints.empty()
+        ));
+
+        assertEquals(List.of("active model"), tags);
+        assertEquals("active-chat-model", llmClient.lastRequest.model());
     }
 
     @Test
@@ -130,11 +155,27 @@ class MaterialAutoTaggingServiceTest {
         CapturingLlmClient llmClient,
         MaterialProperties materialProperties
     ) {
+        return createService(llmClient, materialProperties, null);
+    }
+
+    private MaterialAutoTaggingService createService(
+        CapturingLlmClient llmClient,
+        MaterialProperties materialProperties,
+        ActiveLlmProviderResolver activeProviderResolver
+    ) {
         LlmProperties llmProperties = new LlmProperties();
         llmProperties.setModel("test-model");
+        if (activeProviderResolver == null) {
+            return new MaterialAutoTaggingService(
+                new LlmTracingClient(llmClient),
+                llmProperties,
+                materialProperties
+            );
+        }
         return new MaterialAutoTaggingService(
             new LlmTracingClient(llmClient),
             llmProperties,
+            activeProviderResolver,
             materialProperties
         );
     }

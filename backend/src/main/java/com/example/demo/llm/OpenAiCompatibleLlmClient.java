@@ -121,6 +121,7 @@ public class OpenAiCompatibleLlmClient implements LlmClient {
                 .map(message -> new OpenAiMessage(message.role(), message.content()))
                 .toList(),
             provider.temperature(),
+            provider.topP(),
             false
         );
 
@@ -251,6 +252,7 @@ public class OpenAiCompatibleLlmClient implements LlmClient {
         String model,
         List<OpenAiMessage> messages,
         double temperature,
+        @JsonProperty("top_p") double topP,
         boolean stream
     ) {
     }
