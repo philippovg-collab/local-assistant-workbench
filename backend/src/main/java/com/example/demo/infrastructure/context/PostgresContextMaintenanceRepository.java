@@ -8,6 +8,7 @@ import com.example.demo.service.memory.port.MemoryRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.sql.Timestamp;
 import java.time.Instant;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -32,6 +33,7 @@ public class PostgresContextMaintenanceRepository implements ContextMaintenanceR
         );
     }
 
+    @Autowired
     public PostgresContextMaintenanceRepository(
         JdbcTemplate jdbcTemplate,
         PlatformTransactionManager transactionManager,

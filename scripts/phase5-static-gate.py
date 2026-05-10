@@ -297,6 +297,11 @@ def check_weak_runtime_credentials_absent() -> list[Violation]:
             "POSTGRES_PASSWORD:-ragstudio",
             "Do not ship weak PostgreSQL password fallbacks in production compose.",
         ),
+        (
+            re.compile(r"APP_LLM_PROVIDER_SECRET_KEY\s*=\s*change-[^\s#]*\b", re.IGNORECASE),
+            "placeholder APP_LLM_PROVIDER_SECRET_KEY",
+            "Production-facing LLM provider secret keys must be empty or supplied from secrets, never committed placeholder values.",
+        ),
     )
     frontend_password_prefill = re.compile(
         r"\b(password|setPassword)\b[^\n]*useState\(\s*[\"'`]admin[\"'`]\s*\)",

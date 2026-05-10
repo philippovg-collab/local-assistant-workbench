@@ -143,6 +143,104 @@ class JdbcLlmProviderRepositoryIT extends PostgresIntegrationTestSupport {
     }
 
     @Test
+    void activateAndFallbackSwitchOnlyRequestedPurpose() {
+        Instant now = Instant.parse("2026-05-10T10:00:00Z");
+        UUID oldChatId = UUID.randomUUID();
+        UUID oldEmbeddingId = UUID.randomUUID();
+        UUID nextId = UUID.randomUUID();
+        repository.insert(provider(oldChatId, "Old Chat", "https://old-chat.internal", null, true, false, now));
+        repository.insert(provider(oldEmbeddingId, "Old Embedding", "https://old-embedding.internal", null, false, true, now));
+        repository.insert(provider(nextId, "Next Provider", "https://next.internal", null, false, false, now));
+
+        LlmProviderConfig activeChat = repository.activate(
+            nextId,
+            LlmProviderPurpose.CHAT,
+            now.plusSeconds(10)
+        );
+
+        assertTrue(activeChat.activeChat());
+        assertFalse(activeChat.activeEmbedding());
+        assertEquals(nextId, repository.findActiveChat().orElseThrow().id());
+        assertEquals(oldEmbeddingId, repository.findActiveEmbedding().orElseThrow().id());
+        assertFalse(repository.findById(oldChatId).orElseThrow().activeChat());
+
+        repository.activateFallback(LlmProviderPurpose.CHAT, now.plusSeconds(20));
+
+        assertTrue(repository.findActiveChat().isEmpty());
+        assertEquals(oldEmbeddingId, repository.findActiveEmbedding().orElseThrow().id());
+
+        repository.activateFallback(LlmProviderPurpose.EMBEDDING, now.plusSeconds(30));
+
+        assertTrue(repository.findActiveEmbedding().isEmpty());
+    }
+
+    @Test
+    void updateProbeResultPersistsStatusAndPreservesLastSuccessOnFailure() {
+        Instant now = Instant.parse("2026-05-10T10:00:00Z");
+        UUID id = UUID.randomUUID();
+        repository.insert(provider(id, "Probe Target", "https://probe.internal", null, false, false, now));
+        Instant successfulProbeAt = now.plusSeconds(60);
+
+        LlmProviderConfig up = repository.updateProbeResult(
+            id,
+            LlmProviderStatus.UP,
+            successfulProbeAt,
+            successfulProbeAt,
+            null,
+            null
+        );
+        LlmProviderConfig down = repository.updateProbeResult(
+            id,
+            LlmProviderStatus.DOWN,
+            now.plusSeconds(120),
+            null,
+            "llm.provider_unavailable",
+            "Unable to reach provider"
+        );
+
+        assertEquals(LlmProviderStatus.UP, up.status());
+        assertEquals(successfulProbeAt, up.lastSuccessfulProbeAt());
+        assertEquals(LlmProviderStatus.DOWN, down.status());
+        assertEquals(now.plusSeconds(120), down.lastProbeAt());
+        assertEquals(successfulProbeAt, down.lastSuccessfulProbeAt());
+        assertEquals("llm.provider_unavailable", down.lastErrorCode());
+        assertEquals("Unable to reach provider", down.lastErrorMessage());
+    }
+
+    @Test
+    void updatePreservesExistingCiphertextWhenCarriedAndClearsExplicitNullCiphertext() {
+        Instant now = Instant.parse("2026-05-10T10:00:00Z");
+        UUID id = UUID.randomUUID();
+        LlmProviderConfig original = repository.insert(provider(
+            id,
+            "Secret Provider",
+            "https://secret.internal",
+            "v1:original-cipher",
+            false,
+            false,
+            now
+        ));
+
+        LlmProviderConfig preserved = repository.update(withCiphertext(
+            original,
+            "Renamed Secret Provider",
+            "v1:original-cipher",
+            now.plusSeconds(30)
+        ));
+        LlmProviderConfig cleared = repository.update(withCiphertext(
+            preserved,
+            "Cleared Secret Provider",
+            null,
+            now.plusSeconds(60)
+        ));
+
+        assertEquals("Renamed Secret Provider", preserved.name());
+        assertEquals("v1:original-cipher", preserved.apiKeyCiphertext());
+        assertEquals("Cleared Secret Provider", cleared.name());
+        assertEquals(null, cleared.apiKeyCiphertext());
+    }
+
+    @Test
     void deleteInactiveByIdDoesNotDeleteActiveProvider() {
         UUID id = UUID.randomUUID();
         repository.insert(provider(
@@ -235,6 +333,41 @@ class JdbcLlmProviderRepositoryIT extends PostgresIntegrationTestSupport {
             null,
             now,
             now
+        );
+    }
+
+    private LlmProviderConfig withCiphertext(
+        LlmProviderConfig provider,
+        String name,
+        String apiKeyCiphertext,
+        Instant updatedAt
+    ) {
+        return new LlmProviderConfig(
+            provider.id(),
+            name,
+            provider.providerType(),
+            provider.purpose(),
+            provider.baseUrl(),
+            apiKeyCiphertext,
+            provider.authHeaderName(),
+            provider.authScheme(),
+            provider.chatCompletionsPath(),
+            provider.modelsPath(),
+            provider.embeddingsPath(),
+            provider.defaultModel(),
+            provider.embeddingModel(),
+            provider.temperature(),
+            provider.timeoutSeconds(),
+            provider.expectedEmbeddingDimension(),
+            provider.activeChat(),
+            provider.activeEmbedding(),
+            provider.status(),
+            provider.lastProbeAt(),
+            provider.lastSuccessfulProbeAt(),
+            provider.lastErrorCode(),
+            provider.lastErrorMessage(),
+            provider.createdAt(),
+            updatedAt
         );
     }
 }

@@ -154,8 +154,11 @@ APP_CONTEXT_LONG_TERM_MEMORY_ENABLED
 ```
 
 Корпоративные OpenAI-compatible endpoints можно добавлять в UI: `Настройки -> LLM подключения`.
-Если provider не активирован, backend продолжает использовать `APP_LLM_*` и `APP_EMBEDDINGS_*`.
-Для сохранения API key через UI задайте `APP_LLM_PROVIDER_SECRET_KEY`; без него providers без ключа сохраняются, а secret-поля отклоняются.
+Если provider не активирован, backend продолжает использовать `APP_LLM_*` для chat и `APP_EMBEDDINGS_*` для embeddings.
+В UI можно завести отдельные подключения для Chat и Embeddings, проверить endpoint через Probe/Models и активировать каждое назначение отдельно.
+Для сохранения API key через UI задайте длинный случайный `APP_LLM_PROVIDER_SECRET_KEY`; без него providers без ключа сохраняются, а secret-поля отклоняются.
+Ответы REST, health и UI показывают только `hasApiKey`, но не API key и не ciphertext.
+Смена активного embedding provider может поставить активные материалы на переиндексацию, если изменилась embedding model/dimension fingerprint.
 Context Manager остается default-off до релизного proof; эффективное состояние флагов видно в `/api/health.contextFeatures`.
 
 По умолчанию backend ожидает базу:

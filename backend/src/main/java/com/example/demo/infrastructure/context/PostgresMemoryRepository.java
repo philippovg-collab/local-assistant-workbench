@@ -1,5 +1,6 @@
 package com.example.demo.infrastructure.context;
 
+import com.example.demo.error.ApplicationException;
 import com.example.demo.error.ErrorType;
 import com.example.demo.error.StorageException;
 import com.example.demo.model.MemoryEntryAction;
@@ -276,6 +277,7 @@ public class PostgresMemoryRepository implements MemoryRepository {
                 if (updated == 0) {
                     throw notFoundOrInvalidState("memory.delete_invalid_state", "Memory entry is already deleted or does not exist");
                 }
+                redactDeletedMemoryFromSnapshots(entryId);
                 recordAction(entryId, MemoryEntryAction.DELETE, actor, reason, now);
                 return findEntry(entryId).orElseThrow();
             });
@@ -675,10 +677,10 @@ public class PostgresMemoryRepository implements MemoryRepository {
                     if (existing.isPresent() && !failOnDuplicate) {
                         return existing.get();
                     }
-                    throw storageFailure(
+                    throw new ApplicationException(
+                        ErrorType.CONFLICT,
                         "memory.duplicate_active_key",
-                        "An active memory entry with the same normalized key already exists",
-                        null
+                        "An active memory entry with the same normalized key already exists"
                     );
                 }
                 recordAction(inserted.getFirst().id(), MemoryEntryAction.CREATE, actor, reason, now);
@@ -815,6 +817,30 @@ public class PostgresMemoryRepository implements MemoryRepository {
         }
     }
 
+    private void redactDeletedMemoryFromSnapshots(String entryId) {
+        jdbcTemplate.update(
+            """
+                UPDATE context_assembly_snapshots snapshot
+                SET selected_memory_jsonb = (
+                    SELECT COALESCE(
+                        jsonb_agg(
+                            CASE
+                                WHEN item.value ->> 'id' = ? THEN item.value - 'contentText'
+                                ELSE item.value
+                            END
+                            ORDER BY item.ordinality
+                        ),
+                        '[]'::jsonb
+                    )
+                    FROM jsonb_array_elements(snapshot.selected_memory_jsonb) WITH ORDINALITY AS item(value, ordinality)
+                )
+                WHERE snapshot.selected_memory_jsonb @> jsonb_build_array(jsonb_build_object('id', ?))
+                """,
+            entryId,
+            entryId
+        );
+    }
+
     private void recordAction(String entryId, MemoryEntryAction action, String actor, String reason, Instant now) {
         jdbcTemplate.update(
             """
@@ -926,8 +952,8 @@ public class PostgresMemoryRepository implements MemoryRepository {
         return timestamp == null ? null : timestamp.toInstant();
     }
 
-    private static StorageException notFoundOrInvalidState(String code, String message) {
-        return new StorageException(ErrorType.STORAGE_FAILURE, code, message);
+    private static ApplicationException notFoundOrInvalidState(String code, String message) {
+        return new ApplicationException(ErrorType.INVALID_REQUEST, code, message);
     }
 
     private static StorageException storageFailure(String code, String message, DataAccessException exception) {

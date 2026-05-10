@@ -90,6 +90,9 @@ const conversationDetail: ConversationDetail = {
       periodEndTo: null,
     },
     instructionIds: ["sticky-instruction"],
+    scenarioInstructionIds: ["sticky-scenario"],
+    version: 1,
+    updatedFromRunId: "run-1",
   },
 };
 
@@ -148,10 +151,64 @@ function Harness({
   );
 }
 
+function RefreshHarness() {
+  const [instructionIds, setInstructionIds] = useState<string[]>([]);
+  const [detail, setDetail] = useState<ConversationDetail>(conversationDetail);
+  const chat = useChatExecution({
+    mode: "rag",
+    initialModel: "initial-model",
+    initialPrompt: "а дальше?",
+    initialAnswerMode: "brief",
+    rolloutFlags: {
+      metadataV1: true,
+      structuredV1: true,
+      metadataFiltersV1: true,
+      searchApiV1: true,
+      rerankerV1: true,
+      queryHintsV1: true,
+    },
+    selectedInstructionIds: instructionIds,
+    workspaceKey: "grid",
+  });
+  const conversationChat = useConversationChatExecution({
+    chat,
+    conversationsEnabled: true,
+    conversationId: "conversation-1",
+    conversationDetail: detail,
+    setSelectedInstructionIds: setInstructionIds,
+  });
+
+  return (
+    <section>
+      <output data-testid="model">{conversationChat.model}</output>
+      <output data-testid="instruction-ids">{instructionIds.join(",")}</output>
+      <button
+        type="button"
+        onClick={() => setDetail({
+          ...conversationDetail,
+          updatedAt: "2026-05-10T00:00:10Z",
+          stickyState: {
+            ...conversationDetail.stickyState,
+            model: "refreshed-model",
+            instructionIds: ["refreshed-instruction"],
+            scenarioInstructionIds: ["refreshed-scenario"],
+            version: 2,
+            updatedFromRunId: "run-2",
+            updatedAt: "2026-05-10T00:00:10Z",
+          },
+        })}
+      >
+        refresh-sticky
+      </button>
+    </section>
+  );
+}
+
 describe("useConversationChatExecution", () => {
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
+    vi.unstubAllGlobals();
   });
 
   it("seeds controls from sticky state and omits clean inherited fields", async () => {
@@ -160,7 +217,7 @@ describe("useConversationChatExecution", () => {
 
     await waitFor(() => expect(screen.getByTestId("model").textContent).toBe("sticky-model"));
     expect(screen.getByTestId("answer-mode").textContent).toBe("strict_sources_only");
-    expect(screen.getByTestId("instruction-ids").textContent).toBe("sticky-instruction");
+    expect(screen.getByTestId("instruction-ids").textContent).toBe("sticky-instruction,sticky-scenario");
 
     await user.click(screen.getByRole("button", { name: "submit" }));
 
@@ -207,5 +264,40 @@ describe("useConversationChatExecution", () => {
     expect(request.clientTurnId).toBeUndefined();
     expect(request.contextOptions).toBeUndefined();
     expect(request.model).toBe("initial-model");
+  });
+
+  it("generates a client turn id when conversations are enabled", async () => {
+    vi.stubGlobal("crypto", {
+      randomUUID: () => "client-turn-fixed",
+    });
+    const user = userEvent.setup();
+    render(<Harness selected={false} />);
+
+    await user.click(screen.getByRole("button", { name: "submit" }));
+
+    await waitFor(() => expect(apiClient.submitChatRun).toHaveBeenCalled());
+    const request = vi.mocked(apiClient.submitChatRun).mock.calls[0][0] as ChatExecutionRequest;
+    expect(request.persistConversation).toBe(true);
+    expect(request.conversationId).toBeUndefined();
+    expect(request.clientTurnId).toBe("client-turn-fixed");
+    expect(request.contextOptions).toMatchObject({
+      resolveRetrievalQuery: true,
+      useStickyState: true,
+      useSummary: true,
+      useLongTermMemory: false,
+    });
+  });
+
+  it("re-seeds controls when the same conversation reloads with a newer sticky version", async () => {
+    const user = userEvent.setup();
+    render(<RefreshHarness />);
+
+    await waitFor(() => expect(screen.getByTestId("model").textContent).toBe("sticky-model"));
+    expect(screen.getByTestId("instruction-ids").textContent).toBe("sticky-instruction,sticky-scenario");
+
+    await user.click(screen.getByRole("button", { name: "refresh-sticky" }));
+
+    await waitFor(() => expect(screen.getByTestId("model").textContent).toBe("refreshed-model"));
+    expect(screen.getByTestId("instruction-ids").textContent).toBe("refreshed-instruction,refreshed-scenario");
   });
 });

@@ -48,6 +48,16 @@ class MemoryCandidateExtractionServiceTest {
     }
 
     @Test
+    void inferredPrivateAttributesAreRejectedBeforePersistence() {
+        assertTrue(service.extractCandidates(
+            run("Remember: I guess the user has a medical disability"),
+            "workspace-a",
+            "project-a"
+        ).isEmpty());
+        assertTrue(repository.capturedDrafts.isEmpty());
+    }
+
+    @Test
     void bearerTokensAreRedactedFromCandidateContentAndPreview() {
         List<MemoryEntryResponse> candidates = service.extractCandidates(
             run("Remember: Authorization: Bearer live-token"),

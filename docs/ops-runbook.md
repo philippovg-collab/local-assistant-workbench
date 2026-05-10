@@ -93,6 +93,34 @@ The first request after pulling or restarting a larger model can take several mi
 
 `/api/models` lists chat models only. `nomic-embed-text` is filtered from that catalog because it is used by the embedding client for indexing and retrieval, not for chat completion.
 
+## UI-Managed LLM Providers
+
+Use `Settings -> LLM подключения` to register corporate OpenAI-compatible gateways without redeploying the backend. Only `OPENAI_COMPATIBLE` providers are supported in this milestone.
+
+Required fields:
+
+- `Base URL`: gateway origin, for example `http://10.9.120.3:8000`.
+- `Default chat model`: required before activating a provider for Chat.
+- `Embedding model` and `Expected embedding dimension`: required before activating a provider for Embeddings.
+- Provider paths default to `/v1/chat/completions`, `/v1/models`, and `/v1/embeddings`.
+
+API keys saved through the UI are encrypted with `APP_LLM_PROVIDER_SECRET_KEY`. Leave the key empty only when all saved providers are keyless or when operators use env fallback exclusively. If a user tries to save an API key without `APP_LLM_PROVIDER_SECRET_KEY`, the request fails closed; existing env fallback remains usable.
+
+Operational flow:
+
+1. Create the provider without activating it.
+2. Run `Models`; a `404` or `405` models endpoint can be acceptable if `Probe` reports `DEGRADED` and chat/embeddings are healthy.
+3. Run `Probe`; responses and stored status must not include API keys or ciphertext.
+4. Activate Chat and Embeddings separately. Activating Embeddings may enqueue active materials for reindexing when the embedding provider fingerprint changes.
+5. Use `Chat env fallback` or `Embeddings env fallback` to roll a purpose back to `APP_LLM_*` or `APP_EMBEDDINGS_*`.
+
+Health fields:
+
+- `activeChatProvider` and `activeEmbeddingProvider` identify the selected DB provider or env fallback without secrets.
+- `llmStatus` reports model catalog readiness for the active chat provider; unsupported model catalogs are `DEGRADED` when chat still works.
+- `directStatus` reports direct chat execution readiness.
+- `embeddingStatus` reports the active embedding provider readiness.
+
 ## Chat Run Lifecycle
 
 Production chat execution is durable:
@@ -308,3 +336,6 @@ If the original document changed or raw extraction must run again, upload a new 
 | Docker Ollama was started from another folder | `APP_SECURITY_ADMIN_PASSWORD=<current-password> ./scripts/local-runtime-diagnostics.zsh` | Restart this repository's Compose stack or pull the missing model into the running `ragstudio-ollama-1` container. |
 | Model is installed but absent from UI | `curl http://127.0.0.1:8080/api/models` after login | Pull it into the Ollama instance used by backend. |
 | RAG is blocked while chat model is visible | `curl http://127.0.0.1:8080/api/health` after login | Check `embeddingStatus`; RAG needs `nomic-embed-text`. |
+| UI rejects API key save | Check `APP_LLM_PROVIDER_SECRET_KEY` in backend env | Set a long random secret and restart backend, or save only keyless providers. |
+| Corporate `/v1/models` returns 404/405 | Run provider `Probe` | Accept `DEGRADED` only if chat/embeddings checks pass; otherwise fix the endpoint path or model names. |
+| RAG changed after embedding activation | Check `/api/health` indexing queue fields | Wait for reindexing to drain; rollback with `Embeddings env fallback` if the provider was wrong. |

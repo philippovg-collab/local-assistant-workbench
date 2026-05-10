@@ -34,22 +34,88 @@ describe("ConversationThreadPanel", () => {
     expect(screen.getByText("sticky-model")).toBeTruthy();
   });
 
-  it("handles a missing context snapshot without hiding the run", async () => {
+  it("renders not available payloads without hiding the run", async () => {
+    vi.mocked(apiClient.fetchChatRunContext).mockResolvedValue(snapshot({
+      status: "NOT_AVAILABLE",
+      reasonCode: "context_assembly.not_available",
+      reasonMessage: "Context assembly was not created for this run.",
+      contextAssemblyId: null,
+      selectedHistory: [],
+      droppedItems: [],
+      tokenBudget: {
+        max: 0,
+        used: 0,
+        remaining: 0,
+        history: 0,
+        summary: 0,
+        retrieval: 0,
+        dropped: 0,
+      },
+    }));
+
+    render(panel());
+
+    expect(await screen.findByText("NOT_AVAILABLE")).toBeTruthy();
+    expect(screen.getByText("Context assembly was not created for this run.")).toBeTruthy();
+    expect(screen.getByText(/#2 сделай короче/)).toBeTruthy();
+  });
+
+  it("renders expired only when the backend payload says expired", async () => {
+    vi.mocked(apiClient.fetchChatRunContext).mockResolvedValue(snapshot({
+      status: "EXPIRED",
+      reasonCode: "context_assembly.expired",
+      reasonMessage: "Context assembly snapshot has expired.",
+      contextAssemblyId: null,
+      selectedHistory: [],
+      droppedItems: [],
+    }));
+
+    render(panel());
+
+    expect(await screen.findByText("EXPIRED")).toBeTruthy();
+    expect(screen.getByText("Context assembly snapshot has expired.")).toBeTruthy();
+  });
+
+  it("renders API 404 unknown runs as not found without calling them expired", async () => {
     vi.mocked(apiClient.fetchChatRunContext).mockRejectedValue(Object.assign(new Error("not found"), { status: 404 }));
 
     render(panel());
 
-    expect(await screen.findByText("Context snapshot уже недоступен.")).toBeTruthy();
+    expect(await screen.findByText("NOT_FOUND")).toBeTruthy();
+    expect(screen.getByText("Запуск не найден; context snapshot недоступен.")).toBeTruthy();
+    expect(screen.queryByText("EXPIRED")).toBeNull();
+    expect(screen.queryByText("Context snapshot уже недоступен.")).toBeNull();
     expect(screen.getByText(/#2 сделай короче/)).toBeTruthy();
+  });
+
+  it("renders lifecycle statuses from backend run details", () => {
+    render(panel({
+      runs: [
+        run({ runId: "run-1", turnNo: 1, status: "RECEIVED" }),
+        run({ runId: "run-2", turnNo: 2, status: "COMPLETED" }),
+        run({ runId: "run-3", turnNo: 3, status: "FAILED", failureMessage: "Provider failed" }),
+        run({ runId: "run-4", turnNo: 4, status: "CANCELLED" }),
+      ],
+      currentRunId: null,
+    }));
+
+    expect(screen.getByText("RECEIVED")).toBeTruthy();
+    expect(screen.getByText("COMPLETED")).toBeTruthy();
+    expect(screen.getByText("FAILED")).toBeTruthy();
+    expect(screen.getByText("CANCELLED")).toBeTruthy();
+    expect(screen.getByText("Provider failed")).toBeTruthy();
   });
 });
 
-function panel() {
+function panel(overrides: {
+  runs?: ConversationRunDetail[];
+  currentRunId?: string | null;
+} = {}) {
   return (
     <ConversationThreadPanel
       conversations={[conversation()]}
-      currentRunId="run-2"
-      runs={[run()]}
+      currentRunId={overrides.currentRunId ?? "run-2"}
+      runs={overrides.runs ?? [run()]}
       selectedConversationId="conversation-1"
       onArchiveConversation={async () => undefined}
       onCreateConversation={async () => undefined}
@@ -71,7 +137,7 @@ function conversation(): ConversationSummary {
   };
 }
 
-function run(): ConversationRunDetail {
+function run(overrides: Partial<ConversationRunDetail> = {}): ConversationRunDetail {
   return {
     conversationId: "conversation-1",
     runId: "run-2",
@@ -83,10 +149,11 @@ function run(): ConversationRunDetail {
     statusUrl: "/api/chat-runs/run-2/status",
     traceUrl: "/api/chat-runs/run-2/trace",
     resultUrl: "/api/chat-runs/run-2/result",
+    ...overrides,
   };
 }
 
-function snapshot(): ChatRunContextDetail {
+function snapshot(overrides: Partial<ChatRunContextDetail> = {}): ChatRunContextDetail {
   return {
     status: "AVAILABLE",
     runId: "run-2",
@@ -138,5 +205,6 @@ function snapshot(): ChatRunContextDetail {
       },
     },
     createdAt: "2026-05-10T00:00:00Z",
+    ...overrides,
   };
 }

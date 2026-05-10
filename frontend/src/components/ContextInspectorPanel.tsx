@@ -18,7 +18,7 @@ import type {
 
 type ContextInspectorPanelProps = {
   context: ChatRunContextDetail | null;
-  status: "idle" | "loading" | "missing" | "error";
+  status: "idle" | "loading" | "not_found" | "error";
   run: ConversationRunDetail | null;
 };
 
@@ -35,7 +35,7 @@ const tabs: Array<{ id: InspectorTab; label: string }> = [
 
 export function ContextInspectorPanel({ context, status, run }: ContextInspectorPanelProps) {
   const [activeTab, setActiveTab] = useState<InspectorTab>("overview");
-  const contextStatus = context?.status ?? (status === "missing" ? "EXPIRED" : status.toUpperCase());
+  const contextStatus = context?.status ?? { idle: "IDLE", loading: "LOADING", not_found: "NOT_FOUND", error: "ERROR" }[status];
   const statusVariant: BadgeProps["variant"] = contextStatus === "AVAILABLE"
     ? "success"
     : contextStatus === "EXPIRED"
@@ -88,7 +88,7 @@ export function ContextInspectorPanel({ context, status, run }: ContextInspector
       <div className="mt-3 min-h-[112px] text-xs text-muted-foreground">
         {!context && status === "loading" && <EmptyLine text="Загружаем context snapshot." />}
         {!context && status === "error" && <EmptyLine text="Inspector сейчас недоступен." />}
-        {!context && status === "missing" && <EmptyLine text="Context snapshot уже недоступен." />}
+        {!context && status === "not_found" && <EmptyLine text="Запуск не найден; context snapshot недоступен." />}
         {context && activeTab === "overview" && <OverviewTab context={context} />}
         {context && activeTab === "history" && <HistoryTab items={context.selectedHistory ?? []} />}
         {context && activeTab === "memory" && <MemoryTab context={context} items={context.selectedMemory ?? []} />}

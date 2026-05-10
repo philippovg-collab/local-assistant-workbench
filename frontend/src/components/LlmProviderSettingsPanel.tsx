@@ -34,6 +34,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type {
+  LlmProviderModelInfo,
   LlmProviderPurpose,
   LlmProviderStatus,
 } from "@/types";
@@ -60,8 +61,22 @@ const purposeLabel = (purpose?: LlmProviderPurpose | null) => {
   if (purpose === "EMBEDDING") {
     return "Embeddings";
   }
-  return "Chat + Embeddings";
+  if (purpose === "CHAT_AND_EMBEDDING") {
+    return "Chat + Embeddings";
+  }
+  return "Не задано";
 };
+
+const supportsChatActivation = (purpose?: LlmProviderPurpose | null) =>
+  purpose === "CHAT" || purpose === "CHAT_AND_EMBEDDING";
+
+const supportsEmbeddingActivation = (purpose?: LlmProviderPurpose | null) =>
+  purpose === "EMBEDDING" || purpose === "CHAT_AND_EMBEDDING";
+
+const modelNames = (models?: LlmProviderModelInfo[] | null) =>
+  models
+    ?.map((model) => model.name?.trim())
+    .filter((name): name is string => Boolean(name)) ?? [];
 
 export function LlmProviderSettingsPanel() {
   const {
@@ -103,7 +118,7 @@ export function LlmProviderSettingsPanel() {
               Embeddings: {activeEmbeddingProvider?.name ?? "env fallback"}
             </Badge>
           </div>
-          <h2 className="text-2xl font-semibold tracking-[-0.04em] text-foreground">
+          <h2 className="text-2xl font-semibold text-foreground">
             Корпоративные OpenAI-compatible endpoints
           </h2>
         </div>
@@ -151,6 +166,14 @@ export function LlmProviderSettingsPanel() {
               {providers.map((provider) => {
                 const probe = provider.id ? probeResults[provider.id] : null;
                 const models = provider.id ? modelResults[provider.id] : null;
+                const remoteModelNames = modelNames(models);
+                const status = probe?.status ?? provider.status ?? "UNKNOWN";
+                const lastProbeAt = probe?.checkedAt ?? provider.lastProbeAt;
+                const latencyMs = probe?.latencyMs ?? null;
+                const statusError = probe?.errorMessage ?? provider.lastErrorMessage;
+                const canActivateChat = supportsChatActivation(provider.purpose);
+                const canActivateEmbedding = supportsEmbeddingActivation(provider.purpose);
+                const isActive = provider.activeChat || provider.activeEmbedding;
                 return (
                   <tr key={provider.id ?? provider.name} className="align-top">
                     <td className="px-4 py-4">
@@ -173,14 +196,30 @@ export function LlmProviderSettingsPanel() {
                       <div className="space-y-1 text-muted-foreground">
                         <div>{provider.defaultModel || "chat model не задана"}</div>
                         <div>{provider.embeddingModel || "embedding model не задана"}</div>
-                        {models ? <Badge variant="secondary">{models.length} remote</Badge> : null}
+                        {models ? (
+                          <div className="space-y-2">
+                            <Badge variant="secondary">{models.length} remote</Badge>
+                            {remoteModelNames.length > 0 ? (
+                              <ul className="max-w-[260px] space-y-1 text-xs normal-case tracking-normal text-foreground">
+                                {remoteModelNames.slice(0, 6).map((name, index) => (
+                                  <li className="break-all" key={`${name}-${index}`}>
+                                    {name}
+                                  </li>
+                                ))}
+                                {remoteModelNames.length > 6 ? (
+                                  <li className="text-muted-foreground">+{remoteModelNames.length - 6} еще</li>
+                                ) : null}
+                              </ul>
+                            ) : null}
+                          </div>
+                        ) : null}
                       </div>
                     </td>
                     <td className="px-4 py-4">
-                      <Badge variant={statusVariant(provider.status)}>{provider.status ?? "UNKNOWN"}</Badge>
-                      {probe?.errorMessage ? (
+                      <Badge variant={statusVariant(status)}>{status}</Badge>
+                      {statusError ? (
                         <p className="mt-2 max-w-[240px] text-xs leading-5 text-muted-foreground">
-                          {probe.errorMessage}
+                          {statusError}
                         </p>
                       ) : null}
                     </td>
@@ -192,8 +231,8 @@ export function LlmProviderSettingsPanel() {
                       </div>
                     </td>
                     <td className="px-4 py-4 text-muted-foreground">
-                      <div>{provider.lastProbeAt ? formatDate(provider.lastProbeAt) : "Пока нет"}</div>
-                      {probe?.latencyMs ? <div>{probe.latencyMs} ms</div> : null}
+                      <div>{lastProbeAt ? formatDate(lastProbeAt) : "Пока нет"}</div>
+                      {latencyMs != null ? <div>{latencyMs} ms</div> : null}
                     </td>
                     <td className="px-4 py-4">
                       <div className="flex flex-wrap justify-end gap-2">
@@ -209,15 +248,36 @@ export function LlmProviderSettingsPanel() {
                           <ListChecks />
                           Models
                         </Button>
-                        <Button disabled={isMutating} onClick={() => void activateProvider(provider, "CHAT")} size="sm" type="button" variant="outline">
+                        <Button
+                          disabled={isMutating || !canActivateChat}
+                          onClick={() => void activateProvider(provider, "CHAT")}
+                          size="sm"
+                          title={canActivateChat ? "Активировать provider для Chat" : "Provider не поддерживает Chat activation"}
+                          type="button"
+                          variant="outline"
+                        >
                           <CheckCircle2 />
-                          Chat
+                          {canActivateChat ? "Chat" : "Chat недоступен"}
                         </Button>
-                        <Button disabled={isMutating} onClick={() => void activateProvider(provider, "EMBEDDING")} size="sm" type="button" variant="outline">
+                        <Button
+                          disabled={isMutating || !canActivateEmbedding}
+                          onClick={() => void activateProvider(provider, "EMBEDDING")}
+                          size="sm"
+                          title={canActivateEmbedding ? "Активировать provider для Embeddings" : "Provider не поддерживает Embeddings activation"}
+                          type="button"
+                          variant="outline"
+                        >
                           <ServerCog />
-                          Embeddings
+                          {canActivateEmbedding ? "Embeddings" : "Embeddings недоступны"}
                         </Button>
-                        <Button disabled={isMutating || provider.activeChat || provider.activeEmbedding} onClick={() => void deleteProvider(provider)} size="sm" type="button" variant="destructive">
+                        <Button
+                          disabled={isMutating || isActive}
+                          onClick={() => void deleteProvider(provider)}
+                          size="sm"
+                          title={isActive ? "Активное подключение нельзя удалить" : `Удалить ${provider.name ?? "подключение"}`}
+                          type="button"
+                          variant="destructive"
+                        >
                           <Trash2 />
                           Delete
                         </Button>
@@ -257,7 +317,7 @@ export function LlmProviderSettingsPanel() {
       </div>
 
       <Dialog onOpenChange={setDialogOpen} open={dialogOpen}>
-        <DialogContent className="max-h-[92vh] max-w-5xl overflow-y-auto">
+        <DialogContent className="max-h-[92vh] w-[calc(100vw-2rem)] max-w-5xl overflow-y-auto p-4 sm:p-6">
           <DialogHeader>
             <DialogTitle>{editingProvider ? "Редактировать подключение" : "Новое LLM подключение"}</DialogTitle>
             <DialogDescription>
@@ -356,7 +416,7 @@ export function LlmProviderSettingsPanel() {
             )}
           </div>
 
-          <DialogFooter>
+          <DialogFooter className="sticky bottom-0 -mx-4 -mb-4 border-t border-border bg-popover/95 px-4 py-4 backdrop-blur sm:-mx-6 sm:-mb-6 sm:px-6">
             <Button onClick={() => setDialogOpen(false)} type="button" variant="secondary">
               <XCircle />
               Отмена

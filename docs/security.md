@@ -55,6 +55,21 @@ APP_CORS_ALLOWED_ORIGINS=https://your-domain.example
 
 The production Compose file refuses to start when the admin or PostgreSQL password is missing. The preferred deployment mode is same-origin browser access through the frontend nginx container; backend, PostgreSQL, and Elasticsearch stay unpublished.
 
+## LLM Provider Secrets
+
+UI-managed LLM provider API keys are encrypted before storage with `APP_LLM_PROVIDER_SECRET_KEY`. Set this value to a long random secret before allowing operators to save API keys through `Settings -> LLM подключения`.
+
+The secret key may be empty only when operators use env fallback or save keyless providers. In that mode, requests containing `apiKey` fail closed instead of storing plaintext.
+
+Provider APIs and diagnostics expose only non-secret metadata:
+
+- provider REST responses include `hasApiKey`, never `apiKey` or `apiKeyCiphertext`;
+- `/api/health` active provider summaries omit API keys and ciphertext;
+- probe and model errors are sanitized before being returned or persisted;
+- operator/audit payloads must not include provider API keys, authorization headers, or ciphertext.
+
+Rotating `APP_LLM_PROVIDER_SECRET_KEY` requires a planned re-entry of saved provider API keys unless a migration/re-encryption procedure is added first.
+
 ## CORS
 
 Set `APP_CORS_ALLOWED_ORIGINS` to explicit browser origins, for example:

@@ -61,8 +61,11 @@ export const useConversationChatExecution = ({
       !conversationsEnabled
       || !conversationId
       || !conversationDetail
-      || seededConversationRef.current === conversationId
     ) {
+      return;
+    }
+    const seedKey = conversationSeedKey(conversationDetail);
+    if (seededConversationRef.current === seedKey) {
       return;
     }
 
@@ -81,8 +84,8 @@ export const useConversationChatExecution = ({
     } else {
       chat.setRetrievalFilters(emptyRetrievalFilters());
     }
-    setSelectedInstructionIds(stickyState?.instructionIds ?? []);
-    seededConversationRef.current = conversationId;
+    setSelectedInstructionIds(stickyInstructionIds(stickyState));
+    seededConversationRef.current = seedKey;
     setDirtyFields(new Set());
   }, [chat, conversationDetail, conversationId, conversationsEnabled, setSelectedInstructionIds]);
 
@@ -230,4 +233,24 @@ const createClientTurnId = () => {
     return crypto.randomUUID();
   }
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+};
+
+const conversationSeedKey = (conversationDetail: ConversationDetail) => {
+  const stickyState = conversationDetail.stickyState;
+  return [
+    conversationDetail.id,
+    stickyState?.version ?? "no-version",
+    stickyState?.updatedFromRunId ?? "no-run",
+    stickyState?.updatedAt ?? conversationDetail.updatedAt,
+  ].join(":");
+};
+
+const stickyInstructionIds = (stickyState: ConversationDetail["stickyState"]) => {
+  if (!stickyState) {
+    return [];
+  }
+  return Array.from(new Set([
+    ...(stickyState.instructionIds ?? []),
+    ...(stickyState.scenarioInstructionIds ?? []),
+  ]));
 };

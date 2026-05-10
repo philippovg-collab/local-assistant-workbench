@@ -39,9 +39,9 @@ public class ConversationController {
     @GetMapping
     public List<ConversationSummary> listConversations(
         @RequestParam(required = false) String workspaceKey,
-        @RequestParam(required = false) ChatMode mode
+        @RequestParam(required = false) String mode
     ) {
-        return conversationService.listConversations(workspaceKey, mode);
+        return conversationService.listConversations(workspaceKey, mode == null ? null : ChatMode.fromValue(mode));
     }
 
     @GetMapping("/{id}")

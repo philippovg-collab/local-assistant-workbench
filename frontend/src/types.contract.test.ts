@@ -80,6 +80,31 @@ describe("frontend API contracts", () => {
     ]);
   });
 
+  it("keeps LLM provider enum values and contract names generated from the backend artifact", () => {
+    expect(API_CONTRACT_ENUM_VALUES.LlmProviderPurpose).toEqual([
+      "CHAT",
+      "EMBEDDING",
+      "CHAT_AND_EMBEDDING",
+    ]);
+    expect(API_CONTRACT_ENUM_VALUES.LlmProviderStatus).toEqual([
+      "UNKNOWN",
+      "UP",
+      "DOWN",
+      "DEGRADED",
+    ]);
+    expect(API_CONTRACT_ENUM_VALUES.LlmProviderType).toEqual(["OPENAI_COMPATIBLE"]);
+    expect([...API_CONTRACT_TYPE_NAMES]).toEqual(expect.arrayContaining([
+      "LlmProviderActivateRequest",
+      "LlmProviderConfigResponse",
+      "LlmProviderInput",
+      "LlmProviderModelInfo",
+      "LlmProviderProbeResult",
+      "LlmProviderPurpose",
+      "LlmProviderStatus",
+      "LlmProviderType",
+    ]));
+  });
+
   it("keeps canonical editable metadata fields present in local builders", () => {
     const metadata: MaterialMetadata = DEFAULT_MATERIAL_METADATA;
 

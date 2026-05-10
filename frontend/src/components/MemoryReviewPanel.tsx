@@ -245,6 +245,25 @@ function MemoryEntryRow({
             {entry.updatedAt ? formatDate(entry.updatedAt) : "—"}
             {entry.sourceRunId ? ` · run ${entry.sourceTurnNo ?? "—"}` : ""}
           </p>
+          {(entry.sourceRunId || entry.sourceConversationId) && (
+            <div className="flex flex-wrap gap-2 text-xs font-medium">
+              {entry.sourceRunId && (
+                <>
+                  <a className="text-primary hover:underline" href={`/api/chat-runs/${entry.sourceRunId}/context`}>
+                    Context
+                  </a>
+                  <a className="text-primary hover:underline" href={`/api/chat-runs/${entry.sourceRunId}/trace`}>
+                    Trace
+                  </a>
+                </>
+              )}
+              {entry.sourceConversationId && (
+                <a className="text-primary hover:underline" href={`/api/conversations/${entry.sourceConversationId}/runs`}>
+                  Conversation
+                </a>
+              )}
+            </div>
+          )}
         </div>
         <div className="flex flex-wrap justify-end gap-2">
           {isPending && (

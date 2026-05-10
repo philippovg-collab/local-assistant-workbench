@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -250,6 +251,179 @@ class LlmProviderServiceTest {
     }
 
     @Test
+    void embeddingActivationRequiresModelAndDimension() {
+        UUID missingModelId = UUID.randomUUID();
+        LlmProviderRepository missingModelRepository = mock(LlmProviderRepository.class);
+        when(missingModelRepository.findById(missingModelId)).thenReturn(Optional.of(embeddingProvider(
+            missingModelId,
+            null,
+            3
+        )));
+        LlmProviderService missingModelService = service(missingModelRepository);
+
+        ApplicationException missingModel = assertThrows(
+            ApplicationException.class,
+            () -> missingModelService.activateProvider(missingModelId, new LlmProviderActivateRequest(LlmProviderPurpose.EMBEDDING))
+        );
+
+        UUID missingDimensionId = UUID.randomUUID();
+        LlmProviderRepository missingDimensionRepository = mock(LlmProviderRepository.class);
+        when(missingDimensionRepository.findById(missingDimensionId)).thenReturn(Optional.of(embeddingProvider(
+            missingDimensionId,
+            "corp-embedding",
+            null
+        )));
+        LlmProviderService missingDimensionService = service(missingDimensionRepository);
+
+        ApplicationException missingDimension = assertThrows(
+            ApplicationException.class,
+            () -> missingDimensionService.activateProvider(missingDimensionId, new LlmProviderActivateRequest(LlmProviderPurpose.EMBEDDING))
+        );
+
+        assertEquals("llm_provider.embedding_model_required", missingModel.getCode());
+        assertEquals("llm_provider.embedding_dimension_required", missingDimension.getCode());
+    }
+
+    @Test
+    void embeddingActivationDimensionMismatchReturnsConflict() {
+        UUID id = UUID.randomUUID();
+        LlmProviderConfig provider = embeddingProvider(id, "corp-embedding", 3);
+        LlmProviderRepository repository = mock(LlmProviderRepository.class);
+        when(repository.findById(id)).thenReturn(Optional.of(provider));
+        EmbeddingDimensionInspector dimensionInspector = mock(EmbeddingDimensionInspector.class);
+        when(dimensionInspector.materialChunkEmbeddingDimension()).thenReturn(4);
+        LlmProviderService service = service(
+            repository,
+            mock(LlmProviderCryptoService.class),
+            mock(ActiveLlmProviderResolver.class),
+            dimensionInspector,
+            mock(MaterialIndexingQueueRepository.class),
+            mock(MaterialIndexingService.class)
+        );
+
+        ApplicationException exception = assertThrows(
+            ApplicationException.class,
+            () -> service.activateProvider(id, new LlmProviderActivateRequest(LlmProviderPurpose.EMBEDDING))
+        );
+
+        assertEquals("llm_provider.embedding_dimension_mismatch", exception.getCode());
+    }
+
+    @Test
+    void chatActivationDoesNotReindexMaterials() {
+        UUID id = UUID.randomUUID();
+        LlmProviderConfig provider = chatProvider(id, "corp-model", false);
+        LlmProviderConfig activated = chatProvider(id, "corp-model", true);
+        LlmProviderRepository repository = mock(LlmProviderRepository.class);
+        when(repository.findById(id)).thenReturn(Optional.of(provider));
+        when(repository.activate(eq(id), eq(LlmProviderPurpose.CHAT), any())).thenReturn(activated);
+        MaterialIndexingQueueRepository queueRepository = mock(MaterialIndexingQueueRepository.class);
+        MaterialIndexingService indexingService = mock(MaterialIndexingService.class);
+        LlmProviderService service = service(
+            repository,
+            mock(LlmProviderCryptoService.class),
+            mock(ActiveLlmProviderResolver.class),
+            mock(EmbeddingDimensionInspector.class),
+            queueRepository,
+            indexingService
+        );
+
+        service.activateProvider(id, new LlmProviderActivateRequest(LlmProviderPurpose.CHAT));
+
+        verify(queueRepository, never()).markActiveMaterialsIndexingPending(any(), any(), any());
+        verify(indexingService, never()).requestProcessing();
+    }
+
+    @Test
+    void embeddingActivationDoesNotReindexWhenFingerprintIsUnchanged() {
+        UUID id = UUID.randomUUID();
+        LlmProviderConfig provider = provider(id, false);
+        LlmProviderConfig activated = provider(id, true);
+        LlmProviderRepository repository = mock(LlmProviderRepository.class);
+        when(repository.findById(id)).thenReturn(Optional.of(provider));
+        when(repository.activate(eq(id), eq(LlmProviderPurpose.EMBEDDING), any())).thenReturn(activated);
+        ActiveLlmProviderResolver resolver = mock(ActiveLlmProviderResolver.class);
+        when(resolver.resolveEmbeddingProvider()).thenReturn(activeProvider("same-embedding"));
+        when(resolver.fromStoredEmbeddingProvider(activated)).thenReturn(activeProvider("same-embedding"));
+        EmbeddingDimensionInspector dimensionInspector = mock(EmbeddingDimensionInspector.class);
+        when(dimensionInspector.materialChunkEmbeddingDimension()).thenReturn(3);
+        MaterialIndexingQueueRepository queueRepository = mock(MaterialIndexingQueueRepository.class);
+        MaterialIndexingService indexingService = mock(MaterialIndexingService.class);
+        LlmProviderService service = service(
+            repository,
+            mock(LlmProviderCryptoService.class),
+            resolver,
+            dimensionInspector,
+            queueRepository,
+            indexingService
+        );
+
+        service.activateProvider(id, new LlmProviderActivateRequest(LlmProviderPurpose.EMBEDDING));
+
+        verify(queueRepository, never()).markActiveMaterialsIndexingPending(any(), any(), any());
+        verify(indexingService, never()).requestProcessing();
+    }
+
+    @Test
+    void embeddingFallbackReindexesOnlyWhenFingerprintChanges() {
+        LlmProviderRepository changedRepository = mock(LlmProviderRepository.class);
+        ActiveLlmProviderResolver changedResolver = mock(ActiveLlmProviderResolver.class);
+        when(changedResolver.resolveEmbeddingProvider()).thenReturn(activeProvider("old-embedding"), activeProvider("new-embedding"));
+        MaterialIndexingQueueRepository changedQueue = mock(MaterialIndexingQueueRepository.class);
+        MaterialIndexingService changedIndexing = mock(MaterialIndexingService.class);
+        LlmProviderService changedService = service(
+            changedRepository,
+            mock(LlmProviderCryptoService.class),
+            changedResolver,
+            mock(EmbeddingDimensionInspector.class),
+            changedQueue,
+            changedIndexing
+        );
+
+        changedService.activateFallback(new LlmProviderActivateRequest(LlmProviderPurpose.EMBEDDING));
+
+        verify(changedRepository).activateFallback(eq(LlmProviderPurpose.EMBEDDING), any());
+        verify(changedQueue).markActiveMaterialsIndexingPending(
+            eq("embedding.provider_changed"),
+            eq("Active embedding provider changed; material embeddings must be regenerated."),
+            any()
+        );
+        verify(changedIndexing).requestProcessing();
+
+        LlmProviderRepository unchangedRepository = mock(LlmProviderRepository.class);
+        ActiveLlmProviderResolver unchangedResolver = mock(ActiveLlmProviderResolver.class);
+        when(unchangedResolver.resolveEmbeddingProvider()).thenReturn(activeProvider("same-embedding"), activeProvider("same-embedding"));
+        MaterialIndexingQueueRepository unchangedQueue = mock(MaterialIndexingQueueRepository.class);
+        MaterialIndexingService unchangedIndexing = mock(MaterialIndexingService.class);
+        LlmProviderService unchangedService = service(
+            unchangedRepository,
+            mock(LlmProviderCryptoService.class),
+            unchangedResolver,
+            mock(EmbeddingDimensionInspector.class),
+            unchangedQueue,
+            unchangedIndexing
+        );
+
+        unchangedService.activateFallback(new LlmProviderActivateRequest(LlmProviderPurpose.EMBEDDING));
+
+        verify(unchangedRepository).activateFallback(eq(LlmProviderPurpose.EMBEDDING), any());
+        verify(unchangedQueue, never()).markActiveMaterialsIndexingPending(any(), any(), any());
+        verify(unchangedIndexing, never()).requestProcessing();
+    }
+
+    @Test
+    void activationRejectsCombinedPurposeRequest() {
+        LlmProviderService service = service(mock(LlmProviderRepository.class));
+
+        ApplicationException exception = assertThrows(
+            ApplicationException.class,
+            () -> service.activateProvider(UUID.randomUUID(), new LlmProviderActivateRequest(LlmProviderPurpose.CHAT_AND_EMBEDDING))
+        );
+
+        assertEquals("llm_provider.activation_purpose_invalid", exception.getCode());
+    }
+
+    @Test
     void rejectsApiKeyClearAndReplacementInSameRequest() {
         LlmProviderService service = service(mock(LlmProviderRepository.class));
         LlmProviderInput input = new LlmProviderInput(
@@ -283,13 +457,31 @@ class LlmProviderServiceTest {
     }
 
     private LlmProviderService service(LlmProviderRepository repository, LlmProviderCryptoService cryptoService) {
-        return new LlmProviderService(
+        return service(
             repository,
             cryptoService,
             mock(ActiveLlmProviderResolver.class),
             mock(EmbeddingDimensionInspector.class),
             mock(MaterialIndexingQueueRepository.class),
-            mock(MaterialIndexingService.class),
+            mock(MaterialIndexingService.class)
+        );
+    }
+
+    private LlmProviderService service(
+        LlmProviderRepository repository,
+        LlmProviderCryptoService cryptoService,
+        ActiveLlmProviderResolver resolver,
+        EmbeddingDimensionInspector dimensionInspector,
+        MaterialIndexingQueueRepository queueRepository,
+        MaterialIndexingService indexingService
+    ) {
+        return new LlmProviderService(
+            repository,
+            cryptoService,
+            resolver,
+            dimensionInspector,
+            queueRepository,
+            indexingService,
             new AfterCommitExecutor(),
             immediateTransactionManager(),
             event -> {
@@ -398,6 +590,37 @@ class LlmProviderServiceTest {
 
     private LlmProviderConfig provider(UUID id, boolean activeEmbedding) {
         return provider(id, activeEmbedding, activeEmbedding ? "new-embedding" : "old-embedding", false, activeEmbedding);
+    }
+
+    private LlmProviderConfig embeddingProvider(UUID id, String embeddingModel, Integer expectedDimension) {
+        Instant now = Instant.parse("2026-05-10T10:00:00Z");
+        return new LlmProviderConfig(
+            id,
+            "Corp Embeddings",
+            LlmProviderType.OPENAI_COMPATIBLE,
+            LlmProviderPurpose.EMBEDDING,
+            "http://10.10.20.15:8000",
+            null,
+            "Authorization",
+            "Bearer",
+            "/v1/chat/completions",
+            "/v1/models",
+            "/v1/embeddings",
+            null,
+            embeddingModel,
+            0.2,
+            600,
+            expectedDimension,
+            false,
+            false,
+            LlmProviderStatus.UNKNOWN,
+            null,
+            null,
+            null,
+            null,
+            now,
+            now
+        );
     }
 
     private LlmProviderConfig chatProvider(UUID id, String defaultModel, boolean activeChat) {

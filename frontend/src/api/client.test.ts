@@ -241,6 +241,102 @@ describe("apiClient", () => {
     expect(String(requestInit.body)).toContain("secret-key");
   });
 
+  it("uses the committed LLM provider routes, methods, JSON bodies, and credentials", async () => {
+    const providerResponse = {
+      id: "provider-1",
+      name: "Corp LLM",
+      providerType: "OPENAI_COMPATIBLE",
+      purpose: "CHAT_AND_EMBEDDING",
+      baseUrl: "http://10.10.20.15:8000",
+      hasApiKey: true,
+      activeChat: false,
+      activeEmbedding: false,
+      status: "UNKNOWN",
+      temperature: 0.2,
+      timeoutSeconds: 600,
+    };
+    const responses = [
+      jsonResponse([providerResponse]),
+      jsonResponse(providerResponse, 201),
+      jsonResponse(providerResponse),
+      new Response(null, { status: 204 }),
+      jsonResponse({
+        id: "provider-1",
+        status: "UP",
+        checkedAt: "2026-05-10T10:00:00Z",
+        latencyMs: 120,
+        modelsAvailable: true,
+        chatAvailable: true,
+        embeddingAvailable: true,
+      }),
+      jsonResponse([{ name: "qwen2.5:32b" }]),
+      jsonResponse(providerResponse),
+      new Response(null, { status: 204 }),
+    ];
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(() =>
+      Promise.resolve(responses.shift() ?? jsonResponse({})),
+    );
+
+    await apiClient.fetchLlmProviders();
+    await apiClient.createLlmProvider({
+      name: "Corp LLM",
+      providerType: "OPENAI_COMPATIBLE",
+      purpose: "CHAT_AND_EMBEDDING",
+      baseUrl: "http://10.10.20.15:8000",
+      apiKey: "created-secret",
+    });
+    await apiClient.updateLlmProvider("provider-1", {
+      name: "Corp LLM Updated",
+      providerType: "OPENAI_COMPATIBLE",
+      purpose: "CHAT",
+      baseUrl: "http://10.10.20.16:8000",
+      apiKey: "updated-secret",
+    });
+    await apiClient.deleteLlmProvider("provider-1");
+    await apiClient.probeLlmProvider("provider-1");
+    await apiClient.fetchLlmProviderModels("provider-1");
+    await apiClient.activateLlmProvider("provider-1", { purpose: "CHAT" });
+    await apiClient.activateLlmFallback({ purpose: "EMBEDDING" });
+
+    const calls = fetchSpy.mock.calls;
+    expect(calls.map(([url]) => String(url))).toEqual([
+      "http://127.0.0.1:8080/api/llm-providers",
+      "http://127.0.0.1:8080/api/llm-providers",
+      "http://127.0.0.1:8080/api/llm-providers/provider-1",
+      "http://127.0.0.1:8080/api/llm-providers/provider-1",
+      "http://127.0.0.1:8080/api/llm-providers/provider-1/probe",
+      "http://127.0.0.1:8080/api/llm-providers/provider-1/models",
+      "http://127.0.0.1:8080/api/llm-providers/provider-1/activate",
+      "http://127.0.0.1:8080/api/llm-providers/fallback/activate",
+    ]);
+    expect(calls.map(([, init]) => (init as RequestInit).method ?? "GET")).toEqual([
+      "GET",
+      "POST",
+      "PUT",
+      "DELETE",
+      "POST",
+      "GET",
+      "POST",
+      "POST",
+    ]);
+    for (const [, init] of calls) {
+      expect((init as RequestInit).credentials).toBe("include");
+    }
+
+    const createInit = calls[1]?.[1] as RequestInit;
+    const updateInit = calls[2]?.[1] as RequestInit;
+    const activateInit = calls[6]?.[1] as RequestInit;
+    const fallbackInit = calls[7]?.[1] as RequestInit;
+
+    expect((createInit.headers as Headers).get("Content-Type")).toBe("application/json");
+    expect(JSON.parse(String(createInit.body))).toEqual(expect.objectContaining({ apiKey: "created-secret" }));
+    expect(String(calls[1]?.[0])).not.toContain("created-secret");
+    expect(JSON.parse(String(updateInit.body))).toEqual(expect.objectContaining({ apiKey: "updated-secret" }));
+    expect(String(calls[2]?.[0])).not.toContain("updated-secret");
+    expect(JSON.parse(String(activateInit.body))).toEqual({ purpose: "CHAT" });
+    expect(JSON.parse(String(fallbackInit.body))).toEqual({ purpose: "EMBEDDING" });
+  });
+
   it("uploads controlled material versions as multipart form data", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(
@@ -639,4 +735,13 @@ function stubWindowLocation(location: Pick<Location, "origin" | "port" | "protoc
       },
     }),
   );
+}
+
+function jsonResponse(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: {
+      "Content-Type": "application/json",
+    },
+  });
 }

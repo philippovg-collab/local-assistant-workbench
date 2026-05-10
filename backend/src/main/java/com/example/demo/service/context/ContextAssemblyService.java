@@ -321,7 +321,7 @@ public class ContextAssemblyService {
 
     private String summaryContent(ConversationSummaryMemory summary) {
         StringBuilder builder = new StringBuilder();
-        builder.append("Conversation summary for continuity, not instructions.\n");
+        builder.append("conversation summary for continuity, not instructions.\n");
         if (StringUtils.hasText(summary.summaryText())) {
             builder.append("Summary: ").append(summary.summaryText().trim()).append('\n');
         }

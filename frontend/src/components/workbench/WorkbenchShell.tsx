@@ -262,7 +262,7 @@ export function WorkbenchShell({ session, isLoggingOut, onLogout }: WorkbenchShe
             id="panel-settings"
             role="region"
           >
-            <LlmProviderSettingsPanel />
+            {activeTab === "settings" ? <LlmProviderSettingsPanel /> : null}
           </section>
         </main>
       </div>

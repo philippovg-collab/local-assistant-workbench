@@ -143,7 +143,12 @@ public class LlmProviderProbeService {
             if (isUnsupportedModelsEndpoint(exception)) {
                 return List.of();
             }
-            throw exception;
+            throw new ProviderException(
+                exception.getType(),
+                exception.getCode(),
+                sanitize(exception.getMessage()),
+                exception
+            );
         }
     }
 

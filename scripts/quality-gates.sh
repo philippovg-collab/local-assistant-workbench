@@ -21,19 +21,42 @@ BACKEND_CONTRACT_TESTS=(
   ChatRunExecutionServiceTest
   ChatRunTraceServiceTest
   AuditRedactionServiceTest
+  ChatPromptAssemblyServiceContextTest
+  ContextAssemblyServiceTest
   ContextAssemblyQueryServiceTest
   ContextLayerHealthServiceTest
+  ConversationControllerContractTest
+  ConversationServiceTest
+  ConversationStickyStateServiceTest
   ConversationSummaryServiceTest
+  HealthControllerTest
   HistorySelectorTest
   MemoryCandidateExtractionServiceTest
+  MemoryEntryServiceTest
   MemorySelectorTest
   RetrievalQueryResolutionServiceTest
+  LlmProviderControllerContractTest
+  LlmProviderServiceTest
+  LlmProviderCryptoServiceTest
+  LlmProviderProbeServiceTest
+  ActiveLlmProviderResolverTest
+  RuntimeReadinessServiceTest
+  PromptPolicyResolverTest
+  OllamaLlmClientTest
+  OllamaEmbeddingClientTest
 )
 
 FRONTEND_CONTRACT_TESTS=(
   src/types.contract.test.ts
   src/api/client.test.ts
+  src/App.test.tsx
+  src/components/ConversationThreadPanel.test.tsx
+  src/components/LlmProviderSettingsPanel.test.tsx
+  src/components/MemoryReviewPanel.test.tsx
   src/hooks/useChatExecution.test.tsx
+  src/hooks/useConversationChatExecution.test.tsx
+  src/hooks/useConversationRuns.test.tsx
+  src/hooks/useConversations.test.tsx
   src/utils/materialMetadata.test.ts
   src/utils/readiness.test.ts
   src/utils/retrievalHints.test.ts

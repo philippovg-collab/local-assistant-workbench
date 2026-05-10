@@ -1,14 +1,16 @@
 # Refactor Risk Register
 
-This register is the source of truth for the phased refactor work. Phase 0 does not fix production behavior; it freezes the review findings as scoped work items so later phases can reduce risk without opportunistic cleanup.
+This register is the source of truth for the phased refactor work. Context Manager Phase 0 is now a docs/process rebaseline: it records the implemented state and evidence without production code, migrations, API/codegen, or frontend behavior changes.
 
 ## Current Baseline
 
-- Phase 0 Context Manager readiness evidence is recorded in `docs/context-manager-roadmap.md`.
+- Phase 0 Context Manager readiness evidence is recorded in `docs/context-manager-release-evidence.md`.
+- `docs/context-manager-roadmap.md` is the maintained Context Manager source of truth; imported `Downloads/PLAN*.md` files are historical drafts only.
 - Architecture boundary gate: `python3 scripts/architecture-boundary-gate.py` passes with 5 baseline violations tracked in V2 metadata.
-- Complexity budget gate: `python3 scripts/complexity-budget-gate.py` passes with 12 over-budget baseline entries.
+- Complexity budget gate remains blocked in `bash scripts/quality-gates.sh fast` by dirty allowlisted-file growth in `PostgresMemoryRepository.java`, `RuntimeReadinessService.java`, `LlmProviderSettingsPanel.tsx`, and `MemoryReviewPanel.tsx`; see `CM-E07`.
 - Static anti-regression gate: `python3 scripts/phase5-static-gate.py` passes with 15 checks.
-- Review contract: `python3 scripts/review-contract.py --skip-body` passes; the local diff currently touches 58 high-risk paths and contains 5 anti-sprawl keyword hits.
+- Review contract status for this rebaseline is tracked in evidence entry `CM-E05`.
+- Phase 0 durable chat and frontend/API compatibility proof is tracked in evidence entries `CM-E16` and `CM-E17`.
 
 ## Status Rules
 
@@ -26,6 +28,10 @@ This register is the source of truth for the phased refactor work. Phase 0 does 
   - `docs/chat-lifecycle.md:3` defines `POST /api/chat-runs` as the canonical execution API.
   - `docs/architecture.md:90` lists durable chat-run endpoints as the production execution flow.
   - `docs/context-manager-roadmap.md` records implemented Context Manager artifacts through `V47` and keeps default-on blocked pending full proof.
+  - `CM-E07` in `docs/context-manager-release-evidence.md` records `bash scripts/quality-gates.sh fast` as blocked by dirty allowlisted-file growth in `PostgresMemoryRepository.java`, `RuntimeReadinessService.java`, `LlmProviderSettingsPanel.tsx`, and `MemoryReviewPanel.tsx`.
+  - `CM-E16` and `CM-E17` record green Phase 0 durable chat, frontend/API type, and stateless chat compatibility proof.
+  - `CM-E19` through `CM-E22` record green Phase 8 backend, frontend, generated API, and review-contract proof from the current local environment.
+  - `CM-E23` records the current Docker/Testcontainers rerun as environment-blocked by a missing Docker socket; prior Docker-backed context proof remains in `CM-E11`, `CM-E15`, and `CM-E18`.
 - Consequence:
   - Context Manager could be enabled without Docker-backed repository proof, full quality gate evidence, or exact CI-equivalent evidence.
 - Owner phase:
@@ -37,6 +43,7 @@ This register is the source of truth for the phased refactor work. Phase 0 does 
   - All effective `APP_CONTEXT_*` rollout controls are documented in env examples and runbook.
   - Backend and frontend targeted context tests are green.
   - Docker-backed context repository ITs are green.
+  - If local Docker is unavailable, record the blocker and rerun Docker-backed proof in Colima/Docker or CI before default-on.
   - `bash scripts/quality-gates.sh full` is green or release notes link exact CI-equivalent proof.
 - Required proof:
   - `bash scripts/quality-gates.sh fast`
@@ -48,9 +55,13 @@ This register is the source of truth for the phased refactor work. Phase 0 does 
 
 ## CTX-002 — Long-term memory can be exposed while disabled
 
-- Status: Open
+- Status: Closed
+- Closed on: 2026-05-10
 - Severity: P1
 - Type: Confirmed defect
+- Closure proof:
+  - `CM-E02` in `docs/context-manager-release-evidence.md`: `MemoryEntryServiceTest`.
+  - `CM-E03` in `docs/context-manager-release-evidence.md`: `App.test.tsx` memory review gating.
 - Evidence:
   - Memory review endpoints exist under `/api/memory-entries`.
   - Frontend exposes a Memory workspace tab.
@@ -71,9 +82,13 @@ This register is the source of truth for the phased refactor work. Phase 0 does 
 
 ## CTX-003 — Snapshot absence semantics can mislead operators
 
-- Status: Open
+- Status: Closed
+- Closed on: 2026-05-10
 - Severity: P1
 - Type: Confirmed defect
+- Closure proof:
+  - `CM-E02` in `docs/context-manager-release-evidence.md`: `ContextAssemblyQueryServiceTest`.
+  - `CM-E04` in `docs/context-manager-release-evidence.md`: `PostgresContextMaintenanceRepositoryIT` and `PostgresContextHardeningRepositoryIT`.
 - Evidence:
   - Context inspector previously could label any missing snapshot for an existing run as expired.
   - Runs need to distinguish snapshots that were never created from snapshots deleted by retention.
@@ -95,9 +110,12 @@ This register is the source of truth for the phased refactor work. Phase 0 does 
 
 ## CTX-004 — Summary context can pollute RAG follow-up resolution
 
-- Status: Open
+- Status: Closed
+- Closed on: 2026-05-10
 - Severity: P1
 - Type: Confirmed defect
+- Closure proof:
+  - `CM-E02` in `docs/context-manager-release-evidence.md`: `RetrievalQueryResolutionServiceTest`.
 - Evidence:
   - Conversation summary is synthetic continuity context, not an actual prior user/assistant RAG turn.
   - Follow-up resolution uses prior RAG turns and source traces.
@@ -115,9 +133,13 @@ This register is the source of truth for the phased refactor work. Phase 0 does 
 
 ## CTX-005 — Context feature state can drift between backend and frontend
 
-- Status: Open
+- Status: Closed
+- Closed on: 2026-05-10
 - Severity: P1
 - Type: Confirmed defect
+- Closure proof:
+  - `CM-E02` in `docs/context-manager-release-evidence.md`: `HealthControllerTest`.
+  - `CM-E03` in `docs/context-manager-release-evidence.md`: `useConversationChatExecution.test.tsx` and `App.test.tsx`.
 - Evidence:
   - Context features are controlled server-side by `app.context.*`.
   - Frontend needs feature state to hide memory and thread actions safely.
@@ -135,6 +157,93 @@ This register is the source of truth for the phased refactor work. Phase 0 does 
   - `HealthControllerTest`
   - `useConversationChatExecution.test.tsx`
   - `App.test.tsx`
+
+## CTX-006 — Conversation backbone proof is incomplete
+
+- Status: Closed
+- Closed on: 2026-05-10
+- Severity: P1
+- Type: Release proof gap
+- Closure proof:
+  - `CM-E09` in `docs/context-manager-release-evidence.md`: backend conversation contract/unit proof.
+  - `CM-E10` in `docs/context-manager-release-evidence.md`: API contract proof.
+  - `CM-E11` in `docs/context-manager-release-evidence.md`: Docker-backed `PostgresConversationRepositoryIT`.
+  - `CM-E12` in `docs/context-manager-release-evidence.md`: frontend disabled-state and thread lifecycle proof.
+- Evidence:
+  - Phase 1 source of truth is `V38__chat_conversation_backbone.sql`, not historical `V37`.
+  - `V37__operator_audit_events.sql` is operator audit.
+  - `V47__context_assembly_status.sql` adds snapshot availability state to conversation runs after the backbone.
+- Consequence:
+  - Conversation binding could accidentally duplicate durable chat lifecycle, enqueue while disabled, lose idempotency under retry, allocate duplicate turn numbers under concurrency, or leak thread UI/API calls while `contextFeatures.conversations=false`.
+- Owner phase:
+  - Context Manager Phase 1 conversation backbone proof.
+- Not in scope:
+  - Do not add `/api/conversations/{id}/messages` or any new execution endpoint.
+  - Do not remove Phase 2+ context features; prove they do not affect stateless submit or disabled conversations.
+- Acceptance criteria:
+  - `POST /api/chat-runs` remains the only submit endpoint.
+  - `/api/conversations*` and conversational submit are gated by effective conversation flags and return `context.disabled` before enqueue when disabled.
+  - Stateless submit does not write `chat_conversations` or `chat_conversation_runs`.
+  - Same `conversationId + clientTurnId + requestHash` returns the existing run without enqueue.
+  - Same `clientTurnId` with a different hash returns `conversation.client_turn_conflict`.
+  - Parallel submits in one conversation allocate unique sequential `turnNo` values.
+  - `parentRunId` must belong to the same conversation.
+  - Frontend hides/disables conversation calls and submits statelessly when conversations are disabled.
+  - Thread UI displays lifecycle state from backend run status/result links.
+- Required proof:
+  - `ChatRunSubmissionCoordinatorTest`
+  - `ConversationServiceTest`
+  - `ConversationControllerContractTest`
+  - `ApiContractSchemaTest`
+  - `PostgresConversationRepositoryIT`
+  - `useConversations.test.tsx`
+  - `useConversationRuns.test.tsx`
+  - `useConversationChatExecution.test.tsx`
+  - `ConversationThreadPanel.test.tsx`
+
+## CTX-007 — Context assembly history proof is incomplete
+
+- Status: Closed
+- Closed on: 2026-05-10
+- Severity: P1
+- Type: Release proof gap
+- Closure proof:
+  - `CM-E13` in `docs/context-manager-release-evidence.md`: backend context assembly/history/prompt/query proof.
+  - `CM-E14` in `docs/context-manager-release-evidence.md`: frontend inspector status proof.
+  - `CM-E15` in `docs/context-manager-release-evidence.md`: Docker-backed context assembly repository proof.
+- Evidence:
+  - Phase 2 source of truth is `V40__context_assembly_snapshots.sql` plus `V47__context_assembly_status.sql`.
+  - Context inspector semantics must distinguish backend `EXPIRED` payloads from API `404` unknown runs.
+  - Recent history selection must use completed prior conversation runs only and must not fall back to `chat_audit_runs` as runtime state.
+- Consequence:
+  - Operators could misread unknown runs as retention-expired snapshots, or recent-history proof could miss current/future run exclusion, trace fallback, result absence, and token/turn accounting.
+- Owner phase:
+  - Context Manager Phase 2 context assembly trace proof.
+- Not in scope:
+  - Do not add new context inspector endpoints.
+  - Do not implement sticky, resolver, summary, or memory behavior as Phase 2 requirements.
+  - Do not add destructive migrations or rollback scripts.
+- Acceptance criteria:
+  - Known runs return stable context inspector payload statuses: `AVAILABLE`, `DEGRADED`, `NOT_AVAILABLE`, `EXPIRED`, or `DISABLED`.
+  - Unknown runs remain API `404`; frontend renders `NOT_FOUND`, not `EXPIRED`.
+  - `ChatExecutionResponse.contextAssemblyId`, `ChatExecutionResponse.contextSummary`, and `ConversationRunDetail.contextAssemblyStatus` remain contract-tested.
+  - Context assembly inactive states, request-level history disable, zero history turns, and snapshot storage fail-open/fail-closed behavior are covered.
+  - History selection covers trace fallback, `result_unavailable`, completed-only prior-run selection, current/future exclusion, and token/turn drop accounting.
+  - Prompt assembly keeps history after system messages and before the current request, without injecting history or memory into the system prompt.
+  - `PostgresContextAssemblyTraceRepository` save/find JSON roundtrip, FK cascade, `context_assembly_id` update, and `context_assembly_status=AVAILABLE` are covered by Docker-backed proof.
+- Required proof:
+  - `ContextAssemblyServiceTest`
+  - `HistorySelectorTest`
+  - `ChatPromptAssemblyServiceContextTest`
+  - `ContextAssemblyQueryServiceTest`
+  - `ChatRunQueryControllerContractTest`
+  - `ApiContractSchemaTest`
+  - `PostgresContextAssemblyTraceRepositoryIT`
+  - `PostgresContextHardeningRepositoryIT`
+  - `ConversationThreadPanel.test.tsx`
+  - `useConversationChatExecution.test.tsx`
+  - `types.contract.test.ts`
+  - `client.test.ts`
 
 ## ARCH-001 — Layering collapse through service/infrastructure/API imports
 

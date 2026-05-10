@@ -15,8 +15,8 @@ bash scripts/quality-gates.sh fast
 - `scripts/test_architecture_boundary_gate.py`;
 - `scripts/complexity-budget-gate.py`;
 - `scripts/review-contract.py --skip-body`;
-- targeted backend tests для auth/security, metadata, indexing, chat-run contracts;
-- targeted frontend contract tests для API/types/hooks/utils.
+- targeted backend tests для auth/security, metadata, indexing, durable chat, Context Manager contracts/unit coverage и LLM-provider runtime/contracts;
+- targeted frontend contract tests для API/types/hooks/utils, conversation/context UI, memory review gating и LLM-provider settings UI.
 
 Полный локальный прогон:
 
@@ -48,6 +48,10 @@ bash scripts/quality-gates.sh ci
 | Frontend coverage | `npm --prefix frontend run test:coverage` + `scripts/coverage-ratchet.py frontend` | global coverage и focused groups: `src/api`, `src/hooks`, `src/utils` |
 | Frontend build | `npm --prefix frontend run build` | TypeScript/build regressions |
 | Integration | `mvn -B clean verify` | Docker-backed repository, migration, queue, Elasticsearch/search integration paths |
+
+Context Manager regression coverage in `fast` includes disabled feature-state contracts, idempotent `clientTurnId` submission, durable run cancel/lease guards, context assembly/history/prompt placement, sticky state, summary/memory redaction, inspector status payloads, frontend stateless fallback, thread reload, explicit cancel, and memory review UI paths. Docker-backed conversation/context repository checks remain in `full`/targeted `verify` because they require Testcontainers.
+
+LLM-provider regression coverage in `fast` includes the controller contract, service activation/secret behavior, crypto, probe/model fallback, active provider resolution, readiness persistence, prompt policy model resolution, chat/embedding transport clients, frontend API routes, generated DTO/enums, and settings UI flows. Docker-backed LLM provider repository checks remain in `full`/targeted `verify` because they require Testcontainers.
 
 ## Coverage Ratchet
 

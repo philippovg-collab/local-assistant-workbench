@@ -3,6 +3,7 @@ package com.example.demo.service;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -62,6 +63,7 @@ class ChatRunSubmissionCoordinatorTest {
         assertEquals(runId, response.id());
         assertEquals("/api/chat-runs/" + runId + "/cancel", response.cancelUrl());
         verify(conversationRepository, never()).createConversation(anyString(), any(), anyString(), any(), any(), any(), any());
+        verify(conversationRepository, never()).insertRun(anyString(), anyString(), anyInt(), any(), any(), any(), any(), any(), any());
         verify(executionService).requestProcessing();
     }
 
@@ -116,6 +118,75 @@ class ChatRunSubmissionCoordinatorTest {
     }
 
     @Test
+    void existingConversationBindHonorsParentRunAndSequentialTurn() {
+        enableConversations();
+        String conversationId = UUID.randomUUID().toString();
+        String parentRunId = UUID.randomUUID().toString();
+        String runId = UUID.randomUUID().toString();
+        ChatExecutionRequest request = request(conversationId, parentRunId, "turn-2", false);
+        Instant createdAt = Instant.parse("2026-05-10T00:00:00Z");
+        when(conversationRepository.findConversationForUpdate(conversationId))
+            .thenReturn(Optional.of(conversation(conversationId, "grid", ChatMode.RAG, "ACTIVE")));
+        when(conversationRepository.findRunByClientTurnId(conversationId, "turn-2")).thenReturn(Optional.empty());
+        when(conversationRepository.runBelongsToConversation(conversationId, parentRunId)).thenReturn(true);
+        when(conversationRepository.nextTurnNo(conversationId)).thenReturn(2);
+        when(queueRepository.enqueue(eq(request), eq(ChatMode.RAG), any(Instant.class)))
+            .thenReturn(new EnqueuedChatRun(runId, createdAt));
+
+        ChatRunSubmissionResponse response = coordinator.submit(request);
+
+        assertEquals(conversationId, response.conversationId());
+        assertEquals(2, response.turnNo());
+        verify(conversationRepository).insertRun(
+            eq(conversationId),
+            eq(runId),
+            eq(2),
+            eq(parentRunId),
+            eq("turn-2"),
+            anyString(),
+            eq("Prompt"),
+            eq(null),
+            eq(createdAt)
+        );
+    }
+
+    @Test
+    void duplicateClientTurnWithSameHashReturnsExistingRunWithoutEnqueue() {
+        enableConversations();
+        String conversationId = UUID.randomUUID().toString();
+        String runId = UUID.randomUUID().toString();
+        ChatExecutionRequest request = request(conversationId, null, "turn-1", false);
+        when(conversationRepository.findConversationForUpdate(conversationId))
+            .thenReturn(Optional.of(conversation(conversationId, "grid", ChatMode.RAG, "ACTIVE")));
+        when(conversationRepository.findRunByClientTurnId(conversationId, "turn-1"))
+            .thenReturn(Optional.of(new StoredConversationRun(
+                conversationId,
+                runId,
+                3,
+                null,
+                "turn-1",
+                hashFor(request),
+                "Prompt",
+                null,
+                "NONE",
+                Instant.parse("2026-05-10T00:00:00Z"),
+                "RECEIVED",
+                null,
+                null,
+                null,
+                null
+            )));
+
+        ChatRunSubmissionResponse response = coordinator.submit(request);
+
+        assertEquals(runId, response.id());
+        assertEquals(conversationId, response.conversationId());
+        assertEquals(3, response.turnNo());
+        verify(queueRepository, never()).enqueue(any(), any(), any());
+        verify(executionService, never()).requestProcessing();
+    }
+
+    @Test
     void duplicateClientTurnWithDifferentHashConflicts() {
         enableConversations();
         String conversationId = UUID.randomUUID().toString();
@@ -147,9 +218,67 @@ class ChatRunSubmissionCoordinatorTest {
         verify(queueRepository, never()).enqueue(any(), any(), any());
     }
 
+    @Test
+    void archivedModeWorkspaceAndParentMismatchesConflictBeforeEnqueue() {
+        enableConversations();
+        String archivedId = UUID.randomUUID().toString();
+        String modeMismatchId = UUID.randomUUID().toString();
+        String workspaceMismatchId = UUID.randomUUID().toString();
+        String parentMismatchId = UUID.randomUUID().toString();
+        String parentRunId = UUID.randomUUID().toString();
+        when(conversationRepository.findConversationForUpdate(archivedId))
+            .thenReturn(Optional.of(conversation(archivedId, "grid", ChatMode.RAG, "ARCHIVED")));
+        when(conversationRepository.findConversationForUpdate(modeMismatchId))
+            .thenReturn(Optional.of(conversation(modeMismatchId, null, ChatMode.DIRECT, "ACTIVE")));
+        when(conversationRepository.findConversationForUpdate(workspaceMismatchId))
+            .thenReturn(Optional.of(conversation(workspaceMismatchId, "dispatch", ChatMode.RAG, "ACTIVE")));
+        when(conversationRepository.findConversationForUpdate(parentMismatchId))
+            .thenReturn(Optional.of(conversation(parentMismatchId, "grid", ChatMode.RAG, "ACTIVE")));
+        when(conversationRepository.runBelongsToConversation(parentMismatchId, parentRunId)).thenReturn(false);
+
+        assertEquals("conversation.archived", conflictCode(request(archivedId, null, "turn-1", false)));
+        assertEquals("conversation.mode_mismatch", conflictCode(new ChatExecutionRequest(
+            ChatMode.RAG,
+            "qwen2.5:7b",
+            "Prompt",
+            null,
+            List.of(),
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            modeMismatchId,
+            null,
+            "turn-1",
+            false,
+            null,
+            null
+        )));
+        assertEquals("conversation.workspace_mismatch", conflictCode(request(workspaceMismatchId, null, "turn-1", false)));
+        assertEquals("conversation.parent_run_mismatch", conflictCode(request(parentMismatchId, parentRunId, "turn-1", false)));
+        verify(queueRepository, never()).enqueue(any(), any(), any());
+    }
+
     private void enableConversations() {
         contextProperties.setEnabled(true);
         contextProperties.setConversationsEnabled(true);
+    }
+
+    private String conflictCode(ChatExecutionRequest request) {
+        return assertThrows(ApplicationException.class, () -> coordinator.submit(request)).getCode();
+    }
+
+    private String hashFor(ChatExecutionRequest request) {
+        try {
+            var method = ChatRunSubmissionCoordinator.class.getDeclaredMethod("requestHash", ChatExecutionRequest.class);
+            method.setAccessible(true);
+            return (String) method.invoke(coordinator, request);
+        } catch (ReflectiveOperationException exception) {
+            throw new AssertionError("Unable to compute request hash", exception);
+        }
     }
 
     private ChatExecutionRequest request(

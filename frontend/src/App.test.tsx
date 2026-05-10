@@ -313,9 +313,10 @@ const crossTabRequestPathnames = [
   "/api/reference/projects",
   "/api/rag-projects",
   "/api/chat-runs",
+  "/api/llm-providers",
 ];
 
-const getPanel = (panelId: "overview" | "materials" | "instructions" | "references" | "rag" | "direct") =>
+const getPanel = (panelId: "overview" | "materials" | "instructions" | "references" | "rag" | "direct" | "settings") =>
   document.querySelector(`#panel-${panelId}`) as HTMLElement;
 
 const openSection = async (user: ReturnType<typeof userEvent.setup>, sectionName: RegExp) => {
@@ -448,6 +449,10 @@ describe("App", () => {
 
       if (url.endsWith("/api/models")) {
         return jsonResponse(modelsResponse);
+      }
+
+      if (pathname === "/api/llm-providers" && (!init?.method || init.method === "GET")) {
+        return jsonResponse([]);
       }
 
       if (url.endsWith("/api/materials/policy")) {
@@ -1129,6 +1134,7 @@ describe("App", () => {
     const referencesPanel = container.querySelector("#panel-references") as HTMLElement;
     const ragPanel = container.querySelector("#panel-rag") as HTMLElement;
     const directPanel = container.querySelector("#panel-direct") as HTMLElement;
+    const settingsPanel = container.querySelector("#panel-settings") as HTMLElement;
     const overviewHeader = container.querySelector("header") as HTMLElement;
 
     expect(overviewPanel.hidden).toBe(false);
@@ -1137,6 +1143,9 @@ describe("App", () => {
     expect(referencesPanel.hidden).toBe(true);
     expect(ragPanel.hidden).toBe(true);
     expect(directPanel.hidden).toBe(true);
+    expect(settingsPanel.hidden).toBe(true);
+    expect(settingsPanel.getAttribute("aria-labelledby")).toBe("nav-settings");
+    expect(settingsPanel.getAttribute("role")).toBe("region");
     expect(within(overviewPanel).getByText("Backend")).toBeTruthy();
     expect(within(overviewHeader).getByText("Выбранный RAG-проект")).toBeTruthy();
     expect(await within(overviewHeader).findByText("Общая")).toBeTruthy();
@@ -1191,6 +1200,15 @@ describe("App", () => {
         name: "Выбрать инструкцию Факты только из контекста",
       }),
     ).toBeTruthy();
+
+    await user.click(settingsButton);
+    expect(settingsButton.getAttribute("aria-current")).toBe("page");
+    expect(directPanel.hidden).toBe(true);
+    expect(settingsPanel.hidden).toBe(false);
+    expect(within(settingsPanel).getByRole("heading", {
+      name: "Корпоративные OpenAI-compatible endpoints",
+    })).toBeTruthy();
+    expect(await within(settingsPanel).findByText("Подключения не созданы. Используется env fallback.")).toBeTruthy();
   });
 
   it("creates a RAG-project and locks materials metadata to it", async () => {

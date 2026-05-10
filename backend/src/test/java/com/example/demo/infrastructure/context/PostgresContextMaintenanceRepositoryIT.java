@@ -31,6 +31,8 @@ class PostgresContextMaintenanceRepositoryIT extends PostgresIntegrationTestSupp
                 now.minus(40, ChronoUnit.DAYS).plus(turnNo, ChronoUnit.HOURS)
             );
         }
+        String softDeletedConversationId = insertConversation(jdbcTemplate, now.minus(40, ChronoUnit.DAYS), "SOFT_DELETED");
+        insertRunWithSnapshot(jdbcTemplate, softDeletedConversationId, 1, now.minus(40, ChronoUnit.DAYS));
         String emptyConversationId = insertConversation(jdbcTemplate, now.minus(10, ChronoUnit.DAYS));
 
         ContextRetentionCleanupResult result = repository.deleteExpiredContextArtifacts(
@@ -43,10 +45,15 @@ class PostgresContextMaintenanceRepositoryIT extends PostgresIntegrationTestSupp
         );
 
         assertEquals(5, result.deletedSnapshots());
+        assertEquals(1, result.purgedSoftDeletedConversations());
+        assertEquals(1, result.purgedEmptyConversations());
         assertEquals(2, count(jdbcTemplate, "context_assembly_snapshots"));
         assertEquals(5, countRunsByContextStatus(jdbcTemplate, conversationId, "EXPIRED"));
         assertEquals(2, countRunsByContextStatus(jdbcTemplate, conversationId, "AVAILABLE"));
         assertEquals(1, countById(jdbcTemplate, "chat_conversations", conversationId));
+        assertEquals(0, countById(jdbcTemplate, "chat_conversations", softDeletedConversationId));
+        assertEquals(0, countRuns(jdbcTemplate, softDeletedConversationId));
+        assertEquals(0, countSnapshots(jdbcTemplate, softDeletedConversationId));
         assertEquals(0, countById(jdbcTemplate, "chat_conversations", emptyConversationId));
     }
 
@@ -67,6 +74,10 @@ class PostgresContextMaintenanceRepositoryIT extends PostgresIntegrationTestSupp
     }
 
     private String insertConversation(JdbcTemplate jdbcTemplate, Instant timestamp) {
+        return insertConversation(jdbcTemplate, timestamp, "ACTIVE");
+    }
+
+    private String insertConversation(JdbcTemplate jdbcTemplate, Instant timestamp, String status) {
         String conversationId = UUID.randomUUID().toString();
         jdbcTemplate.update(
             """
@@ -77,10 +88,11 @@ class PostgresContextMaintenanceRepositoryIT extends PostgresIntegrationTestSupp
                     status,
                     created_at,
                     updated_at
-                ) VALUES (?, ?, 'DIRECT', 'ACTIVE', ?, ?)
+                ) VALUES (?, ?, 'DIRECT', ?, ?, ?)
                 """,
             UUID.fromString(conversationId),
             "Context cleanup",
+            status,
             Timestamp.from(timestamp),
             Timestamp.from(timestamp)
         );
@@ -187,6 +199,32 @@ class PostgresContextMaintenanceRepositoryIT extends PostgresIntegrationTestSupp
             Integer.class,
             conversationId,
             status
+        );
+        return count == null ? 0 : count;
+    }
+
+    private int countRuns(JdbcTemplate jdbcTemplate, String conversationId) {
+        Integer count = jdbcTemplate.queryForObject(
+            """
+                SELECT COUNT(*)
+                FROM chat_conversation_runs
+                WHERE conversation_id = ?::uuid
+                """,
+            Integer.class,
+            conversationId
+        );
+        return count == null ? 0 : count;
+    }
+
+    private int countSnapshots(JdbcTemplate jdbcTemplate, String conversationId) {
+        Integer count = jdbcTemplate.queryForObject(
+            """
+                SELECT COUNT(*)
+                FROM context_assembly_snapshots
+                WHERE conversation_id = ?::uuid
+                """,
+            Integer.class,
+            conversationId
         );
         return count == null ? 0 : count;
     }

@@ -6,12 +6,14 @@ type UseChatRunContextOptions = {
   enabled?: boolean;
 };
 
+export type ChatRunContextFetchStatus = "idle" | "loading" | "not_found" | "error";
+
 export const useChatRunContext = (
   runId: string | null,
   { enabled = true }: UseChatRunContextOptions = {},
 ) => {
   const [snapshot, setSnapshot] = useState<ChatRunContextDetail | null>(null);
-  const [status, setStatus] = useState<"idle" | "loading" | "missing" | "error">("idle");
+  const [status, setStatus] = useState<ChatRunContextFetchStatus>("idle");
 
   useEffect(() => {
     if (!enabled || !runId) {
@@ -32,7 +34,7 @@ export const useChatRunContext = (
           return;
         }
         setSnapshot(null);
-        setStatus(isApiClientError(error) && error.status === 404 ? "missing" : "error");
+        setStatus(isApiClientError(error) && error.status === 404 ? "not_found" : "error");
       });
     return () => controller.abort();
   }, [enabled, runId]);

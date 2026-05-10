@@ -29,6 +29,10 @@ public class MemorySafetyPolicy {
     private static final Pattern SOURCE_FACT_PATTERN = Pattern.compile(
         "(?i)(retrieved context|source excerpt|chunk|document says|в документе|по документу|источник|чанк|тариф|закон|стоимость|цена)"
     );
+    private static final Pattern INFERRED_PRIVATE_ATTRIBUTE_PATTERN = Pattern.compile(
+        "(?iu)(?:infer|guess|probably|seems|appears|думаю|похоже|кажется|вероятно).{0,80}"
+            + "(?:health|religion|politic|ethnic|sexual|medical|disability|здоров|религи|полит|этнич|сексуал|медицин|инвалид)"
+    );
 
     private final AuditRedactionService redactionService;
 
@@ -131,7 +135,9 @@ public class MemorySafetyPolicy {
         if (!StringUtils.hasText(text)) {
             return false;
         }
-        return SECRET_PATTERN.matcher(text).find() || SOURCE_FACT_PATTERN.matcher(text).find();
+        return SECRET_PATTERN.matcher(text).find()
+            || SOURCE_FACT_PATTERN.matcher(text).find()
+            || INFERRED_PRIVATE_ATTRIBUTE_PATTERN.matcher(text).find();
     }
 
     private MemoryEntryDraft draft(
@@ -202,6 +208,13 @@ public class MemorySafetyPolicy {
                 ErrorType.INVALID_REQUEST,
                 "memory.content_forbidden",
                 "Memory content cannot store credentials, tokens, passwords, or secrets"
+            );
+        }
+        if (SOURCE_FACT_PATTERN.matcher(content).find()) {
+            throw new ApplicationException(
+                ErrorType.INVALID_REQUEST,
+                "memory.content_forbidden",
+                "Memory content cannot store KB facts, source excerpts, retrieved chunks, prices, tariffs, or legal facts"
             );
         }
         return content;

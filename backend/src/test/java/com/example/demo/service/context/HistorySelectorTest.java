@@ -1,12 +1,16 @@
 package com.example.demo.service.context;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.example.demo.config.ContextProperties;
 import com.example.demo.model.ChatExecutionResponse;
 import com.example.demo.model.ChatMode;
+import com.example.demo.model.ChatRunOutputTrace;
+import com.example.demo.model.ChatRunRequestSnapshot;
+import com.example.demo.model.ChatRunTraceDetail;
 import com.example.demo.model.ContextOptions;
 import com.example.demo.service.audit.port.ChatRunTraceRepository;
 import com.example.demo.service.conversation.StoredConversationRun;
@@ -51,6 +55,9 @@ class HistorySelectorTest {
         assertEquals("Второй ответ", selection.selectedHistory().get(3).content());
         assertEquals(0, selection.droppedItems().size());
         assertEquals(2, selection.tokenBudget().selectedHistoryTurns());
+        assertTrue(selection.tokenBudget().selectedHistoryTokens() > 0);
+        assertEquals(0, selection.tokenBudget().droppedHistoryItems());
+        assertEquals(0, selection.tokenBudget().droppedHistoryTokens());
     }
 
     @Test
@@ -70,6 +77,9 @@ class HistorySelectorTest {
         assertEquals("Второй вопрос", selection.selectedHistory().get(0).content());
         assertEquals(1, selection.droppedItems().size());
         assertEquals("max_turns", selection.droppedItems().get(0).reason());
+        assertEquals(1, selection.tokenBudget().selectedHistoryTurns());
+        assertEquals(1, selection.tokenBudget().droppedHistoryItems());
+        assertTrue(selection.tokenBudget().droppedHistoryTokens() > 0);
     }
 
     @Test
@@ -87,6 +97,67 @@ class HistorySelectorTest {
         assertEquals(0, selection.selectedHistory().size());
         assertEquals(1, selection.droppedItems().size());
         assertEquals("token_budget", selection.droppedItems().get(0).reason());
+        assertEquals(0, selection.tokenBudget().selectedHistoryTurns());
+        assertEquals(0, selection.tokenBudget().selectedHistoryTokens());
+        assertEquals(1, selection.tokenBudget().droppedHistoryItems());
+        assertTrue(selection.tokenBudget().droppedHistoryTokens() > 8);
+    }
+
+    @Test
+    void fallsBackToTraceOutputWhenResultJsonIsAbsent() {
+        properties.setMaxRecentTurns(4);
+        properties.setMaxHistoryTokens(1000);
+        StoredConversationRun prior = run(1, "COMPLETED", "Сохраненный вопрос");
+        StoredConversationRun current = run(2, "IN_PROGRESS", "Продолжи");
+        when(conversationRepository.listRuns(current.conversationId())).thenReturn(List.of(prior, current));
+        when(traceRepository.findResult(prior.runId())).thenReturn(Optional.empty());
+        when(traceRepository.findTrace(prior.runId())).thenReturn(Optional.of(trace(prior.runId(), "Trace prompt", "Trace answer")));
+
+        ContextSelection selection = selector.select(current, tokenBudgeter.resolveBudget(new ContextOptions(null, 4, 1000)));
+
+        assertEquals(2, selection.selectedHistory().size());
+        assertEquals("Сохраненный вопрос", selection.selectedHistory().get(0).content());
+        assertEquals("Trace answer", selection.selectedHistory().get(1).content());
+        assertEquals(0, selection.droppedItems().size());
+    }
+
+    @Test
+    void dropsCompletedRunsWhenResultAndTraceOutputAreUnavailable() {
+        properties.setMaxRecentTurns(4);
+        properties.setMaxHistoryTokens(1000);
+        StoredConversationRun prior = run(1, "COMPLETED", "Вопрос без результата");
+        StoredConversationRun current = run(2, "IN_PROGRESS", "Продолжи");
+        when(conversationRepository.listRuns(current.conversationId())).thenReturn(List.of(prior, current));
+        when(traceRepository.findResult(prior.runId())).thenReturn(Optional.empty());
+        when(traceRepository.findTrace(prior.runId())).thenReturn(Optional.empty());
+
+        ContextSelection selection = selector.select(current, tokenBudgeter.resolveBudget(new ContextOptions(null, 4, 1000)));
+
+        assertEquals(0, selection.selectedHistory().size());
+        assertEquals(1, selection.droppedItems().size());
+        assertEquals("result_unavailable", selection.droppedItems().get(0).reason());
+        assertEquals(1, selection.tokenBudget().droppedHistoryItems());
+        assertEquals(0, selection.tokenBudget().droppedHistoryTokens());
+    }
+
+    @Test
+    void excludesCurrentFutureAndNonCompletedRuns() {
+        properties.setMaxRecentTurns(4);
+        properties.setMaxHistoryTokens(1000);
+        StoredConversationRun priorCompleted = run(1, "COMPLETED", "Готовый вопрос");
+        StoredConversationRun priorRunning = run(2, "LLM_DONE", "Еще не финальный вопрос");
+        StoredConversationRun current = run(3, "COMPLETED", "Текущий вопрос");
+        StoredConversationRun futureCompleted = run(4, "COMPLETED", "Будущий вопрос");
+        when(conversationRepository.listRuns(current.conversationId()))
+            .thenReturn(List.of(priorCompleted, priorRunning, current, futureCompleted));
+        when(traceRepository.findResult(priorCompleted.runId())).thenReturn(Optional.of(response("Готовый ответ")));
+
+        ContextSelection selection = selector.select(current, tokenBudgeter.resolveBudget(new ContextOptions(null, 4, 1000)));
+
+        assertEquals(2, selection.selectedHistory().size());
+        assertEquals(priorCompleted.runId(), selection.selectedHistory().get(0).runId());
+        assertEquals(priorCompleted.runId(), selection.selectedHistory().get(1).runId());
+        assertEquals(0, selection.droppedItems().size());
     }
 
     private StoredConversationRun run(int turnNo, String status, String prompt) {
@@ -122,6 +193,32 @@ class HistorySelectorTest {
             null,
             null,
             List.of(),
+            List.of()
+        );
+    }
+
+    private ChatRunTraceDetail trace(String runId, String prompt, String answer) {
+        return new ChatRunTraceDetail(
+            runId,
+            ChatMode.DIRECT,
+            "COMPLETED",
+            null,
+            "qwen2.5:7b",
+            null,
+            null,
+            null,
+            Instant.parse("2026-05-10T00:00:00Z"),
+            Instant.parse("2026-05-10T00:00:01Z"),
+            null,
+            null,
+            null,
+            null,
+            null,
+            new ChatRunRequestSnapshot(null, null, prompt, null, null),
+            null,
+            null,
+            List.of(),
+            new ChatRunOutputTrace(null, answer, List.of(), null, false, false),
             List.of()
         );
     }

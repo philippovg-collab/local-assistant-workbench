@@ -15,6 +15,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Supplier;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
@@ -26,6 +27,7 @@ public class OpenAiCompatibleLlmClient implements LlmClient {
     private final OllamaApiTransport transport;
     private final Supplier<ActiveLlmProvider> chatProviderSupplier;
 
+    @Autowired
     public OpenAiCompatibleLlmClient(
         OllamaApiTransport transport,
         ActiveLlmProviderResolver activeProviderResolver

@@ -34,7 +34,9 @@ For docs-only phases, the checkpoint can live in the commit/PR body. For impleme
 ## Context Manager Boundary
 
 - Imported `Downloads/PLAN*.md` files are historical drafts. The maintained source of truth is `docs/context-manager-roadmap.md`.
-- Context Manager code exists through migrations `V38`-`V47`; remaining work must preserve `/api/chat-runs` as canonical execution and use `app.context.*` flags for rollout/rollback.
+- Phase 0 for Context Manager means source-of-truth and evidence rebaseline only. It must not touch production code, migrations, public API shape, generated API types, or frontend behavior.
+- Context Manager code exists through migrations `V37`-`V47`; remaining work must preserve `/api/chat-runs` as canonical execution and use `app.context.*` flags for rollout/rollback.
+- Context Manager Phase 2 proof is bounded to `V40` context assembly snapshots plus `V47` availability semantics: known-run payload statuses, unknown-run `404`/frontend `NOT_FOUND`, recent-history selection, prompt placement, and Docker-backed snapshot repository behavior.
 - Revise `docs/context-manager-roadmap.md` before putting conversation history into `systemPrompt`, using `chat_audit_runs` as runtime state, growing `MaterialRetrievalService`, or growing `PromptPolicyResolver`.
 
 ## Stop Conditions
@@ -64,9 +66,9 @@ Every phase ends with:
 
 | Phase | Primary evidence |
 | --- | --- |
-| Phase 0 | Docs/process diff only; lightweight static gates. |
-| Phase 1 | Architecture/static gates and baseline ownership proof. |
-| Phase 2 | Error handler tests, service/provider/storage exception tests, architecture gate. |
+| Phase 0 | Docs/process rebaseline only; `docs/context-manager-release-evidence.md`, `git diff --check`, `python3 scripts/review-contract.py --skip-body`, and fast gate evidence when refreshed. |
+| Phase 1 | Conversation backbone proof: backend contract/service/coordinator tests, Docker-backed repository IT, frontend disabled-state/thread tests, and API contract proof. |
+| Phase 2 | Context Manager: context assembly/history/prompt/query tests, frontend inspector status tests, Docker-backed snapshot repository proof. General refactor: error handler tests, service/provider/storage exception tests, architecture gate. |
 | Phase 3 | DTO serialization/contract tests and frontend contract proof. |
 | Phase 4 | RAG project contract tests, grouped-count repository test, query-count proof. |
 | Phase 5 | Chat execution/cancellation tests and durable queue integration proof. |

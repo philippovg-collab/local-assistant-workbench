@@ -280,15 +280,38 @@ public class RuntimeReadinessService {
     }
 
     private String firstFailureCode(RuntimeReadiness readiness) {
-        return "UP".equals(readiness.llmStatus())
-            ? readiness.embeddingReasonCode()
-            : readiness.llmReasonCode();
+        return highestPriorityReason(readiness).reasonCode();
     }
 
     private String firstFailureMessage(RuntimeReadiness readiness) {
-        return "UP".equals(readiness.llmStatus())
-            ? readiness.embeddingReasonMessage()
-            : readiness.llmReasonMessage();
+        return highestPriorityReason(readiness).reasonMessage();
+    }
+
+    private FailureReason highestPriorityReason(RuntimeReadiness readiness) {
+        FailureReason llm = new FailureReason(
+            readiness.llmStatus(),
+            readiness.llmReasonCode(),
+            readiness.llmReasonMessage()
+        );
+        FailureReason embedding = new FailureReason(
+            readiness.embeddingStatus(),
+            readiness.embeddingReasonCode(),
+            readiness.embeddingReasonMessage()
+        );
+        return statusPriority(embedding.status()) > statusPriority(llm.status()) ? embedding : llm;
+    }
+
+    private int statusPriority(String status) {
+        if ("DOWN".equals(status)) {
+            return 3;
+        }
+        if ("DEGRADED".equals(status)) {
+            return 2;
+        }
+        if ("UNKNOWN".equals(status)) {
+            return 1;
+        }
+        return 0;
     }
 
     private CatalogProbeResult probeModelCatalog(Instant now, ActiveLlmProvider chatProvider) {
@@ -506,6 +529,13 @@ public class RuntimeReadinessService {
     private record ProviderSnapshot(
         ActiveLlmProvider chatProvider,
         ActiveLlmProvider embeddingProvider
+    ) {
+    }
+
+    private record FailureReason(
+        String status,
+        String reasonCode,
+        String reasonMessage
     ) {
     }
 }

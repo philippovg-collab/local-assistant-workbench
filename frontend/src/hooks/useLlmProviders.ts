@@ -147,6 +147,11 @@ const validateForm = (form: LlmProviderFormState) => {
 const confirmEmbeddingReindex = () =>
   window.confirm("Смена embedding provider отправит активные материалы на повторную индексацию. Продолжить?");
 
+const confirmProviderDelete = (provider: LlmProviderConfigResponse) => {
+  const providerName = provider.name?.trim() || provider.id || "это подключение";
+  return window.confirm(`Удалить LLM подключение "${providerName}"?`);
+};
+
 export const useLlmProviders = () => {
   const [providers, setProviders] = useState<LlmProviderConfigResponse[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -232,6 +237,9 @@ export const useLlmProviders = () => {
     const validationError = validateForm(form);
     if (validationError) {
       setError(validationError);
+      return;
+    }
+    if (!editingProvider && form.activeEmbedding && !confirmEmbeddingReindex()) {
       return;
     }
     setIsMutating(true);
@@ -332,6 +340,13 @@ export const useLlmProviders = () => {
 
   const deleteProvider = async (provider: LlmProviderConfigResponse) => {
     if (!provider.id) {
+      return;
+    }
+    if (provider.activeChat || provider.activeEmbedding) {
+      setError("Активное LLM подключение нельзя удалить. Сначала переключите active provider.");
+      return;
+    }
+    if (!confirmProviderDelete(provider)) {
       return;
     }
     setIsMutating(true);

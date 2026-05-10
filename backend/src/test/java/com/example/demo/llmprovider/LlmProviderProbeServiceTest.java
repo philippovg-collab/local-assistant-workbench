@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -30,6 +31,34 @@ import org.junit.jupiter.api.Test;
 class LlmProviderProbeServiceTest {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
+
+    @Test
+    void chatProbeIsUpWhenModelsAndChatChecksPass() {
+        LlmProviderConfig provider = provider(LlmProviderPurpose.CHAT, true, false);
+        LlmProviderService providerService = mock(LlmProviderService.class);
+        when(providerService.getProvider(provider.id())).thenReturn(provider);
+        when(providerService.persistProbeResult(eq(provider.id()), any(), any(), any(), any())).thenReturn(provider);
+        ActiveLlmProviderResolver resolver = mock(ActiveLlmProviderResolver.class);
+        when(resolver.fromStoredChatProvider(provider)).thenReturn(runtimeProvider(provider));
+        RecordingTransport transport = new RecordingTransport(objectMapper);
+        transport.modelsResponseJson = "{\"data\":[{\"id\":\"corp-model\"}]}";
+        transport.chatResponseJson = successfulChatResponse();
+
+        LlmProviderProbeResult result = new LlmProviderProbeService(providerService, resolver, transport, new LlmProviderErrorSanitizer())
+            .probe(provider.id());
+
+        assertEquals(LlmProviderStatus.UP, result.status());
+        assertTrue(result.modelsAvailable());
+        assertTrue(result.chatAvailable());
+        assertFalse(result.embeddingAvailable());
+        verify(providerService).persistProbeResult(
+            eq(provider.id()),
+            eq(LlmProviderStatus.UP),
+            any(),
+            eq(null),
+            eq(null)
+        );
+    }
 
     @Test
     void modelsEndpoint404ProducesDegradedWhenRequiredChecksPass() {
@@ -64,6 +93,34 @@ class LlmProviderProbeServiceTest {
     }
 
     @Test
+    void embeddingProbeIsUpWhenModelsAndEmbeddingChecksPass() {
+        LlmProviderConfig provider = provider(LlmProviderPurpose.EMBEDDING, false, true);
+        LlmProviderService providerService = mock(LlmProviderService.class);
+        when(providerService.getProvider(provider.id())).thenReturn(provider);
+        when(providerService.persistProbeResult(eq(provider.id()), any(), any(), any(), any())).thenReturn(provider);
+        ActiveLlmProviderResolver resolver = mock(ActiveLlmProviderResolver.class);
+        when(resolver.fromStoredChatProvider(provider)).thenReturn(runtimeProvider(provider));
+        RecordingTransport transport = new RecordingTransport(objectMapper);
+        transport.modelsResponseJson = "{\"data\":[{\"id\":\"corp-embedding\"}]}";
+        transport.embeddingResponseJson = "{\"data\":[{\"embedding\":[1.0,2.0,3.0]}]}";
+
+        LlmProviderProbeResult result = new LlmProviderProbeService(providerService, resolver, transport, new LlmProviderErrorSanitizer())
+            .probe(provider.id());
+
+        assertEquals(LlmProviderStatus.UP, result.status());
+        assertTrue(result.modelsAvailable());
+        assertFalse(result.chatAvailable());
+        assertTrue(result.embeddingAvailable());
+        verify(providerService).persistProbeResult(
+            eq(provider.id()),
+            eq(LlmProviderStatus.UP),
+            any(),
+            eq(null),
+            eq(null)
+        );
+    }
+
+    @Test
     void embeddingDimensionMismatchProducesDown() {
         LlmProviderConfig provider = provider(LlmProviderPurpose.EMBEDDING, false, true);
         LlmProviderService providerService = mock(LlmProviderService.class);
@@ -82,6 +139,33 @@ class LlmProviderProbeServiceTest {
         assertTrue(result.modelsAvailable());
         assertFalse(result.embeddingAvailable());
         assertEquals("embedding.provider_dimension_mismatch", result.errorCode());
+    }
+
+    @Test
+    void combinedProviderRequiredChatFailureProducesDown() {
+        LlmProviderConfig provider = provider(LlmProviderPurpose.CHAT_AND_EMBEDDING, true, true);
+        LlmProviderService providerService = mock(LlmProviderService.class);
+        when(providerService.getProvider(provider.id())).thenReturn(provider);
+        when(providerService.persistProbeResult(eq(provider.id()), any(), any(), any(), any())).thenReturn(provider);
+        ActiveLlmProviderResolver resolver = mock(ActiveLlmProviderResolver.class);
+        when(resolver.fromStoredChatProvider(provider)).thenReturn(runtimeProvider(provider));
+        RecordingTransport transport = new RecordingTransport(objectMapper);
+        transport.modelsResponseJson = "{\"data\":[{\"id\":\"corp-model\"}]}";
+        transport.chatFailure = new ProviderException(
+            ErrorType.PROVIDER_UNAVAILABLE,
+            "llm.provider_unavailable",
+            "Unable to reach the configured LLM provider"
+        );
+        transport.embeddingResponseJson = "{\"data\":[{\"embedding\":[1.0,2.0,3.0]}]}";
+
+        LlmProviderProbeResult result = new LlmProviderProbeService(providerService, resolver, transport, new LlmProviderErrorSanitizer())
+            .probe(provider.id());
+
+        assertEquals(LlmProviderStatus.DOWN, result.status());
+        assertTrue(result.modelsAvailable());
+        assertFalse(result.chatAvailable());
+        assertFalse(result.embeddingAvailable());
+        assertEquals("llm.provider_unavailable", result.errorCode());
     }
 
     @Test
@@ -117,6 +201,52 @@ class LlmProviderProbeServiceTest {
         );
         assertFalse(messageCaptor.getValue().contains("leaked-remote-secret"));
         assertFalse(messageCaptor.getValue().contains("stored-secret"));
+    }
+
+    @Test
+    void listModelsUsesDefaultModelWhenRemoteEndpointIsUnsupported() {
+        LlmProviderConfig provider = provider(LlmProviderPurpose.CHAT, false, false);
+        LlmProviderService providerService = mock(LlmProviderService.class);
+        when(providerService.getProvider(provider.id())).thenReturn(provider);
+        ActiveLlmProviderResolver resolver = mock(ActiveLlmProviderResolver.class);
+        when(resolver.fromStoredChatProvider(provider)).thenReturn(runtimeProvider(provider));
+        RecordingTransport transport = new RecordingTransport(objectMapper);
+        transport.getFailure = new ProviderException(
+            ErrorType.PROVIDER_BAD_RESPONSE,
+            "llm.provider_bad_response",
+            "LLM provider returned an invalid status while listing models: returned HTTP 405"
+        );
+
+        var models = new LlmProviderProbeService(providerService, resolver, transport, new LlmProviderErrorSanitizer())
+            .listModels(provider.id());
+
+        assertEquals(1, models.size());
+        assertEquals("corp-model", models.getFirst().name());
+    }
+
+    @Test
+    void listModelsUnexpectedProviderErrorIsSanitizedAndSurfaced() {
+        LlmProviderConfig provider = provider(LlmProviderPurpose.CHAT, false, false);
+        LlmProviderService providerService = mock(LlmProviderService.class);
+        when(providerService.getProvider(provider.id())).thenReturn(provider);
+        ActiveLlmProviderResolver resolver = mock(ActiveLlmProviderResolver.class);
+        when(resolver.fromStoredChatProvider(provider)).thenReturn(runtimeProvider(provider));
+        RecordingTransport transport = new RecordingTransport(objectMapper);
+        transport.getFailure = new ProviderException(
+            ErrorType.PROVIDER_BAD_RESPONSE,
+            "llm.provider_bad_response",
+            "Authorization: Bearer leaked-remote-secret apiKey=stored-secret"
+        );
+
+        ProviderException exception = assertThrows(
+            ProviderException.class,
+            () -> new LlmProviderProbeService(providerService, resolver, transport, new LlmProviderErrorSanitizer())
+                .listModels(provider.id())
+        );
+
+        assertEquals("llm.provider_bad_response", exception.getCode());
+        assertFalse(exception.getMessage().contains("leaked-remote-secret"));
+        assertFalse(exception.getMessage().contains("stored-secret"));
     }
 
     private LlmProviderConfig provider(

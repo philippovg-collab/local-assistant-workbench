@@ -98,7 +98,8 @@ APP_LLM_BASE_URL=http://10.9.120.3:8000
 APP_LLM_API_KEY=replace-with-ai-gateway-api-key
 APP_LLM_MODEL=qwen
 APP_LLM_TOP_P=0.9
-APP_LLM_PROVIDER_SECRET_KEY=<long-random-secret-for-ui-managed-provider-keys>
+# Required only if operators save provider API keys through the UI.
+APP_LLM_PROVIDER_SECRET_KEY=<long-random-secret-for-ui-managed-provider-keys-or-empty>
 APP_EMBEDDINGS_BASE_URL=http://10.9.120.3:8000
 APP_EMBEDDINGS_API_KEY=replace-with-ai-gateway-api-key
 APP_EMBEDDINGS_MODEL=nomic-embed-text
@@ -181,6 +182,17 @@ Expected infrastructure fields:
 On a fresh empty database, top-level `status` may be `DEGRADED` with
 `knowledgeStatus: "EMPTY"`. That is expected until at least one active material
 has been indexed.
+
+## LLM Provider Operations
+
+The production baseline can run entirely from env fallback:
+
+- Chat uses `APP_LLM_BASE_URL`, `APP_LLM_API_KEY`, `APP_LLM_MODEL`, and `APP_LLM_TIMEOUT_SECONDS`.
+- Embeddings use `APP_EMBEDDINGS_BASE_URL`, `APP_EMBEDDINGS_API_KEY`, `APP_EMBEDDINGS_MODEL`, and `APP_EMBEDDINGS_EXPECTED_DIMENSION`.
+
+Operators may instead add corporate OpenAI-compatible providers in the UI and activate Chat and Embeddings independently. Save API keys in the UI only when `APP_LLM_PROVIDER_SECRET_KEY` is set to a long random secret. The backend never returns API keys or ciphertext in provider responses, `/api/health`, probe results, or UI payloads.
+
+Rollback is config-free for a bad DB provider activation: use `Chat env fallback` or `Embeddings env fallback` in the settings UI. Embedding rollback can enqueue reindexing again if the active embedding fingerprint changes; monitor `/api/health` indexing queue fields until the queue drains.
 
 ## OCR Smoke Test
 

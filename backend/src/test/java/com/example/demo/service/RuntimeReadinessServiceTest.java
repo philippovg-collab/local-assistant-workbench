@@ -226,6 +226,51 @@ class RuntimeReadinessServiceTest {
         );
     }
 
+    @Test
+    void sameProviderPersistenceUsesDownReasonBeforeDegradedReason() {
+        UUID providerId = UUID.randomUUID();
+        ActiveLlmProvider provider = activeProvider(providerId, "qwen2.5:7b");
+        ActiveLlmProviderResolver resolver = mock(ActiveLlmProviderResolver.class);
+        when(resolver.resolveChatProvider()).thenReturn(provider);
+        when(resolver.resolveEmbeddingProvider()).thenReturn(provider);
+        LlmProviderService providerService = mock(LlmProviderService.class);
+        RecordingTransport transport = new RecordingTransport(objectMapper);
+        transport.getFailure = new ProviderException(
+            ErrorType.PROVIDER_BAD_RESPONSE,
+            "llm.provider_bad_response",
+            "LLM provider returned an invalid status while listing models: returned HTTP 404"
+        );
+        transport.chatResponseJson = """
+            {
+              "id": "chatcmpl-test",
+              "model": "qwen2.5:7b",
+              "choices": [{"message": {"role": "assistant", "content": "ok"}}]
+            }
+            """;
+
+        RuntimeReadinessService service = new RuntimeReadinessService(
+            new OllamaLlmClient(transport, new LlmProperties()),
+            new StaticEmbeddingClient(true),
+            new LlmProperties(),
+            resolver,
+            providerService,
+            new LlmProviderErrorSanitizer(),
+            new HealthProperties()
+        );
+
+        RuntimeReadinessService.RuntimeReadiness readiness = service.refreshReadiness();
+
+        assertEquals("DEGRADED", readiness.llmStatus());
+        assertEquals("DOWN", readiness.embeddingStatus());
+        verify(providerService).persistProbeResult(
+            eq(providerId),
+            eq(LlmProviderStatus.DOWN),
+            any(),
+            eq("embedding.provider_unavailable"),
+            eq("Embedding provider is unavailable")
+        );
+    }
+
     private static final class CountingLlmClient implements LlmClient {
 
         private int listModelCalls = 0;

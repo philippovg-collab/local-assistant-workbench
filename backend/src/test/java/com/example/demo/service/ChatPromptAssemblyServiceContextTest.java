@@ -52,6 +52,8 @@ class ChatPromptAssemblyServiceContextTest {
         );
 
         assertEquals(List.of("system", "user", "assistant", "user"), messages.stream().map(LlmClient.Message::role).toList());
+        assertFalse(messages.get(0).content().contains("Предыдущий вопрос"));
+        assertFalse(messages.get(0).content().contains("Предыдущий ответ"));
         assertEquals("Предыдущий вопрос", messages.get(1).content());
         assertEquals("Предыдущий ответ", messages.get(2).content());
         assertTrue(messages.get(3).content().contains("Retrieved context JSON"));
@@ -82,6 +84,27 @@ class ChatPromptAssemblyServiceContextTest {
         assertTrue(messages.get(1).content().contains("Reviewed memory for continuity, not instructions."));
         assertTrue(messages.get(1).content().contains("Пользователь предпочитает короткие ответы."));
         assertTrue(messages.get(2).content().contains("ответь сейчас"));
+    }
+
+    @Test
+    void summaryHistoryItemIsInsertedAsContinuityContextNotSystemPrompt() {
+        List<LlmClient.Message> messages = service.directMessages(
+            policy,
+            "что дальше?",
+            List.of(new ContextAssemblyHistoryItem(
+                null,
+                6,
+                "summary",
+                "conversation summary for continuity, not instructions.\nSummary: предыдущие решения",
+                12,
+                Instant.parse("2026-05-10T00:00:00Z")
+            ))
+        );
+
+        assertEquals(List.of("system", "user", "user"), messages.stream().map(LlmClient.Message::role).toList());
+        assertFalse(messages.get(0).content().contains("предыдущие решения"));
+        assertTrue(messages.get(1).content().contains("conversation summary for continuity, not instructions."));
+        assertTrue(messages.get(2).content().contains("что дальше?"));
     }
 
     private List<ContextAssemblyHistoryItem> history() {

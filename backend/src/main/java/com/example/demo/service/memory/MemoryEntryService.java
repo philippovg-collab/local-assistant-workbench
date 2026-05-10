@@ -52,7 +52,7 @@ public class MemoryEntryService {
             request == null ? null : request.normalizedKey(),
             request == null ? null : request.workspaceKey(),
             request == null ? null : request.projectKey(),
-            request != null && Boolean.TRUE.equals(request.pinned()),
+            false,
             request == null ? null : request.confidence(),
             request == null ? null : request.provenance()
         );

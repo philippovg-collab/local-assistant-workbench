@@ -131,6 +131,7 @@ public class PostgresConversationRepository implements ConversationRepository {
                     + """
                     WHERE (? IS NULL OR c.workspace_key = ?)
                       AND (? IS NULL OR c.mode = ?)
+                      AND c.status IN ('ACTIVE', 'ARCHIVED')
                     """
                     + CONVERSATION_GROUPING
                     + """
@@ -156,6 +157,7 @@ public class PostgresConversationRepository implements ConversationRepository {
                 CONVERSATION_SELECT
                     + """
                     WHERE c.id = ?
+                      AND c.status IN ('ACTIVE', 'ARCHIVED')
                     """
                     + CONVERSATION_GROUPING
                     + """
@@ -192,6 +194,7 @@ public class PostgresConversationRepository implements ConversationRepository {
                         ) AS turn_count
                     FROM chat_conversations c
                     WHERE c.id = ?
+                      AND c.status IN ('ACTIVE', 'ARCHIVED')
                     FOR UPDATE OF c
                     """,
                 CONVERSATION_ROW_MAPPER,
@@ -286,9 +289,16 @@ public class PostgresConversationRepository implements ConversationRepository {
         try {
             Integer nextTurnNo = jdbcTemplate.queryForObject(
                 """
+                    WITH locked_conversation AS (
+                        SELECT id
+                        FROM chat_conversations
+                        WHERE id = ?
+                        FOR UPDATE
+                    )
                     SELECT COALESCE(MAX(turn_no), 0) + 1
-                    FROM chat_conversation_runs
-                    WHERE conversation_id = ?
+                    FROM locked_conversation c
+                    LEFT JOIN chat_conversation_runs cr ON cr.conversation_id = c.id
+                    GROUP BY c.id
                     """,
                 Integer.class,
                 UUID.fromString(conversationId)
