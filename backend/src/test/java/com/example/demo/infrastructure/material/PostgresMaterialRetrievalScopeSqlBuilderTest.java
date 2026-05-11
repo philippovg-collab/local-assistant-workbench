@@ -9,7 +9,9 @@ import com.example.demo.model.DocumentType;
 import com.example.demo.model.KnowledgeDocumentClass;
 import com.example.demo.model.KnowledgeScope;
 import com.example.demo.model.MaterialLanguageCode;
+import com.example.demo.model.MaterialVersionState;
 import com.example.demo.model.RetrievalFilters;
+import com.example.demo.model.VersionSelectionMode;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
@@ -73,7 +75,12 @@ class PostgresMaterialRetrievalScopeSqlBuilderTest {
 
     @Test
     void readyPredicateUsesDefaultActiveStatusAndCurrentPeriodOnlyWhenNotExplicit() {
-        String defaultPredicate = builder.retrievalReadyPredicate("m", KnowledgeScope.empty(), RetrievalFilters.empty());
+        String defaultPredicate = builder.retrievalReadyPredicate(
+            "m",
+            KnowledgeScope.empty(),
+            RetrievalFilters.empty(),
+            LocalDate.parse("2026-04-19")
+        );
         RetrievalFilters explicitFilters = new RetrievalFilters(
             null,
             null,
@@ -94,15 +101,84 @@ class PostgresMaterialRetrievalScopeSqlBuilderTest {
             null,
             null
         );
-        String explicitPredicate = builder.retrievalReadyPredicate("m", KnowledgeScope.empty(), explicitFilters);
+        String explicitPredicate = builder.retrievalReadyPredicate(
+            "m",
+            KnowledgeScope.empty(),
+            explicitFilters,
+            LocalDate.parse("2026-04-19")
+        );
 
         assertTrue(defaultPredicate.contains("m.document_status = 'ACTIVE'"));
         assertFalse(defaultPredicate.contains("COALESCE(m.document_status"));
-        assertTrue(defaultPredicate.contains("m.period_start <= CURRENT_DATE"));
-        assertTrue(defaultPredicate.contains("m.period_end >= CURRENT_DATE"));
+        assertTrue(defaultPredicate.contains("m.period_start <= DATE '2026-04-19'"));
+        assertTrue(defaultPredicate.contains("m.period_end >= DATE '2026-04-19'"));
+        assertFalse(defaultPredicate.contains("CURRENT_DATE"));
         assertFalse(explicitPredicate.contains("m.document_status = 'ACTIVE'"));
         assertFalse(explicitPredicate.contains("COALESCE(m.document_status"));
-        assertFalse(explicitPredicate.contains("m.period_start <= CURRENT_DATE"));
-        assertFalse(explicitPredicate.contains("m.period_end >= CURRENT_DATE"));
+        assertFalse(explicitPredicate.contains("m.period_start <= DATE '2026-04-19'"));
+        assertFalse(explicitPredicate.contains("m.period_end >= DATE '2026-04-19'"));
+        assertFalse(explicitPredicate.contains("CURRENT_DATE"));
+    }
+
+    @Test
+    void versionSelectionModeControlsReadyPredicateHistoryBoundary() {
+        RetrievalFilters versionLabelFilters = new RetrievalFilters(
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            List.of(),
+            null,
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of(),
+            null,
+            null,
+            null,
+            null,
+            "v1",
+            null,
+            null,
+            null,
+            null,
+            null
+        );
+        RetrievalFilters supersededFilters = new RetrievalFilters(
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            List.of(),
+            null,
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of(),
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            VersionSelectionMode.VERSION_STATE,
+            MaterialVersionState.SUPERSEDED,
+            null,
+            null
+        );
+
+        String labelPredicate = builder.retrievalReadyPredicate("m", KnowledgeScope.empty(), versionLabelFilters, LocalDate.parse("2026-04-19"));
+        String statePredicate = builder.retrievalReadyPredicate("m", KnowledgeScope.empty(), supersededFilters, LocalDate.parse("2026-04-19"));
+
+        assertFalse(labelPredicate.contains("m.version_state = 'ACTIVE'"));
+        assertTrue(statePredicate.contains("m.version_state = 'SUPERSEDED'"));
     }
 }

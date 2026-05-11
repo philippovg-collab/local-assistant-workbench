@@ -12,6 +12,7 @@ import com.example.demo.model.QualityLayerFlags;
 import com.example.demo.model.QualityLayerHealth;
 import com.example.demo.model.RerankerDelta;
 import com.example.demo.model.RetrievalWindowHealth;
+import com.example.demo.service.material.ChunkProfile;
 import jakarta.annotation.PostConstruct;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -34,6 +35,8 @@ public class QualityLayerHealthService {
 
     private final QualityLayerMetricsRepository metricsRepository;
     private final RolloutProperties rolloutProperties;
+    private final MaterialContentSupport contentSupport;
+    private final StructuredV1ProofService structuredV1ProofService;
     private final boolean noOp;
     private final Deque<RetrievalWindowSample> retrievalWindow = new ArrayDeque<>();
     private QualityLayerCoverageSnapshot cachedCoverageSnapshot;
@@ -42,23 +45,50 @@ public class QualityLayerHealthService {
     @Autowired
     public QualityLayerHealthService(
         QualityLayerMetricsRepository metricsRepository,
+        RolloutProperties rolloutProperties,
+        MaterialContentSupport contentSupport,
+        StructuredV1ProofService structuredV1ProofService
+    ) {
+        this(metricsRepository, rolloutProperties, contentSupport, structuredV1ProofService, false);
+    }
+
+    public QualityLayerHealthService(
+        QualityLayerMetricsRepository metricsRepository,
         RolloutProperties rolloutProperties
     ) {
-        this(metricsRepository, rolloutProperties, false);
+        this(
+            metricsRepository,
+            rolloutProperties,
+            null,
+            StructuredV1ProofService.allowAllForTests(rolloutProperties),
+            false
+        );
     }
 
     private QualityLayerHealthService(
         QualityLayerMetricsRepository metricsRepository,
         RolloutProperties rolloutProperties,
+        MaterialContentSupport contentSupport,
+        StructuredV1ProofService structuredV1ProofService,
         boolean noOp
     ) {
         this.metricsRepository = metricsRepository;
         this.rolloutProperties = rolloutProperties == null ? new RolloutProperties() : rolloutProperties;
+        this.contentSupport = contentSupport;
+        this.structuredV1ProofService = structuredV1ProofService == null
+            ? StructuredV1ProofService.allowAllForTests(this.rolloutProperties)
+            : structuredV1ProofService;
         this.noOp = noOp;
     }
 
     public static QualityLayerHealthService noop(RolloutProperties rolloutProperties) {
-        return new QualityLayerHealthService(null, rolloutProperties, true);
+        return new QualityLayerHealthService(
+            null,
+            rolloutProperties,
+            null,
+            StructuredV1ProofService.allowAllForTests(rolloutProperties),
+            true
+        );
     }
 
     @PostConstruct
@@ -87,14 +117,25 @@ public class QualityLayerHealthService {
 
     public QualityLayerHealth currentHealth() {
         if (noOp || metricsRepository == null) {
-            return new QualityLayerHealth(flags(), MetadataCoverage.empty(), ActiveBackfillCoverage.empty(), snapshotWindow());
+            return new QualityLayerHealth(
+                flags(),
+                MetadataCoverage.empty(),
+                ActiveBackfillCoverage.empty(),
+                snapshotWindow(),
+                configuredChunkProfile(),
+                effectiveChunkProfile(),
+                structuredV1ProofService.status()
+            );
         }
         QualityLayerCoverageSnapshot coverageSnapshot = cachedCoverageSnapshot();
         return new QualityLayerHealth(
             flags(),
             metadataCoverage(coverageSnapshot),
             activeBackfillCoverage(coverageSnapshot),
-            snapshotWindow()
+            snapshotWindow(),
+            configuredChunkProfile(),
+            effectiveChunkProfile(),
+            structuredV1ProofService.status()
         );
     }
 
@@ -223,6 +264,19 @@ public class QualityLayerHealthService {
             return 0.0d;
         }
         return (double) value / (double) total;
+    }
+
+    private String configuredChunkProfile() {
+        return contentSupport == null ? null : contentSupport.configuredChunkProfile().propertyValue();
+    }
+
+    private String effectiveChunkProfile() {
+        if (contentSupport == null) {
+            return rolloutProperties.isStructuredV1()
+                ? ChunkProfile.STRUCTURED_V1.propertyValue()
+                : ChunkProfile.FIXED_V1.propertyValue();
+        }
+        return contentSupport.configuredChunkProfile(rolloutProperties.isStructuredV1()).propertyValue();
     }
 
     private record RetrievalWindowSample(

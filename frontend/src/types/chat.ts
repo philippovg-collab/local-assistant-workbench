@@ -15,6 +15,7 @@ import type {
 import type { MaterialMetadata } from "./materials";
 import type {
   ChunkScoreBreakdown,
+  EvidenceLocator,
   RetrievalDebug,
   RetrievalFilterKey,
   RetrievalFilters,
@@ -36,6 +37,7 @@ export type ChatSource = {
   ocrUsed?: boolean;
   chunkType?: DocumentBlockType;
   metadata?: MaterialMetadata;
+  evidenceLocator?: EvidenceLocator | null;
   semanticDistance?: number | null;
   lexicalScore?: number | null;
   scoreBreakdown?: ChunkScoreBreakdown | null;

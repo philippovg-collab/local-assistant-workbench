@@ -1,4 +1,5 @@
 import { ConversationThreadPanel } from "@/components/ConversationThreadPanel";
+import type { ChatAuditCandidateAction } from "@/components/ChatAuditPanel";
 import { RagChatPanel } from "@/components/RagChatPanel";
 import type { useConversationChatExecution } from "@/hooks/useConversationChatExecution";
 import type { useConversationRuns } from "@/hooks/useConversationRuns";
@@ -28,6 +29,7 @@ type RagStudioTabProps = {
   helperText: string;
   isBlocked: boolean;
   longTermMemoryEnabled: boolean;
+  evalCandidateAction?: ChatAuditCandidateAction | null;
   onToggleInstruction: (instructionId: string) => void;
 };
 
@@ -49,6 +51,7 @@ export function RagStudioTab({
   modelsError,
   ragChat,
   selectedInstructionIds,
+  evalCandidateAction,
   onToggleInstruction,
 }: RagStudioTabProps) {
   const sourceDialog = useMaterialSourceDialog(activeRagProjectKey);
@@ -75,6 +78,7 @@ export function RagStudioTab({
       dismissedHintKeys={activeChat.dismissedHintKeys}
       effectiveRetrievalFilters={activeChat.effectiveRetrievalFilters}
       error={activeChat.error}
+      evalCandidateAction={evalCandidateAction}
       helperText={helperText}
       hintOwnedFields={activeChat.hintOwnedFields}
       instructions={instructions}

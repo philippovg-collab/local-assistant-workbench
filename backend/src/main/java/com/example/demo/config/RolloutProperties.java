@@ -13,6 +13,7 @@ public class RolloutProperties {
     private boolean searchApiV1 = false;
     private boolean rerankerV1 = false;
     private boolean queryHintsV1 = false;
+    private String structuredV1ProofCompareId;
 
     public static RolloutProperties enabledForTests() {
         RolloutProperties properties = new RolloutProperties();
@@ -22,6 +23,7 @@ public class RolloutProperties {
         properties.setSearchApiV1(true);
         properties.setRerankerV1(true);
         properties.setQueryHintsV1(true);
+        properties.setStructuredV1ProofCompareId("test-override");
         return properties;
     }
 
@@ -71,5 +73,13 @@ public class RolloutProperties {
 
     public void setQueryHintsV1(boolean queryHintsV1) {
         this.queryHintsV1 = queryHintsV1;
+    }
+
+    public String getStructuredV1ProofCompareId() {
+        return structuredV1ProofCompareId;
+    }
+
+    public void setStructuredV1ProofCompareId(String structuredV1ProofCompareId) {
+        this.structuredV1ProofCompareId = structuredV1ProofCompareId;
     }
 }

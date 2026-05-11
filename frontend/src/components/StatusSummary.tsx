@@ -87,6 +87,16 @@ export function StatusSummary({
   const qualityBackfillSummary = health?.qualityLayer
     ? `${health.qualityLayer.activeBackfillCoverage.structuredProfileActive}/${health.qualityLayer.activeBackfillCoverage.activeTotal} active на structured-v1 · pending=${health.qualityLayer.activeBackfillCoverage.pendingBackfill} · partial-ready=${health.qualityLayer.activeBackfillCoverage.partialReadyActive}`
     : "Ждём ACTIVE backfill coverage.";
+  const qualityChunkProfileSummary = health?.qualityLayer
+    ? `${health.qualityLayer.configuredChunkProfile ?? "unknown"} configured / ${health.qualityLayer.effectiveChunkProfile ?? "unknown"} effective`
+    : "Ждём chunk profile.";
+  const structuredV1ProofSummary = health?.qualityLayer?.structuredV1ProofStatus
+    ? [
+        health.qualityLayer.structuredV1ProofStatus.status ?? "UNKNOWN",
+        health.qualityLayer.structuredV1ProofStatus.compareId,
+        health.qualityLayer.structuredV1ProofStatus.reasonCode,
+      ].filter(Boolean).join(" · ")
+    : "Structured-v1 proof status пока не опубликован.";
   const qualityRetrievalWindowSummary = health?.qualityLayer
     ? `sample=${health.qualityLayer.retrievalWindow.sampleSize} · no-context=${Math.round(health.qualityLayer.retrievalWindow.noContextRate * 100)}%`
     : "Ждём retrieval window.";
@@ -206,6 +216,14 @@ export function StatusSummary({
     {
       label: "ACTIVE backfill coverage",
       value: qualityBackfillSummary,
+    },
+    {
+      label: "Chunk profile",
+      value: qualityChunkProfileSummary,
+    },
+    {
+      label: "Structured-v1 proof",
+      value: structuredV1ProofSummary,
     },
     {
       label: "Retrieval window",

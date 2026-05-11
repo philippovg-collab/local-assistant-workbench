@@ -1,5 +1,6 @@
 import { ConversationThreadPanel } from "@/components/ConversationThreadPanel";
 import { DirectChatPanel } from "@/components/DirectChatPanel";
+import type { ChatAuditCandidateAction } from "@/components/ChatAuditPanel";
 import type { useConversationChatExecution } from "@/hooks/useConversationChatExecution";
 import type { useConversationRuns } from "@/hooks/useConversationRuns";
 import type { useConversations } from "@/hooks/useConversations";
@@ -18,6 +19,7 @@ type DirectStudioTabProps = {
   instructions: InstructionSummary[];
   isBlocked: boolean;
   longTermMemoryEnabled: boolean;
+  evalCandidateAction?: ChatAuditCandidateAction | null;
   models: ModelInfo[];
   modelsError: string | null;
   selectedInstructionIds: string[];
@@ -35,6 +37,7 @@ export function DirectStudioTab({
   instructions,
   isBlocked,
   longTermMemoryEnabled,
+  evalCandidateAction,
   models,
   modelsError,
   selectedInstructionIds,
@@ -59,6 +62,7 @@ export function DirectStudioTab({
       currentRunStatus={activeChat.currentRunStatus}
       useLongTermMemory={conversational && longTermMemoryEnabled ? conversationChat.useLongTermMemory : undefined}
       error={activeChat.error}
+      evalCandidateAction={evalCandidateAction}
       helperText={helperText}
       instructions={instructions}
       isBlocked={isBlocked}

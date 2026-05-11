@@ -283,20 +283,26 @@ public class PostgresChatRunTraceRepository implements ChatRunTraceRepository {
                         retrieval_status,
                         trace_jsonb,
                         debug_jsonb,
+                        lexical_provider,
                         relevance_profile,
+                        embedding_model,
+                        chunk_profile,
                         query_hints_jsonb,
                         manual_filters_jsonb,
                         effective_filters_jsonb,
                         rollout_flags_jsonb,
                         applied_capabilities_jsonb
                     )
-                    SELECT mutable_run.id, ?, ?::jsonb, ?::jsonb, ?, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb
+                    SELECT mutable_run.id, ?, ?::jsonb, ?::jsonb, ?, ?, ?, ?, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb
                     FROM mutable_run
                     ON CONFLICT (run_id) DO UPDATE
                     SET retrieval_status = EXCLUDED.retrieval_status,
                         trace_jsonb = EXCLUDED.trace_jsonb,
                         debug_jsonb = EXCLUDED.debug_jsonb,
+                        lexical_provider = EXCLUDED.lexical_provider,
                         relevance_profile = EXCLUDED.relevance_profile,
+                        embedding_model = EXCLUDED.embedding_model,
+                        chunk_profile = EXCLUDED.chunk_profile,
                         query_hints_jsonb = EXCLUDED.query_hints_jsonb,
                         manual_filters_jsonb = EXCLUDED.manual_filters_jsonb,
                         effective_filters_jsonb = EXCLUDED.effective_filters_jsonb,
@@ -309,7 +315,10 @@ public class PostgresChatRunTraceRepository implements ChatRunTraceRepository {
                     retrievalStatus,
                     writeJson(trace),
                     writeJson(debug),
+                    debug == null ? null : debug.lexicalProvider(),
                     debug == null ? null : debug.relevanceProfile(),
+                    debug == null ? null : debug.embeddingModel(),
+                    debug == null ? null : debug.chunkProfile(),
                     writeJson(debug == null ? null : debug.queryHints()),
                     writeJson(debug == null ? null : debug.manualFilters()),
                     writeJson(debug == null ? null : debug.effectiveFilters()),

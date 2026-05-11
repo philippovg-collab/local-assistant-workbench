@@ -6,6 +6,7 @@ import com.example.demo.config.MaterialProperties;
 import com.example.demo.config.RagProperties;
 import com.example.demo.embedding.EmbeddingClient;
 import com.example.demo.model.MaterialMetadataInput;
+import com.example.demo.model.MaterialLineageOverrideInput;
 import com.example.demo.model.MaterialListResponse;
 import com.example.demo.model.MaterialLineageResponse;
 import com.example.demo.model.MaterialDetail;
@@ -67,12 +68,30 @@ public class MaterialService {
         return ingestionService.saveText(title, content, metadata);
     }
 
+    public MaterialSummary saveText(
+        String title,
+        String content,
+        MaterialMetadataInput metadata,
+        MaterialLineageOverrideInput lineageOverride
+    ) {
+        return ingestionService.saveText(title, content, metadata, lineageOverride);
+    }
+
     public MaterialSummary saveUpload(String title, MultipartFile file) {
         return saveUpload(title, file, null);
     }
 
     public MaterialSummary saveUpload(String title, MultipartFile file, MaterialMetadataInput metadata) {
         return ingestionService.saveUpload(title, file, metadata);
+    }
+
+    public MaterialSummary saveUpload(
+        String title,
+        MultipartFile file,
+        MaterialMetadataInput metadata,
+        MaterialLineageOverrideInput lineageOverride
+    ) {
+        return ingestionService.saveUpload(title, file, metadata, lineageOverride);
     }
 
     public MaterialSummary saveUploadVersion(

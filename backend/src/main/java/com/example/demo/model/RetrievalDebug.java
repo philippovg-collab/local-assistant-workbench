@@ -1,5 +1,7 @@
 package com.example.demo.model;
 
+import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 
 public record RetrievalDebug(
@@ -14,7 +16,15 @@ public record RetrievalDebug(
     String relevanceProfile,
     QualityLayerFlags activeRolloutFlags,
     List<String> appliedCapabilities,
-    List<String> suppressedCapabilities
+    List<String> suppressedCapabilities,
+    Instant referenceInstant,
+    LocalDate effectiveDate,
+    Instant uploadedAfterInclusive,
+    Instant uploadedBeforeExclusive,
+    String retrievalConfigHash,
+    String lexicalProvider,
+    String embeddingModel,
+    String chunkProfile
 ) {
     public RetrievalDebug(
         RetrievalQueryHints queryHints,
@@ -39,7 +49,15 @@ public record RetrievalDebug(
             relevanceProfile,
             QualityLayerFlags.none(),
             List.of(),
-            List.of()
+            List.of(),
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null
         );
     }
 
@@ -68,7 +86,53 @@ public record RetrievalDebug(
             relevanceProfile,
             activeRolloutFlags,
             appliedCapabilities,
-            List.of()
+            List.of(),
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null
+        );
+    }
+
+    public RetrievalDebug(
+        RetrievalQueryHints queryHints,
+        RetrievalFilters manualFilters,
+        RetrievalFilters effectiveFilters,
+        int semanticCandidateCount,
+        int lexicalCandidateCount,
+        int rerankCandidateCount,
+        int finalChunkCount,
+        String supportVerdict,
+        String relevanceProfile,
+        QualityLayerFlags activeRolloutFlags,
+        List<String> appliedCapabilities,
+        List<String> suppressedCapabilities
+    ) {
+        this(
+            queryHints,
+            manualFilters,
+            effectiveFilters,
+            semanticCandidateCount,
+            lexicalCandidateCount,
+            rerankCandidateCount,
+            finalChunkCount,
+            supportVerdict,
+            relevanceProfile,
+            activeRolloutFlags,
+            appliedCapabilities,
+            suppressedCapabilities,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null
         );
     }
 

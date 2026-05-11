@@ -213,13 +213,14 @@ final class PostgresMaterialRetrievalSearchDao {
     private String retrievalReadyPredicate(MaterialSearchScope scope) {
         return filterSqlBuilder.retrievalReadyPredicate(
             "m",
-            scope.isFiltered() ? scope.knowledgeScope() : null,
-            scope.retrievalFilters()
+            scope.requiresCriteriaFiltering() ? scope.knowledgeScope() : null,
+            scope.retrievalFilters(),
+            scope.effectiveDate()
         );
     }
 
     private PostgresMaterialFilterSqlBuilder.RetrievalScopeSql retrievalScopeSql(MaterialSearchScope scope) {
-        if (!scope.isFiltered()) {
+        if (!scope.requiresCriteriaFiltering()) {
             return PostgresMaterialFilterSqlBuilder.RetrievalScopeSql.empty();
         }
         return filterSqlBuilder.buildRetrievalScopeSql(

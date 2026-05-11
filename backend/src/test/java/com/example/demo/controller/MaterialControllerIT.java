@@ -1,5 +1,7 @@
 package com.example.demo.controller;
 
+import com.example.demo.config.RolloutProperties;
+import com.example.demo.service.StructuredV1ProofService;
 import com.example.demo.service.material.OcrCapability;
 import com.example.demo.service.material.port.OcrCapabilityProvider;
 
@@ -315,6 +317,12 @@ class MaterialControllerIT extends PostgresIntegrationTestSupport {
         @Primary
         TestOcrClient ocrClient() {
             return new TestOcrClient();
+        }
+
+        @Bean
+        @Primary
+        StructuredV1ProofService structuredV1ProofService(RolloutProperties rolloutProperties) {
+            return StructuredV1ProofService.allowAllForTests(rolloutProperties);
         }
     }
 

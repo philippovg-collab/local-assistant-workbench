@@ -136,6 +136,16 @@ export const translateMaterialError = (
         return "Редактировать можно только активную версию материала.";
       case "material.edit_missing_lineage":
         return "У материала нет lineage-ключа, поэтому редакцию нельзя сохранить как новую версию.";
+      case "material.lineage_override_key_required":
+        return "Укажи lineage override key.";
+      case "material.lineage_override_reason_required":
+        return "Укажи причину lineage override.";
+      case "material.lineage_override_confirmation_required":
+        return "Этот lineage override уже используется. Подтверди reuse, чтобы создать новую версию той же lineage.";
+      case "material.lineage_override_collision":
+        return "Lineage override отклонён: он попытался бы склеить две существующие истории версий.";
+      case "material.structured_rollout_proof_required":
+        return "Structured-v1 включён без успешного compatible eval compare proof. Запись материала заблокирована.";
       default:
         if (error.code?.startsWith("material.storage_") || error.code?.startsWith("materials.storage_")) {
           return "Не удалось сохранить материал в локальном хранилище backend. Повтори попытку ещё раз.";

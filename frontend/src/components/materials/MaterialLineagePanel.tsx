@@ -43,6 +43,16 @@ export function MaterialLineagePanel({
             title="История версий"
           />
 
+          {selectedLineage.lineageOverride ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant="default">override: {selectedLineage.lineageOverride.lineageKey}</Badge>
+              <Badge variant="secondary">{selectedLineage.lineageOverride.active ? "active" : "inactive"}</Badge>
+              {selectedLineage.lineageOverride.reason ? (
+                <Badge variant="secondary">{selectedLineage.lineageOverride.reason}</Badge>
+              ) : null}
+            </div>
+          ) : null}
+
           <div className="space-y-3">
             {lineageVersions(selectedLineage).map((version) => (
               <article className="surface-subtle space-y-4 rounded-[24px] p-5" key={version.id}>

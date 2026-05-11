@@ -5,6 +5,7 @@ import com.example.demo.config.RolloutProperties;
 import com.example.demo.error.ApplicationException;
 import com.example.demo.error.ErrorType;
 import com.example.demo.model.MaterialIndexingStatus;
+import com.example.demo.model.MaterialLineageOverrideInput;
 import com.example.demo.model.MaterialMetadataSnapshot;
 import com.example.demo.model.MaterialSummary;
 import com.example.demo.model.MaterialVersionState;
@@ -54,6 +55,7 @@ final class MaterialPersistenceCoordinator {
     private final MaterialIndexingService indexingService;
     private final AfterCommitExecutor afterCommitExecutor;
     private final RolloutProperties rolloutProperties;
+    private final StructuredV1ProofService structuredV1ProofService;
     private final MaterialAutoTaggingLifecycleService autoTaggingLifecycleService;
     private final MaterialAutoTaggingWorkerService autoTaggingWorkerService;
     private final TransactionTemplate transactionTemplate;
@@ -67,6 +69,7 @@ final class MaterialPersistenceCoordinator {
         MaterialIndexingService indexingService,
         AfterCommitExecutor afterCommitExecutor,
         RolloutProperties rolloutProperties,
+        StructuredV1ProofService structuredV1ProofService,
         MaterialAutoTaggingLifecycleService autoTaggingLifecycleService,
         MaterialAutoTaggingWorkerService autoTaggingWorkerService,
         PlatformTransactionManager transactionManager
@@ -79,6 +82,9 @@ final class MaterialPersistenceCoordinator {
         this.indexingService = indexingService;
         this.afterCommitExecutor = afterCommitExecutor;
         this.rolloutProperties = rolloutProperties;
+        this.structuredV1ProofService = structuredV1ProofService == null
+            ? StructuredV1ProofService.allowAllForTests(rolloutProperties)
+            : structuredV1ProofService;
         this.autoTaggingLifecycleService = autoTaggingLifecycleService;
         this.autoTaggingWorkerService = autoTaggingWorkerService;
         this.transactionTemplate = transactionManager == null ? null : new TransactionTemplate(transactionManager);
@@ -102,6 +108,7 @@ final class MaterialPersistenceCoordinator {
             metadata,
             document,
             null,
+            null,
             true,
             DuplicateContentBehavior.REUSE_OR_REACTIVATE
         );
@@ -115,6 +122,7 @@ final class MaterialPersistenceCoordinator {
         String lineageTitle,
         MaterialMetadataSnapshot metadata,
         DocumentParseResult document,
+        MaterialLineageOverrideInput lineageOverride,
         String forcedSourceKey,
         boolean inheritManualTagsWhenEmpty,
         DuplicateContentBehavior duplicateContentBehavior
@@ -137,6 +145,7 @@ final class MaterialPersistenceCoordinator {
             );
         }
 
+        structuredV1ProofService.requireWriteAllowed();
         String normalizedContent = contentSupport.normalizeForHash(storedContent);
         String contentHash = contentSupport.sha256(normalizedContent);
         MaterialLineageIdentity lineageIdentity = StringUtils.hasText(forcedSourceKey)
@@ -157,6 +166,7 @@ final class MaterialPersistenceCoordinator {
             contentHash,
             forcedSourceKey,
             lineageIdentity,
+            lineageOverride,
             metadata,
             document,
             chunkProfile,
@@ -177,6 +187,7 @@ final class MaterialPersistenceCoordinator {
         String contentHash,
         String forcedSourceKey,
         MaterialLineageIdentity lineageIdentity,
+        MaterialLineageOverrideInput lineageOverride,
         MaterialMetadataSnapshot metadata,
         DocumentParseResult document,
         ChunkProfile chunkProfile,
@@ -185,9 +196,7 @@ final class MaterialPersistenceCoordinator {
         boolean inheritManualTagsWhenEmpty,
         DuplicateContentBehavior duplicateContentBehavior
     ) {
-        String sourceKey = StringUtils.hasText(forcedSourceKey)
-            ? forcedSourceKey.trim()
-            : lineageRepository.resolveSourceKey(Objects.requireNonNull(lineageIdentity, "lineageIdentity"));
+        String sourceKey = resolveSourceKey(forcedSourceKey, lineageIdentity, lineageOverride);
         lineageRepository.lockLineage(sourceKey);
 
         java.util.Optional<StoredMaterialRecord> existingRecord =
@@ -250,6 +259,86 @@ final class MaterialPersistenceCoordinator {
             .filter(tags -> !tags.isEmpty())
             .map(metadata::withManualTags)
             .orElse(metadata);
+    }
+
+    private String resolveSourceKey(
+        String forcedSourceKey,
+        MaterialLineageIdentity lineageIdentity,
+        MaterialLineageOverrideInput lineageOverride
+    ) {
+        if (StringUtils.hasText(forcedSourceKey)) {
+            return forcedSourceKey.trim();
+        }
+
+        MaterialLineageIdentity naturalIdentity = Objects.requireNonNull(lineageIdentity, "lineageIdentity");
+        if (lineageOverride == null || !StringUtils.hasText(lineageOverride.lineageKey())) {
+            return lineageRepository.resolveSourceKey(naturalIdentity);
+        }
+
+        String lineageKey = contentSupport.normalizeOperatorLineageKey(lineageOverride.lineageKey());
+        if (!StringUtils.hasText(lineageKey)) {
+            throw new ApplicationException(
+                ErrorType.INVALID_REQUEST,
+                "material.lineage_override_key_required",
+                "Lineage override key is required."
+            );
+        }
+        if (!StringUtils.hasText(lineageOverride.reason())) {
+            throw new ApplicationException(
+                ErrorType.INVALID_REQUEST,
+                "material.lineage_override_reason_required",
+                "Lineage override reason is required."
+            );
+        }
+
+        String reason = lineageOverride.reason().trim();
+        String naturalSourceKey = naturalIdentity.sourceKey();
+        boolean naturalLineageExists = !catalogRepository.findAllBySourceKey(naturalSourceKey).isEmpty();
+        MaterialLineageIdentity operatorIdentity = contentSupport.buildOperatorLineageIdentity(lineageKey);
+        String targetSourceKey = operatorIdentity.sourceKey();
+        lineageRepository.lockLineage("operator-override:" + lineageKey);
+        lineageRepository.lockLineage(targetSourceKey);
+
+        java.util.Optional<com.example.demo.service.material.MaterialLineageOperatorOverride> existingOverride =
+            lineageRepository.findActiveOverride(lineageKey);
+        if (existingOverride.isPresent()) {
+            String overrideSourceKey = existingOverride.get().sourceKey();
+            if (!targetSourceKey.equals(overrideSourceKey)
+                || naturalLineageExists && !naturalSourceKey.equals(overrideSourceKey)) {
+                throw new ApplicationException(
+                    ErrorType.CONFLICT,
+                    "material.lineage_override_collision",
+                    "Lineage override would merge two existing material lineages."
+                );
+            }
+            boolean overrideLineageExists = !catalogRepository.findAllBySourceKey(overrideSourceKey).isEmpty();
+            if (overrideLineageExists && !lineageOverride.confirmed()) {
+                throw new ApplicationException(
+                    ErrorType.CONFLICT,
+                    "material.lineage_override_confirmation_required",
+                    "Reusing an existing lineage override requires explicit confirmation."
+                );
+            }
+            return overrideSourceKey;
+        }
+
+        boolean overrideLineageExists = !catalogRepository.findAllBySourceKey(targetSourceKey).isEmpty();
+        if (overrideLineageExists && !lineageOverride.confirmed()) {
+            throw new ApplicationException(
+                ErrorType.CONFLICT,
+                "material.lineage_override_confirmation_required",
+                "Reusing an existing lineage override requires explicit confirmation."
+            );
+        }
+        targetSourceKey = lineageRepository.resolveSourceKey(operatorIdentity);
+
+        return lineageRepository.saveOverride(
+            lineageKey,
+            targetSourceKey,
+            reason,
+            "operator",
+            Instant.now()
+        ).sourceKey();
     }
 
     private PersistMaterialResult saveNewMaterial(

@@ -1,0 +1,102 @@
+{
+  "modes": {
+    "smoke": {
+      "requiredDatasetKind": "SMOKE",
+      "allowedCompatibilityStatuses": ["COMPATIBLE", "WARNING_ONLY"],
+      "requiredMetrics": {
+        "answer_correctness": {"min": 0.80},
+        "groundedness": {"min": 0.80},
+        "citation_precision": {"min": 0.80},
+        "instruction_adherence": {"min": 0.80},
+        "output_format_validity": {"min": 1.00},
+        "doc_recall@k": {"min": 1.00},
+        "filter_adherence_retrieval": {"min": 1.00}
+      },
+      "maxMetrics": {
+        "forbidden_doc_rate": {"max": 0.00}
+      },
+      "requiredSlices": {
+        "NO_ANSWER": {
+          "metrics": {
+            "abstention_recall": {"min": 1.00}
+          }
+        },
+        "AMBIGUOUS_QUERY": {
+          "metrics": {
+            "clarification_recall": {"min": 1.00}
+          }
+        }
+      },
+      "disallowedFailureCodes": ["OUTPUT_FORMAT_ERROR"],
+      "blockedRegressionSeverities": ["BLOCKER"],
+      "noDropMetrics": ["doc_recall@k", "filter_adherence_retrieval"],
+      "noRiseMetrics": ["forbidden_doc_rate"]
+    },
+    "golden": {
+      "requiredDatasetKind": "GOLDEN",
+      "allowedCompatibilityStatuses": ["COMPATIBLE", "WARNING_ONLY"],
+      "requiredMetrics": {
+        "answer_correctness": {"min": 0.90},
+        "groundedness": {"min": 0.90},
+        "citation_precision": {"min": 0.90},
+        "instruction_adherence": {"min": 0.90},
+        "output_format_validity": {"min": 1.00},
+        "doc_recall@k": {"min": 1.00},
+        "filter_adherence_retrieval": {"min": 1.00}
+      },
+      "maxMetrics": {
+        "forbidden_doc_rate": {"max": 0.00}
+      },
+      "requiredSlices": {
+        "NO_ANSWER": {
+          "metrics": {
+            "abstention_recall": {"min": 1.00}
+          }
+        },
+        "AMBIGUOUS_QUERY": {
+          "metrics": {
+            "clarification_recall": {"min": 1.00}
+          }
+        }
+      },
+      "disallowedFailureCodes": ["OUTPUT_FORMAT_ERROR"],
+      "blockedRegressionSeverities": ["BLOCKER"],
+      "noDropMetrics": ["doc_recall@k", "filter_adherence_retrieval"],
+      "noRiseMetrics": ["forbidden_doc_rate"]
+    },
+    "compare": {
+      "requiredDatasetKind": "GOLDEN",
+      "allowedCompatibilityStatuses": ["COMPATIBLE"],
+      "requiredOverallVerdict": "PASS",
+      "requireMetricSummary": true,
+      "requiredMetrics": {
+        "answer_correctness": {"min": 0.90},
+        "groundedness": {"min": 0.90},
+        "citation_precision": {"min": 0.90},
+        "instruction_adherence": {"min": 0.90},
+        "output_format_validity": {"min": 1.00},
+        "doc_recall@k": {"min": 1.00},
+        "filter_adherence_retrieval": {"min": 1.00}
+      },
+      "maxMetrics": {
+        "forbidden_doc_rate": {"max": 0.00}
+      },
+      "requiredSlices": {
+        "NO_ANSWER": {
+          "metrics": {
+            "abstention_recall": {"min": 1.00}
+          }
+        },
+        "AMBIGUOUS_QUERY": {
+          "metrics": {
+            "clarification_recall": {"min": 1.00}
+          }
+        }
+      },
+      "disallowedFailureCodes": ["OUTPUT_FORMAT_ERROR"],
+      "blockedRegressionSeverities": ["BLOCKER"],
+      "noDropMetrics": ["doc_recall@k", "filter_adherence_retrieval"],
+      "noRiseMetrics": ["forbidden_doc_rate"]
+    }
+  }
+}

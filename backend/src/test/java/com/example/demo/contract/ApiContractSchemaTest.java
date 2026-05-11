@@ -24,7 +24,7 @@ class ApiContractSchemaTest {
     private static final Path CONTROLLER_ROOT =
         Path.of("src/main/java/com/example/demo/controller");
     private static final Pattern MODEL_IMPORT =
-        Pattern.compile("^\\s*import\\s+(com\\.example\\.demo\\.model\\.[A-Za-z0-9_]+);\\s*$");
+        Pattern.compile("^\\s*import\\s+(com\\.example\\.demo\\.model(?:\\.[A-Za-z0-9_]+)+);\\s*$");
 
     private final ObjectMapper objectMapper = new ObjectMapper()
         .configure(SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS, true);

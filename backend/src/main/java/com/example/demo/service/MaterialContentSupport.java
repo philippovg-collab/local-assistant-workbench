@@ -510,6 +510,23 @@ public class MaterialContentSupport {
         );
     }
 
+    public String normalizeOperatorLineageKey(String value) {
+        return normalizeLineageLabel(value);
+    }
+
+    public MaterialLineageIdentity buildOperatorLineageIdentity(String normalizedLineageKey) {
+        return new MaterialLineageIdentity(
+            "operator",
+            MaterialLineageIdentityKind.EXPLICIT_TITLE,
+            normalizedLineageKey,
+            normalizedLineageKey,
+            null,
+            null,
+            "operator-override",
+            "operator:" + sha256(normalizedLineageKey == null ? "" : normalizedLineageKey)
+        );
+    }
+
     public String buildSourceKey(MaterialLineageIdentity identity) {
         String serializedIdentity = String.join(
             "|",

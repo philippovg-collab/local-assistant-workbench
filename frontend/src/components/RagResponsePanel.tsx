@@ -1,6 +1,6 @@
 import { Files, SearchCheck, Sparkles } from "lucide-react";
 import { AppliedInstructionList } from "@/components/AppliedInstructionList";
-import { ChatAuditPanel } from "@/components/ChatAuditPanel";
+import { ChatAuditPanel, type ChatAuditCandidateAction } from "@/components/ChatAuditPanel";
 import { EmptyState } from "@/components/app/EmptyState";
 import { SectionIntro } from "@/components/app/SectionIntro";
 import { RagSourcesList } from "@/components/RagSourcesList";
@@ -42,6 +42,7 @@ type RagResponsePanelProps = {
   chatRuns: ChatAuditRunSummary[];
   selectedChatRun: ChatAuditRunDetail | null;
   chatRunsError: string | null;
+  evalCandidateAction?: ChatAuditCandidateAction | null;
   onLoadChatRun: (runId: string) => Promise<ChatAuditRunDetail | null>;
   onOpenSource: (materialId: string, openSourceUrl?: string | null) => void;
 };
@@ -56,6 +57,7 @@ export function RagResponsePanel({
   chatRuns,
   selectedChatRun,
   chatRunsError,
+  evalCandidateAction,
   onLoadChatRun,
   onOpenSource,
 }: RagResponsePanelProps) {
@@ -182,6 +184,7 @@ export function RagResponsePanel({
             currentKnowledgeScopeResolved={response.knowledgeScopeResolved}
             currentRetrievalTrace={response.retrievalTrace}
             error={chatRunsError}
+            candidateAction={evalCandidateAction}
             runs={chatRuns}
             selectedRun={selectedChatRun}
             onLoadRun={onLoadChatRun}

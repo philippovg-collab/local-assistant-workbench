@@ -38,6 +38,9 @@ public class ElasticsearchLexicalSearchProvider implements LexicalSearchProvider
     private static final Set<String> REQUIRED_SCOPE_MAPPING_FIELDS = Set.of(
         "knowledgeDocumentClass",
         "createdAt",
+        "versionLabel",
+        "versionState",
+        "lineageVersion",
         "workspaceKey",
         "documentType",
         "documentStatus",
@@ -147,7 +150,7 @@ public class ElasticsearchLexicalSearchProvider implements LexicalSearchProvider
             )));
         }
 
-        if (scope.isFiltered()) {
+        if (scope.requiresCriteriaFiltering()) {
             addKnowledgeScopeFilters(
                 filterClauses,
                 scope.knowledgeScope(),
@@ -210,6 +213,20 @@ public class ElasticsearchLexicalSearchProvider implements LexicalSearchProvider
         if (safeFilters.documentNumber() != null) {
             filterClauses.add(exactFilter("documentNumber", safeFilters.documentNumber()));
         }
+        if (safeFilters.versionSelectionMode() == com.example.demo.model.VersionSelectionMode.VERSION_LABEL
+            && safeFilters.versionLabel() != null) {
+            filterClauses.add(exactFilter("versionLabel", safeFilters.versionLabel()));
+        }
+        if (safeFilters.versionSelectionMode() == com.example.demo.model.VersionSelectionMode.VERSION_STATE
+            && safeFilters.versionState() != null) {
+            filterClauses.add(exactFilter("versionState", safeFilters.versionState().name()));
+        }
+        addInstantRangeFilters(
+            filterClauses,
+            "createdAt",
+            safeFilters.uploadedAfterInclusive(),
+            safeFilters.uploadedBeforeExclusive()
+        );
         if (!safeFilters.documentTypeNames().isEmpty()) {
             filterClauses.add(termsFilter("documentType", safeFilters.documentTypeNames()));
         }

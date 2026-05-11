@@ -24,7 +24,7 @@ public interface SemanticSearchRepository {
             return searchSemantic(queryEmbedding, limit);
         }
         if (safeScope.isMaterialIds()) {
-            if (!safeScope.retrievalFilters().isEmpty()) {
+            if (safeScope.requiresCriteriaFiltering()) {
                 throw new UnsupportedOperationException("Semantic search provider does not support filtered material ids");
             }
             return searchSemantic(queryEmbedding, limit).stream()

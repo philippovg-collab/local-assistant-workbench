@@ -287,21 +287,25 @@ public class PostgresConversationRepository implements ConversationRepository {
     @Override
     public int nextTurnNo(String conversationId) {
         try {
+            UUID conversationUuid = UUID.fromString(conversationId);
+            jdbcTemplate.queryForObject(
+                """
+                    SELECT id
+                    FROM chat_conversations
+                    WHERE id = ?
+                    FOR UPDATE
+                    """,
+                UUID.class,
+                conversationUuid
+            );
             Integer nextTurnNo = jdbcTemplate.queryForObject(
                 """
-                    WITH locked_conversation AS (
-                        SELECT id
-                        FROM chat_conversations
-                        WHERE id = ?
-                        FOR UPDATE
-                    )
                     SELECT COALESCE(MAX(turn_no), 0) + 1
-                    FROM locked_conversation c
-                    LEFT JOIN chat_conversation_runs cr ON cr.conversation_id = c.id
-                    GROUP BY c.id
+                    FROM chat_conversation_runs
+                    WHERE conversation_id = ?
                     """,
                 Integer.class,
-                UUID.fromString(conversationId)
+                conversationUuid
             );
             return nextTurnNo == null ? 1 : nextTurnNo;
         } catch (DataAccessException exception) {

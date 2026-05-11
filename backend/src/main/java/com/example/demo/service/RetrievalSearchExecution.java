@@ -13,7 +13,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-record RetrievalSearchExecution(
+public record RetrievalSearchExecution(
     Set<String> queryTokens,
     RetrievalFilters manualFilters,
     RetrievalFilters effectiveFilters,
@@ -26,6 +26,8 @@ record RetrievalSearchExecution(
     int scopedReadyMaterialCount,
     List<MaterialChunkSearchMatch> semanticMatches,
     ProductionLexicalSearchRouter.LexicalSearchResult lexicalSearchResult,
+    List<HybridChunkRanker.RankedChunk> fusedMatches,
+    List<HybridChunkRanker.RankedChunk> preRerankMatches,
     List<HybridChunkRanker.RankedChunk> rankedMatches,
     int rerankCandidateCount,
     List<RetrievedMaterialChunk> matches,
@@ -38,12 +40,14 @@ record RetrievalSearchExecution(
     List<String> appliedCapabilities,
     List<String> suppressedCapabilities
 ) {
-    RetrievalSearchExecution {
+    public RetrievalSearchExecution {
         queryTokens = queryTokens == null ? Set.of() : Set.copyOf(queryTokens);
         manualFilters = manualFilters == null ? RetrievalFilters.empty() : manualFilters;
         effectiveFilters = effectiveFilters == null ? RetrievalFilters.empty() : effectiveFilters;
         queryHints = queryHints == null ? RetrievalQueryHints.empty() : queryHints;
         semanticMatches = semanticMatches == null ? List.of() : List.copyOf(semanticMatches);
+        fusedMatches = fusedMatches == null ? List.of() : List.copyOf(fusedMatches);
+        preRerankMatches = preRerankMatches == null ? List.of() : List.copyOf(preRerankMatches);
         rankedMatches = rankedMatches == null ? List.of() : List.copyOf(rankedMatches);
         matches = matches == null ? List.of() : List.copyOf(matches);
         recordsById = recordsById == null ? Map.of() : Map.copyOf(recordsById);

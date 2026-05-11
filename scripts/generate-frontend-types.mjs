@@ -10,7 +10,9 @@ const outputPath = resolve(repoRoot, "frontend/src/generated/api-types.ts");
 const checkOnly = process.argv.includes("--check");
 
 const contract = JSON.parse(readFileSync(contractPath, "utf8"));
-const typeEntries = Object.entries(contract.types ?? {}).sort(([left], [right]) => left.localeCompare(right));
+const typeEntries = Object.entries(contract.types ?? {}).sort(([left], [right]) => (
+  left < right ? -1 : left > right ? 1 : 0
+));
 
 function tsName(contractName) {
   return contractName.replace(/[^A-Za-z0-9_$]/g, "");

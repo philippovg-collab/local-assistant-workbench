@@ -120,7 +120,13 @@ public record RetrievalQueryHints(
             periodStartFrom,
             periodStartTo,
             periodEndFrom,
-            periodEndTo
+            periodEndTo,
+            versionLabel,
+            null,
+            versionLabel == null ? null : VersionSelectionMode.VERSION_LABEL,
+            null,
+            null,
+            null
         );
     }
 
@@ -139,7 +145,7 @@ public record RetrievalQueryHints(
             keys.contains("documentnumber") ? null : documentNumber,
             dismissDocumentDate ? null : documentDateFrom,
             dismissDocumentDate ? null : documentDateTo,
-            versionLabel,
+            keys.contains("versionlabel") ? null : versionLabel,
             keys.contains("language") ? null : language,
             keys.contains("project") ? null : project,
             keys.contains("counterparty") ? null : counterparty,

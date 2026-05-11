@@ -383,6 +383,101 @@ describe("apiClient", () => {
     expect(body.get("metadata")).toBeInstanceOf(Blob);
   });
 
+  it("sends lineage override when creating text materials", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          id: "material-1",
+          title: "Policy",
+          sourceType: "text",
+          originalFileName: null,
+          status: "PENDING",
+          versionState: "ACTIVE",
+          createdAt: "2026-04-21T10:00:00Z",
+          contentLength: 12,
+          preview: "Policy text",
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        },
+      ),
+    );
+
+    await apiClient.createTextMaterial({
+      title: "Policy",
+      content: "Policy text",
+      lineageOverride: {
+        lineageKey: "golden-policy",
+        reason: "Operator proof",
+        confirmSupersedeExistingLineage: true,
+      },
+    });
+
+    const requestInit = fetchSpy.mock.calls[0]?.[1] as RequestInit;
+    expect(JSON.parse(requestInit.body as string)).toEqual({
+      title: "Policy",
+      content: "Policy text",
+      lineageOverride: {
+        lineageKey: "golden-policy",
+        reason: "Operator proof",
+        confirmSupersedeExistingLineage: true,
+      },
+    });
+  });
+
+  it("sends lineage override when uploading materials", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          id: "material-1",
+          title: "Policy",
+          sourceType: "file",
+          originalFileName: "policy.txt",
+          status: "PENDING",
+          versionState: "ACTIVE",
+          createdAt: "2026-04-21T10:00:00Z",
+          contentLength: 12,
+          preview: "Policy text",
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        },
+      ),
+    );
+    const file = new File(["policy"], "policy.txt", { type: "text/plain" });
+
+    await apiClient.uploadMaterial({
+      title: "Policy",
+      file,
+      lineageOverride: {
+        lineageKey: "golden-policy",
+        reason: "Operator proof",
+        confirmSupersedeExistingLineage: true,
+      },
+    });
+
+    const requestInit = fetchSpy.mock.calls[0]?.[1] as RequestInit;
+    const body = requestInit.body as FormData;
+    expect(body.get("lineageOverride")).toBeInstanceOf(Blob);
+    const lineageOverrideText = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = () => reject(reader.error);
+      reader.readAsText(body.get("lineageOverride") as Blob);
+    });
+    expect(JSON.parse(lineageOverrideText)).toEqual({
+      lineageKey: "golden-policy",
+      reason: "Operator proof",
+      confirmSupersedeExistingLineage: true,
+    });
+  });
+
   it("updates material revisions as JSON", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(

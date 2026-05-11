@@ -21,7 +21,8 @@ public record ChatSource(
     MaterialMetadataSnapshot metadata,
     Double semanticDistance,
     Double lexicalScore,
-    ChunkScoreBreakdown scoreBreakdown
+    ChunkScoreBreakdown scoreBreakdown,
+    EvidenceLocator evidenceLocator
 ) {
     public ChatSource {
         matchedTerms = matchedTerms == null ? List.of() : List.copyOf(matchedTerms);
@@ -53,6 +54,7 @@ public record ChatSource(
             ocrUsed,
             DocumentBlockType.NARRATIVE,
             MaterialMetadataSnapshot.empty(),
+            null,
             null,
             null,
             null
@@ -92,6 +94,48 @@ public record ChatSource(
             MaterialMetadataSnapshot.empty(),
             semanticDistance,
             lexicalScore,
+            null,
+            null
+        );
+    }
+
+    public ChatSource(
+        String materialId,
+        String chunkId,
+        String title,
+        String excerpt,
+        int score,
+        double confidence,
+        java.util.List<String> matchedTerms,
+        String openSourceUrl,
+        Integer chunkIndex,
+        Integer page,
+        String extractor,
+        boolean ocrUsed,
+        DocumentBlockType chunkType,
+        MaterialMetadataSnapshot metadata,
+        Double semanticDistance,
+        Double lexicalScore,
+        ChunkScoreBreakdown scoreBreakdown
+    ) {
+        this(
+            materialId,
+            chunkId,
+            title,
+            excerpt,
+            score,
+            confidence,
+            matchedTerms,
+            openSourceUrl,
+            chunkIndex,
+            page,
+            extractor,
+            ocrUsed,
+            chunkType,
+            metadata,
+            semanticDistance,
+            lexicalScore,
+            scoreBreakdown,
             null
         );
     }

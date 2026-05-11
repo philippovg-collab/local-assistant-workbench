@@ -7,6 +7,7 @@ import com.example.demo.error.CodedException;
 import com.example.demo.error.ErrorType;
 import com.example.demo.model.DocumentBlockConfidence;
 import com.example.demo.model.DocumentBlockType;
+import com.example.demo.model.MaterialLineageOverrideInput;
 import com.example.demo.model.MaterialMetadataInput;
 import com.example.demo.model.MaterialMetadataSnapshot;
 import com.example.demo.model.MaterialSummary;
@@ -74,8 +75,14 @@ final class MaterialIngestionWorkflow {
         this.persistenceCoordinator = persistenceCoordinator;
     }
 
-    MaterialSummary saveText(String title, String content, MaterialMetadataInput metadataInput) {
+    MaterialSummary saveText(
+        String title,
+        String content,
+        MaterialMetadataInput metadataInput,
+        MaterialLineageOverrideInput lineageOverride
+    ) {
         InputLimits.validateMaterialMetadata(metadataInput);
+        InputLimits.validateMaterialLineageOverride(lineageOverride);
         if (!StringUtils.hasText(content)) {
             throw new ApplicationException(
                 ErrorType.INVALID_REQUEST,
@@ -122,7 +129,11 @@ final class MaterialIngestionWorkflow {
                     contentText,
                     parseResult.metadataHints()
                 ),
-                parseResult
+                parseResult,
+                lineageOverride,
+                null,
+                true,
+                DuplicateContentBehavior.REUSE_OR_REACTIVATE
             );
         } catch (CodedException exception) {
             logKnownMaterialFailure("persist", "text", resolvedTitle, null, "text/plain", exception);
@@ -133,11 +144,17 @@ final class MaterialIngestionWorkflow {
         }
     }
 
-    MaterialSummary saveUpload(String title, MultipartFile file, MaterialMetadataInput metadataInput) {
+    MaterialSummary saveUpload(
+        String title,
+        MultipartFile file,
+        MaterialMetadataInput metadataInput,
+        MaterialLineageOverrideInput lineageOverride
+    ) {
         return saveUploadInternal(
             title,
             file,
             metadataInput,
+            lineageOverride,
             null,
             null,
             true,
@@ -177,6 +194,7 @@ final class MaterialIngestionWorkflow {
             title,
             file,
             effectiveMetadataInput,
+            null,
             targetRecord.title(),
             targetRecord.sourceKey(),
             false,
@@ -260,6 +278,7 @@ final class MaterialIngestionWorkflow {
                 null,
                 metadata,
                 parseResult,
+                null,
                 targetRecord.sourceKey(),
                 false,
                 DuplicateContentBehavior.ALLOW_NEW_VERSION
@@ -326,12 +345,14 @@ final class MaterialIngestionWorkflow {
         String title,
         MultipartFile file,
         MaterialMetadataInput metadataInput,
+        MaterialLineageOverrideInput lineageOverride,
         String fallbackTitle,
         String forcedSourceKey,
         boolean inheritManualTagsWhenEmpty,
         DuplicateContentBehavior duplicateContentBehavior
     ) {
         InputLimits.validateMaterialMetadata(metadataInput);
+        InputLimits.validateMaterialLineageOverride(lineageOverride);
         if (file == null || file.isEmpty()) {
             throw new ApplicationException(
                 ErrorType.INVALID_REQUEST,
@@ -389,6 +410,7 @@ final class MaterialIngestionWorkflow {
                         document.metadataHints()
                     ),
                     document,
+                    lineageOverride,
                     forcedSourceKey,
                     inheritManualTagsWhenEmpty,
                     duplicateContentBehavior

@@ -1,0 +1,42 @@
+name: Eval Smoke
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  eval-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      - name: Run deterministic smoke eval
+        run: bash scripts/eval-run.sh smoke
+
+      - name: Require smoke eval report
+        run: test -s backend/target/eval-reports/smoke-report.json
+
+      - name: Gate smoke eval report
+        run: python3 scripts/eval-gate.py backend/target/eval-reports/smoke-report.json --mode smoke
+
+      - name: Summarize smoke eval
+        if: always()
+        run: python3 scripts/eval-report-summary.py backend/target/eval-reports/smoke-report.json --github-step-summary
+
+      - name: Upload smoke eval artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-smoke-report
+          path: backend/target/eval-reports/smoke-report.*
+          if-no-files-found: error

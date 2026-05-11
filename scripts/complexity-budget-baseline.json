@@ -7,14 +7,14 @@
   },
   "files": {
     "backend/src/main/java/com/example/demo/infrastructure/audit/PostgresChatRunTraceRepository.java": {
-      "lineCount": 1354,
+      "lineCount": 1363,
       "budgets": [
         "any-file"
       ],
       "reason": "Phase 9 partial split extracted JSON/header mapping; remaining durable SQL facade still scheduled for DAO decomposition."
     },
     "backend/src/main/java/com/example/demo/infrastructure/context/PostgresMemoryRepository.java": {
-      "lineCount": 936,
+      "lineCount": 962,
       "budgets": [
         "any-file"
       ],
@@ -35,22 +35,37 @@
       "reason": "Existing knowledge preset service above budget before Phase 6; split only if still needed after frontend work."
     },
     "backend/src/main/java/com/example/demo/service/MaterialContentSupport.java": {
-      "lineCount": 721,
+      "lineCount": 738,
       "budgets": [
         "backend-service",
         "any-file"
       ],
       "reason": "Existing material content support god-file before Phase 6; planned for careful structured content split."
     },
+    "backend/src/main/java/com/example/demo/service/MaterialIngestionWorkflow.java": {
+      "lineCount": 507,
+      "budgets": [
+        "backend-service"
+      ],
+      "reason": "Material ingestion workflow now owns extraction, lineage override, metadata, and persistence orchestration; split lineage override resolution into a focused collaborator."
+    },
     "backend/src/main/java/com/example/demo/service/MaterialQueryService.java": {
-      "lineCount": 648,
+      "lineCount": 691,
       "budgets": [
         "backend-service"
       ],
       "reason": "Phase 9 support extraction moved rechunk cursor normalization out of query service; remaining query facade still above service budget."
     },
+    "backend/src/main/java/com/example/demo/service/MaterialRetrievalService.java": {
+      "lineCount": 716,
+      "budgets": [
+        "backend-service",
+        "any-file"
+      ],
+      "reason": "Retrieval service accumulated eval/search rollout tracing and scoring orchestration; split execution tracing from provider orchestration in a cleanup phase."
+    },
     "backend/src/main/java/com/example/demo/service/RuntimeReadinessService.java": {
-      "lineCount": 511,
+      "lineCount": 541,
       "budgets": [
         "backend-service"
       ],
@@ -72,7 +87,7 @@
       "reason": "Existing retrieval query resolver exceeded backend-service budget after follow-up resolution support; split marker detection and source reference extraction separately."
     },
     "frontend/src/components/ChatAuditPanel.tsx": {
-      "lineCount": 462,
+      "lineCount": 488,
       "budgets": [
         "frontend-component"
       ],
@@ -85,13 +100,6 @@
       ],
       "reason": "Existing shared chat form above component budget before Phase 6; not in primary split scope."
     },
-    "frontend/src/api/client.ts": {
-      "lineCount": 819,
-      "budgets": [
-        "any-file"
-      ],
-      "reason": "Existing API facade exceeded file budget after LLM provider endpoints landed before Phase 2; provider API split is tracked separately."
-    },
     "frontend/src/components/ContextInspectorPanel.tsx": {
       "lineCount": 334,
       "budgets": [
@@ -100,7 +108,7 @@
       "reason": "Context inspector is a known Phase 6/8 component above budget; split grouped history, memory, and feature-state sections separately."
     },
     "frontend/src/components/LlmProviderSettingsPanel.tsx": {
-      "lineCount": 409,
+      "lineCount": 469,
       "budgets": [
         "frontend-component"
       ],
@@ -114,14 +122,14 @@
       "reason": "Existing material metadata form component above budget before Phase 6; outside target split list."
     },
     "frontend/src/components/MemoryReviewPanel.tsx": {
-      "lineCount": 309,
+      "lineCount": 328,
       "budgets": [
         "frontend-component"
       ],
       "reason": "Memory review UI landed as a Phase 7 panel above component budget; split filters, table rows, and action controls in a cleanup phase."
     },
     "frontend/src/components/StatusSummary.tsx": {
-      "lineCount": 341,
+      "lineCount": 359,
       "budgets": [
         "frontend-component"
       ],
@@ -135,11 +143,18 @@
       "reason": "Existing material catalog component above budget before Phase 6; outside target split list."
     },
     "frontend/src/components/materials/MaterialUploadForm.tsx": {
-      "lineCount": 344,
+      "lineCount": 409,
       "budgets": [
         "frontend-component"
       ],
       "reason": "Existing material upload component above budget before Phase 6; outside target split list."
+    },
+    "frontend/src/components/workbench/WorkbenchShell.tsx": {
+      "lineCount": 308,
+      "budgets": [
+        "frontend-component"
+      ],
+      "reason": "Workbench shell crossed the component budget after adding phase navigation; split desktop/mobile chrome and tab orchestration in a cleanup phase."
     }
   }
 }

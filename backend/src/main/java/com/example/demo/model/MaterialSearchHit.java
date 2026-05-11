@@ -21,7 +21,8 @@ public record MaterialSearchHit(
     String openSourceUrl,
     MaterialMetadataSnapshot metadata,
     List<MaterialSearchHitNeighbor> neighbors,
-    ChunkScoreBreakdown scoreBreakdown
+    ChunkScoreBreakdown scoreBreakdown,
+    EvidenceLocator evidenceLocator
 ) {
 
     public MaterialSearchHit(
@@ -55,6 +56,44 @@ public record MaterialSearchHit(
             openSourceUrl,
             metadata,
             neighbors,
+            null,
+            null
+        );
+    }
+
+    public MaterialSearchHit(
+        String materialId,
+        String chunkId,
+        String title,
+        String chunkText,
+        int chunkIndex,
+        Integer page,
+        DocumentBlockType chunkType,
+        int score,
+        Double semanticDistance,
+        Double lexicalScore,
+        List<String> matchedTerms,
+        String openSourceUrl,
+        MaterialMetadataSnapshot metadata,
+        List<MaterialSearchHitNeighbor> neighbors,
+        ChunkScoreBreakdown scoreBreakdown
+    ) {
+        this(
+            materialId,
+            chunkId,
+            title,
+            chunkText,
+            chunkIndex,
+            page,
+            chunkType,
+            score,
+            semanticDistance,
+            lexicalScore,
+            matchedTerms,
+            openSourceUrl,
+            metadata,
+            neighbors,
+            scoreBreakdown,
             null
         );
     }

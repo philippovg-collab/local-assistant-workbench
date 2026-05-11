@@ -6,6 +6,7 @@ import com.example.demo.model.ChatExecutionRequest;
 import com.example.demo.model.CreateInstructionRequest;
 import com.example.demo.model.CreateKnowledgePresetRequest;
 import com.example.demo.model.KnowledgeScope;
+import com.example.demo.model.MaterialLineageOverrideInput;
 import com.example.demo.model.MaterialMetadataInput;
 import com.example.demo.model.MaterialSearchRequest;
 import com.example.demo.model.RetrievalFilters;
@@ -94,6 +95,14 @@ public final class InputLimits {
         requireMaxStringListEntries(metadata.tags(), TAG_MAX, "material.metadata.tags");
     }
 
+    public static void validateMaterialLineageOverride(MaterialLineageOverrideInput override) {
+        if (override == null) {
+            return;
+        }
+        requireMaxLength(override.lineageKey(), WORKSPACE_KEY_MAX, "material.lineageOverride.lineageKey");
+        requireMaxLength(override.reason(), 500, "material.lineageOverride.reason");
+    }
+
     public static void validateKnowledgeScope(KnowledgeScope scope, String fieldPrefix) {
         if (scope == null) {
             return;
@@ -124,6 +133,7 @@ public final class InputLimits {
         requireMaxLength(filters.counterparty(), FILTER_TEXT_MAX, fieldPrefix + ".counterparty");
         requireMaxLength(filters.businessStatus(), FILTER_TEXT_MAX, fieldPrefix + ".businessStatus");
         requireMaxLength(filters.language(), FILTER_TEXT_MAX, fieldPrefix + ".language");
+        requireMaxLength(filters.versionLabel(), FILTER_TEXT_MAX, fieldPrefix + ".versionLabel");
         requireMaxListSize(filters.tags(), TAGS_MAX, fieldPrefix + ".tags");
         requireMaxStringListEntries(filters.tags(), TAG_MAX, fieldPrefix + ".tags");
         requireMaxListSize(filters.documentTypes(), TAGS_MAX, fieldPrefix + ".documentTypes");

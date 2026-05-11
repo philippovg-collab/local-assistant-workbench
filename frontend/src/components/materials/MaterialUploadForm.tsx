@@ -3,11 +3,13 @@ import { Upload } from "lucide-react";
 import { SectionIntro } from "@/components/app/SectionIntro";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { MaterialMetadataFormSection } from "@/components/MaterialMetadataFormSection";
 import type {
+  MaterialLineageOverrideInput,
   MaterialMetadataInput,
   MaterialUploadItemInput,
   MaterialUploadPolicy,
@@ -70,6 +72,10 @@ export function MaterialUploadForm({
   const [uploadTitle, setUploadTitle] = useState("");
   const [uploadFiles, setUploadFiles] = useState<File[]>([]);
   const [uploadMetadata, setUploadMetadata] = useState(emptyMaterialMetadataFormState);
+  const [lineageOverrideEnabled, setLineageOverrideEnabled] = useState(false);
+  const [lineageOverrideKey, setLineageOverrideKey] = useState("");
+  const [lineageOverrideReason, setLineageOverrideReason] = useState("");
+  const [confirmLineageReuse, setConfirmLineageReuse] = useState(false);
   const [uploadFileOverrides, setUploadFileOverrides] = useState<Record<string, UploadFileOverrideState>>({});
   const [uploadMetadataValidation, setUploadMetadataValidation] = useState<MaterialMetadataValidation | null>(null);
   const [isUploading, setIsUploading] = useState(false);
@@ -118,6 +124,13 @@ export function MaterialUploadForm({
 
   const buildUploadItems = (): MaterialUploadItemInput[] => {
     const commonMetadata = metadataV1Enabled ? toMaterialMetadataInput(withActiveWorkspace()) : undefined;
+    const lineageOverride: MaterialLineageOverrideInput | undefined = lineageOverrideEnabled
+      ? {
+          lineageKey: lineageOverrideKey.trim(),
+          reason: lineageOverrideReason.trim(),
+          confirmSupersedeExistingLineage: confirmLineageReuse,
+        }
+      : undefined;
     return uploadFiles.map((file, index) => {
       const override = uploadFileOverrides[uploadFileKey(file, index)] ?? emptyUploadOverride();
       const metadata = metadataV1Enabled ? commonMetadata : undefined;
@@ -127,6 +140,7 @@ export function MaterialUploadForm({
         file,
         ...(title ? { title } : {}),
         ...(metadata ? { metadata } : {}),
+        ...(lineageOverride ? { lineageOverride } : {}),
       };
     });
   };
@@ -159,6 +173,10 @@ export function MaterialUploadForm({
       setUploadFiles([]);
       setUploadFileOverrides({});
       setUploadMetadata(emptyMaterialMetadataFormState());
+      setLineageOverrideEnabled(false);
+      setLineageOverrideKey("");
+      setLineageOverrideReason("");
+      setConfirmLineageReuse(false);
       if (fileInputRef.current) {
         fileInputRef.current.value = "";
       }
@@ -248,6 +266,45 @@ export function MaterialUploadForm({
             }}
           />
 
+          <div className="rounded-2xl border border-field-border bg-field px-4 py-4">
+            <label className="flex items-center gap-2 text-sm font-medium text-foreground">
+              <Checkbox
+                checked={lineageOverrideEnabled}
+                onCheckedChange={(checked) => setLineageOverrideEnabled(checked === true)}
+              />
+              Lineage override
+            </label>
+            {lineageOverrideEnabled ? (
+              <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+                <div className="space-y-2">
+                  <Label htmlFor="upload-lineage-override-key">Override key</Label>
+                  <Input
+                    id="upload-lineage-override-key"
+                    placeholder="golden-policy-2026"
+                    value={lineageOverrideKey}
+                    onChange={(event) => setLineageOverrideKey(event.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="upload-lineage-override-reason">Reason</Label>
+                  <Input
+                    id="upload-lineage-override-reason"
+                    placeholder="Operator-controlled versioned document"
+                    value={lineageOverrideReason}
+                    onChange={(event) => setLineageOverrideReason(event.target.value)}
+                  />
+                </div>
+                <label className="flex items-center gap-2 text-sm font-medium text-foreground lg:col-span-2">
+                  <Checkbox
+                    checked={confirmLineageReuse}
+                    onCheckedChange={(checked) => setConfirmLineageReuse(checked === true)}
+                  />
+                  Confirm reuse
+                </label>
+              </div>
+            ) : null}
+          </div>
+
           {uploadFiles.length > 0 ? (
             <div className="space-y-3">
               <div>
@@ -333,7 +390,15 @@ export function MaterialUploadForm({
             </Alert>
           ) : null}
 
-          <Button disabled={isUploading || uploadFiles.length === 0 || isMetadataUnavailable} type="submit">
+          <Button
+            disabled={
+              isUploading
+              || uploadFiles.length === 0
+              || isMetadataUnavailable
+              || (lineageOverrideEnabled && (!lineageOverrideKey.trim() || !lineageOverrideReason.trim()))
+            }
+            type="submit"
+          >
             <Upload className="h-4 w-4" />
             {isUploading ? "Загружаем..." : isMultipleUpload ? "Загрузить файлы" : "Загрузить файл"}
           </Button>

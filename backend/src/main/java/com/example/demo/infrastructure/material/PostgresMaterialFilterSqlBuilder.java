@@ -1,14 +1,17 @@
 package com.example.demo.infrastructure.material;
 
 import com.example.demo.model.KnowledgeScope;
+import com.example.demo.model.MaterialVersionState;
 import com.example.demo.model.RetrievalFilters;
 import com.example.demo.model.SourceTrustLevel;
+import com.example.demo.model.VersionSelectionMode;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.sql.Types;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.List;
 
 final class PostgresMaterialFilterSqlBuilder {
@@ -39,6 +42,10 @@ final class PostgresMaterialFilterSqlBuilder {
                   AND (CAST(? AS text) IS NULL OR LOWER(m.counterparty) = ?)
                   AND (CAST(? AS text) IS NULL OR LOWER(m.business_status) = ?)
                   AND (CAST(? AS text) IS NULL OR m.language_code = ?)
+                  AND (CAST(? AS text) IS NULL OR LOWER(m.version_label) = ?)
+                  AND (CAST(? AS text) IS NULL OR m.version_state = ?)
+                  AND (CAST(? AS timestamptz) IS NULL OR m.created_at >= ?)
+                  AND (CAST(? AS timestamptz) IS NULL OR m.created_at < ?)
                   AND (? = FALSE OR EXISTS (
                         SELECT 1
                         FROM material_tags mt
@@ -63,6 +70,10 @@ final class PostgresMaterialFilterSqlBuilder {
             PostgresMaterialJdbcSupport.lowerCase(safeFilters.counterparty()),
             PostgresMaterialJdbcSupport.lowerCase(safeFilters.businessStatus()),
             languageCodeName(safeFilters.language()),
+            versionLabelForFilter(safeFilters),
+            versionStateForFilter(safeFilters),
+            safeFilters.uploadedAfterInclusive(),
+            safeFilters.uploadedBeforeExclusive(),
             safeFilters.lowerCaseTags(),
             safeFilters.sourceTrustMin(),
             sourceTrustLevelsAtOrAbove(safeFilters.sourceTrustMin())
@@ -183,6 +194,12 @@ final class PostgresMaterialFilterSqlBuilder {
         preparedStatement.setString(parameterIndex++, filterSql.businessStatus());
         preparedStatement.setString(parameterIndex++, filterSql.language());
         preparedStatement.setString(parameterIndex++, filterSql.language());
+        preparedStatement.setString(parameterIndex++, filterSql.versionLabel());
+        preparedStatement.setString(parameterIndex++, filterSql.versionLabel());
+        preparedStatement.setString(parameterIndex++, filterSql.versionState());
+        preparedStatement.setString(parameterIndex++, filterSql.versionState());
+        parameterIndex = bindNullableInstant(preparedStatement, parameterIndex, filterSql.uploadedAfterInclusive());
+        parameterIndex = bindNullableInstant(preparedStatement, parameterIndex, filterSql.uploadedBeforeExclusive());
         preparedStatement.setBoolean(parameterIndex++, !filterSql.tags().isEmpty());
         PostgresMaterialJdbcSupport.bindTextArray(preparedStatement, parameterIndex++, filterSql.tags());
         preparedStatement.setBoolean(parameterIndex++, !filterSql.sourceTrustLevels().isEmpty());
@@ -239,22 +256,38 @@ final class PostgresMaterialFilterSqlBuilder {
     }
 
     String retrievalReadyPredicate(String alias) {
-        return retrievalReadyPredicate(alias, null, null);
+        return retrievalReadyPredicate(alias, null, null, defaultEffectiveDate());
     }
 
     String retrievalReadyPredicate(String alias, KnowledgeScope scope, RetrievalFilters filters) {
+        RetrievalFilters safeFilters = filters == null ? RetrievalFilters.empty() : filters;
+        LocalDate effectiveDate = safeFilters.effectiveDate() == null
+            ? defaultEffectiveDate()
+            : safeFilters.effectiveDate();
+        return retrievalReadyPredicate(alias, scope, safeFilters, effectiveDate);
+    }
+
+    String retrievalReadyPredicate(String alias, KnowledgeScope scope, RetrievalFilters filters, LocalDate effectiveDate) {
+        RetrievalFilters safeFilters = filters == null ? RetrievalFilters.empty() : filters;
         String prefix = alias == null || alias.isBlank() ? "" : alias + ".";
-        StringBuilder predicate = new StringBuilder(" ");
-        predicate.append("""
-            %sversion_state = 'ACTIVE'
-              AND %sindexing_status IN ('READY', 'PARTIAL_READY')
-            """.formatted(prefix, prefix));
+        StringBuilder predicate = new StringBuilder("  1 = 1\n");
+        appendVersionSelectionPredicate(predicate, prefix, safeFilters);
+        predicate.append("  AND %sindexing_status IN ('READY', 'PARTIAL_READY')%n".formatted(prefix));
         if (!hasExplicitDocumentStatuses(scope, filters)) {
             predicate.append("  AND %sdocument_status = 'ACTIVE'%n".formatted(prefix));
         }
         if (!hasExplicitPeriodCriteria(scope, filters)) {
-            predicate.append("  AND (%speriod_start IS NULL OR %speriod_start <= CURRENT_DATE)%n".formatted(prefix, prefix));
-            predicate.append("  AND (%speriod_end IS NULL OR %speriod_end >= CURRENT_DATE)%n".formatted(prefix, prefix));
+            LocalDate safeEffectiveDate = effectiveDate == null ? defaultEffectiveDate() : effectiveDate;
+            predicate.append("  AND (%speriod_start IS NULL OR %speriod_start <= %s)%n".formatted(
+                prefix,
+                prefix,
+                dateLiteral(safeEffectiveDate)
+            ));
+            predicate.append("  AND (%speriod_end IS NULL OR %speriod_end >= %s)%n".formatted(
+                prefix,
+                prefix,
+                dateLiteral(safeEffectiveDate)
+            ));
         }
         return predicate.toString();
     }
@@ -284,6 +317,58 @@ final class PostgresMaterialFilterSqlBuilder {
         } catch (IllegalArgumentException exception) {
             return NO_MATCH_LANGUAGE_CODE;
         }
+    }
+
+    private static int bindNullableInstant(
+        PreparedStatement preparedStatement,
+        int parameterIndex,
+        Instant value
+    ) throws SQLException {
+        if (value == null) {
+            preparedStatement.setNull(parameterIndex++, Types.TIMESTAMP_WITH_TIMEZONE);
+            preparedStatement.setNull(parameterIndex++, Types.TIMESTAMP_WITH_TIMEZONE);
+            return parameterIndex;
+        }
+        Timestamp timestamp = Timestamp.from(value);
+        preparedStatement.setTimestamp(parameterIndex++, timestamp);
+        preparedStatement.setTimestamp(parameterIndex++, timestamp);
+        return parameterIndex;
+    }
+
+    private static String versionLabelForFilter(RetrievalFilters filters) {
+        return filters.versionSelectionMode() == VersionSelectionMode.VERSION_LABEL
+            ? PostgresMaterialJdbcSupport.lowerCase(filters.versionLabel())
+            : null;
+    }
+
+    private static String versionStateForFilter(RetrievalFilters filters) {
+        return filters.versionSelectionMode() == VersionSelectionMode.VERSION_STATE && filters.versionState() != null
+            ? filters.versionState().name()
+            : null;
+    }
+
+    private static void appendVersionSelectionPredicate(
+        StringBuilder predicate,
+        String prefix,
+        RetrievalFilters filters
+    ) {
+        VersionSelectionMode mode = filters.versionSelectionMode();
+        if (mode == VersionSelectionMode.VERSION_STATE && filters.versionState() != null) {
+            predicate.append("  AND %sversion_state = '%s'%n".formatted(prefix, filters.versionState().name()));
+            return;
+        }
+        if (mode == VersionSelectionMode.INCLUDE_HISTORY || mode == VersionSelectionMode.VERSION_LABEL) {
+            return;
+        }
+        predicate.append("  AND %sversion_state = '%s'%n".formatted(prefix, MaterialVersionState.ACTIVE.name()));
+    }
+
+    private static LocalDate defaultEffectiveDate() {
+        return LocalDate.now(ZoneOffset.UTC);
+    }
+
+    private static String dateLiteral(LocalDate date) {
+        return "DATE '" + date + "'";
     }
 
     private static List<String> sourceTrustLevelsAtOrAbove(SourceTrustLevel minimum) {
@@ -353,6 +438,10 @@ final class PostgresMaterialFilterSqlBuilder {
         String counterparty,
         String businessStatus,
         String language,
+        String versionLabel,
+        String versionState,
+        Instant uploadedAfterInclusive,
+        Instant uploadedBeforeExclusive,
         List<String> tags,
         SourceTrustLevel sourceTrustMin,
         List<String> sourceTrustLevels
@@ -365,6 +454,10 @@ final class PostgresMaterialFilterSqlBuilder {
                 List.of(),
                 List.of(),
                 List.of(),
+                null,
+                null,
+                null,
+                null,
                 null,
                 null,
                 null,

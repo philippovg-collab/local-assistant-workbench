@@ -1841,6 +1841,14 @@
           "kind" : "number"
         }
       }, {
+        "javaName" : "evidenceLocator",
+        "name" : "evidenceLocator",
+        "nullable" : true,
+        "type" : {
+          "kind" : "ref",
+          "name" : "EvidenceLocator"
+        }
+      }, {
         "javaName" : "excerpt",
         "name" : "excerpt",
         "nullable" : true,
@@ -3414,6 +3422,14 @@
           "kind" : "string"
         }
       }, {
+        "javaName" : "lineageOverride",
+        "name" : "lineageOverride",
+        "nullable" : true,
+        "type" : {
+          "kind" : "ref",
+          "name" : "MaterialLineageOverrideInput"
+        }
+      }, {
         "javaName" : "metadata",
         "name" : "metadata",
         "nullable" : true,
@@ -3451,6 +3467,130 @@
       "javaType" : "com.example.demo.model.DocumentType",
       "kind" : "enum",
       "values" : [ "POLICY", "CONTRACT", "REPORT", "PROCEDURE", "PRESENTATION", "SPREADSHEET", "LETTER", "MANUAL", "FAQ", "OTHER" ]
+    },
+    "EvidenceLocator" : {
+      "fields" : [ {
+        "javaName" : "chunkIndex",
+        "name" : "chunkIndex",
+        "nullable" : true,
+        "type" : {
+          "kind" : "integer"
+        }
+      }, {
+        "javaName" : "columnKey",
+        "name" : "columnKey",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "documentNumber",
+        "name" : "documentNumber",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "headingTrail",
+        "name" : "headingTrail",
+        "nullable" : true,
+        "type" : {
+          "itemType" : {
+            "kind" : "string"
+          },
+          "kind" : "array"
+        }
+      }, {
+        "javaName" : "lineageVersion",
+        "name" : "lineageVersion",
+        "nullable" : true,
+        "type" : {
+          "kind" : "integer"
+        }
+      }, {
+        "javaName" : "materialId",
+        "name" : "materialId",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "page",
+        "name" : "page",
+        "nullable" : true,
+        "type" : {
+          "kind" : "integer"
+        }
+      }, {
+        "javaName" : "rowKey",
+        "name" : "rowKey",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "sectionPath",
+        "name" : "sectionPath",
+        "nullable" : true,
+        "type" : {
+          "itemType" : {
+            "kind" : "string"
+          },
+          "kind" : "array"
+        }
+      }, {
+        "javaName" : "slideId",
+        "name" : "slideId",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "sourceKey",
+        "name" : "sourceKey",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "spanEnd",
+        "name" : "spanEnd",
+        "nullable" : true,
+        "type" : {
+          "kind" : "integer"
+        }
+      }, {
+        "javaName" : "spanStart",
+        "name" : "spanStart",
+        "nullable" : true,
+        "type" : {
+          "kind" : "integer"
+        }
+      }, {
+        "javaName" : "tableId",
+        "name" : "tableId",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "versionLabel",
+        "name" : "versionLabel",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "versionState",
+        "name" : "versionState",
+        "nullable" : true,
+        "type" : {
+          "kind" : "ref",
+          "name" : "MaterialVersionState"
+        }
+      } ],
+      "javaType" : "com.example.demo.model.EvidenceLocator",
+      "kind" : "record"
     },
     "HealthResponse" : {
       "fields" : [ {
@@ -5583,6 +5723,21 @@
           "kind" : "string"
         }
       }, {
+        "javaName" : "lineageOverride",
+        "name" : "lineageOverride",
+        "nullable" : true,
+        "type" : {
+          "kind" : "ref",
+          "name" : "MaterialLineageOverrideInfo"
+        }
+      }, {
+        "javaName" : "lineageVersion",
+        "name" : "lineageVersion",
+        "nullable" : true,
+        "type" : {
+          "kind" : "integer"
+        }
+      }, {
         "javaName" : "mediaType",
         "name" : "mediaType",
         "nullable" : true,
@@ -5600,6 +5755,13 @@
       }, {
         "javaName" : "originalFileName",
         "name" : "originalFileName",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "sourceKey",
+        "name" : "sourceKey",
         "nullable" : true,
         "type" : {
           "kind" : "string"
@@ -5725,6 +5887,80 @@
       "kind" : "enum",
       "values" : [ "RU", "KK", "EN" ]
     },
+    "MaterialLineageOverrideInfo" : {
+      "fields" : [ {
+        "javaName" : "active",
+        "name" : "active",
+        "nullable" : false,
+        "type" : {
+          "kind" : "boolean"
+        }
+      }, {
+        "javaName" : "createdAt",
+        "name" : "createdAt",
+        "nullable" : true,
+        "type" : {
+          "format" : "date-time",
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "createdBy",
+        "name" : "createdBy",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "lineageKey",
+        "name" : "lineageKey",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "reason",
+        "name" : "reason",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "sourceKey",
+        "name" : "sourceKey",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      } ],
+      "javaType" : "com.example.demo.model.MaterialLineageOverrideInfo",
+      "kind" : "record"
+    },
+    "MaterialLineageOverrideInput" : {
+      "fields" : [ {
+        "javaName" : "confirmSupersedeExistingLineage",
+        "name" : "confirmSupersedeExistingLineage",
+        "nullable" : true,
+        "type" : {
+          "kind" : "boolean"
+        }
+      }, {
+        "javaName" : "lineageKey",
+        "name" : "lineageKey",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "reason",
+        "name" : "reason",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      } ],
+      "javaType" : "com.example.demo.model.MaterialLineageOverrideInput",
+      "kind" : "record"
+    },
     "MaterialLineageResponse" : {
       "fields" : [ {
         "javaName" : "activeMaterialId",
@@ -5732,6 +5968,14 @@
         "nullable" : true,
         "type" : {
           "kind" : "string"
+        }
+      }, {
+        "javaName" : "lineageOverride",
+        "name" : "lineageOverride",
+        "nullable" : true,
+        "type" : {
+          "kind" : "ref",
+          "name" : "MaterialLineageOverrideInfo"
         }
       }, {
         "javaName" : "requestedMaterialId",
@@ -6536,6 +6780,14 @@
         "type" : {
           "kind" : "ref",
           "name" : "DocumentBlockType"
+        }
+      }, {
+        "javaName" : "evidenceLocator",
+        "name" : "evidenceLocator",
+        "nullable" : true,
+        "type" : {
+          "kind" : "ref",
+          "name" : "EvidenceLocator"
         }
       }, {
         "javaName" : "lexicalScore",
@@ -7461,6 +7713,20 @@
           "name" : "ActiveBackfillCoverage"
         }
       }, {
+        "javaName" : "configuredChunkProfile",
+        "name" : "configuredChunkProfile",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "effectiveChunkProfile",
+        "name" : "effectiveChunkProfile",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
         "javaName" : "flags",
         "name" : "flags",
         "nullable" : true,
@@ -7483,6 +7749,14 @@
         "type" : {
           "kind" : "ref",
           "name" : "RetrievalWindowHealth"
+        }
+      }, {
+        "javaName" : "structuredV1ProofStatus",
+        "name" : "structuredV1ProofStatus",
+        "nullable" : true,
+        "type" : {
+          "kind" : "ref",
+          "name" : "StructuredV1ProofStatus"
         }
       } ],
       "javaType" : "com.example.demo.model.QualityLayerHealth",
@@ -7979,12 +8253,34 @@
           "kind" : "array"
         }
       }, {
+        "javaName" : "chunkProfile",
+        "name" : "chunkProfile",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "effectiveDate",
+        "name" : "effectiveDate",
+        "nullable" : true,
+        "type" : {
+          "format" : "date",
+          "kind" : "string"
+        }
+      }, {
         "javaName" : "effectiveFilters",
         "name" : "effectiveFilters",
         "nullable" : true,
         "type" : {
           "kind" : "ref",
           "name" : "RetrievalFilters"
+        }
+      }, {
+        "javaName" : "embeddingModel",
+        "name" : "embeddingModel",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
         }
       }, {
         "javaName" : "finalChunkCount",
@@ -7999,6 +8295,13 @@
         "nullable" : false,
         "type" : {
           "kind" : "integer"
+        }
+      }, {
+        "javaName" : "lexicalProvider",
+        "name" : "lexicalProvider",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
         }
       }, {
         "javaName" : "manualFilters",
@@ -8017,6 +8320,14 @@
           "name" : "RetrievalQueryHints"
         }
       }, {
+        "javaName" : "referenceInstant",
+        "name" : "referenceInstant",
+        "nullable" : true,
+        "type" : {
+          "format" : "date-time",
+          "kind" : "string"
+        }
+      }, {
         "javaName" : "relevanceProfile",
         "name" : "relevanceProfile",
         "nullable" : true,
@@ -8029,6 +8340,13 @@
         "nullable" : false,
         "type" : {
           "kind" : "integer"
+        }
+      }, {
+        "javaName" : "retrievalConfigHash",
+        "name" : "retrievalConfigHash",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
         }
       }, {
         "javaName" : "semanticCandidateCount",
@@ -8053,6 +8371,22 @@
             "kind" : "string"
           },
           "kind" : "array"
+        }
+      }, {
+        "javaName" : "uploadedAfterInclusive",
+        "name" : "uploadedAfterInclusive",
+        "nullable" : true,
+        "type" : {
+          "format" : "date-time",
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "uploadedBeforeExclusive",
+        "name" : "uploadedBeforeExclusive",
+        "nullable" : true,
+        "type" : {
+          "format" : "date-time",
+          "kind" : "string"
         }
       } ],
       "javaType" : "com.example.demo.model.RetrievalDebug",
@@ -8124,6 +8458,14 @@
             "name" : "DocumentType"
           },
           "kind" : "array"
+        }
+      }, {
+        "javaName" : "effectiveDate",
+        "name" : "effectiveDate",
+        "nullable" : true,
+        "type" : {
+          "format" : "date",
+          "kind" : "string"
         }
       }, {
         "javaName" : "language",
@@ -8209,6 +8551,45 @@
             "kind" : "string"
           },
           "kind" : "array"
+        }
+      }, {
+        "javaName" : "uploadedAfterInclusive",
+        "name" : "uploadedAfterInclusive",
+        "nullable" : true,
+        "type" : {
+          "format" : "date-time",
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "uploadedBeforeExclusive",
+        "name" : "uploadedBeforeExclusive",
+        "nullable" : true,
+        "type" : {
+          "format" : "date-time",
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "versionLabel",
+        "name" : "versionLabel",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "versionSelectionMode",
+        "name" : "versionSelectionMode",
+        "nullable" : true,
+        "type" : {
+          "kind" : "ref",
+          "name" : "VersionSelectionMode"
+        }
+      }, {
+        "javaName" : "versionState",
+        "name" : "versionState",
+        "nullable" : true,
+        "type" : {
+          "kind" : "ref",
+          "name" : "MaterialVersionState"
         }
       } ],
       "javaType" : "com.example.demo.model.RetrievalFilters",
@@ -8789,6 +9170,39 @@
       "kind" : "enum",
       "values" : [ "HIGH", "MEDIUM", "LOW", "UNKNOWN" ]
     },
+    "StructuredV1ProofStatus" : {
+      "fields" : [ {
+        "javaName" : "compareId",
+        "name" : "compareId",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "reasonCode",
+        "name" : "reasonCode",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "reasonMessage",
+        "name" : "reasonMessage",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "status",
+        "name" : "status",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      } ],
+      "javaType" : "com.example.demo.model.StructuredV1ProofStatus",
+      "kind" : "record"
+    },
     "UpdateMaterialRequest" : {
       "fields" : [ {
         "javaName" : "content",
@@ -8814,6 +9228,3617 @@
         }
       } ],
       "javaType" : "com.example.demo.model.UpdateMaterialRequest",
+      "kind" : "record"
+    },
+    "VersionSelectionMode" : {
+      "javaType" : "com.example.demo.model.VersionSelectionMode",
+      "kind" : "enum",
+      "values" : [ "ACTIVE_ONLY", "INCLUDE_HISTORY", "VERSION_LABEL", "VERSION_STATE" ]
+    },
+    "eval.AnswerCitation" : {
+      "fields" : [ {
+        "javaName" : "evidenceLocator",
+        "name" : "evidenceLocator",
+        "nullable" : true,
+        "type" : {
+          "kind" : "ref",
+          "name" : "EvidenceLocator"
+        }
+      }, {
+        "javaName" : "sourceId",
+        "name" : "sourceId",
+        "nullable" : true,
+        "type" : {
+          "kind" : "integer"
+        }
+      } ],
+      "javaType" : "com.example.demo.model.eval.AnswerCitation",
+      "kind" : "record"
+    },
+    "eval.AnswerClaim" : {
+      "fields" : [ {
+        "javaName" : "citations",
+        "name" : "citations",
+        "nullable" : true,
+        "type" : {
+          "itemType" : {
+            "kind" : "ref",
+            "name" : "eval.AnswerCitation"
+          },
+          "kind" : "array"
+        }
+      }, {
+        "javaName" : "claimId",
+        "name" : "claimId",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "text",
+        "name" : "text",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      } ],
+      "javaType" : "com.example.demo.model.eval.AnswerClaim",
+      "kind" : "record"
+    },
+    "eval.CorpusSnapshot" : {
+      "fields" : [ {
+        "javaName" : "activeItemCount",
+        "name" : "activeItemCount",
+        "nullable" : false,
+        "type" : {
+          "kind" : "integer"
+        }
+      }, {
+        "javaName" : "configHash",
+        "name" : "configHash",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "createdAt",
+        "name" : "createdAt",
+        "nullable" : true,
+        "type" : {
+          "format" : "date-time",
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "id",
+        "name" : "id",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "items",
+        "name" : "items",
+        "nullable" : true,
+        "type" : {
+          "itemType" : {
+            "kind" : "ref",
+            "name" : "eval.CorpusSnapshotItem"
+          },
+          "kind" : "array"
+        }
+      }, {
+        "javaName" : "manifest",
+        "name" : "manifest",
+        "nullable" : true,
+        "type" : {
+          "kind" : "map",
+          "valueType" : {
+            "kind" : "unknown"
+          }
+        }
+      }, {
+        "javaName" : "materialSetHash",
+        "name" : "materialSetHash",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "metadata",
+        "name" : "metadata",
+        "nullable" : true,
+        "type" : {
+          "kind" : "map",
+          "valueType" : {
+            "kind" : "unknown"
+          }
+        }
+      }, {
+        "javaName" : "readyItemCount",
+        "name" : "readyItemCount",
+        "nullable" : false,
+        "type" : {
+          "kind" : "integer"
+        }
+      }, {
+        "javaName" : "referenceInstant",
+        "name" : "referenceInstant",
+        "nullable" : true,
+        "type" : {
+          "format" : "date-time",
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "searchStateHash",
+        "name" : "searchStateHash",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "snapshotKey",
+        "name" : "snapshotKey",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "status",
+        "name" : "status",
+        "nullable" : true,
+        "type" : {
+          "kind" : "ref",
+          "name" : "eval.EvalLifecycleStatus"
+        }
+      }, {
+        "javaName" : "supersededItemCount",
+        "name" : "supersededItemCount",
+        "nullable" : false,
+        "type" : {
+          "kind" : "integer"
+        }
+      }, {
+        "javaName" : "totalItemCount",
+        "name" : "totalItemCount",
+        "nullable" : false,
+        "type" : {
+          "kind" : "integer"
+        }
+      }, {
+        "javaName" : "updatedAt",
+        "name" : "updatedAt",
+        "nullable" : true,
+        "type" : {
+          "format" : "date-time",
+          "kind" : "string"
+        }
+      } ],
+      "javaType" : "com.example.demo.model.eval.CorpusSnapshot",
+      "kind" : "record"
+    },
+    "eval.CorpusSnapshotDetail" : {
+      "fields" : [ {
+        "javaName" : "manifest",
+        "name" : "manifest",
+        "nullable" : true,
+        "type" : {
+          "kind" : "map",
+          "valueType" : {
+            "kind" : "unknown"
+          }
+        }
+      }, {
+        "javaName" : "snapshot",
+        "name" : "snapshot",
+        "nullable" : true,
+        "type" : {
+          "kind" : "ref",
+          "name" : "eval.CorpusSnapshot"
+        }
+      }, {
+        "javaName" : "summary",
+        "name" : "summary",
+        "nullable" : true,
+        "type" : {
+          "kind" : "map",
+          "valueType" : {
+            "kind" : "unknown"
+          }
+        }
+      } ],
+      "javaType" : "com.example.demo.model.eval.CorpusSnapshotDetail",
+      "kind" : "record"
+    },
+    "eval.CorpusSnapshotItem" : {
+      "fields" : [ {
+        "javaName" : "chunkCount",
+        "name" : "chunkCount",
+        "nullable" : true,
+        "type" : {
+          "kind" : "integer"
+        }
+      }, {
+        "javaName" : "chunkProfile",
+        "name" : "chunkProfile",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "chunkSetHash",
+        "name" : "chunkSetHash",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "contentHash",
+        "name" : "contentHash",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "createdAt",
+        "name" : "createdAt",
+        "nullable" : true,
+        "type" : {
+          "format" : "date-time",
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "documentDate",
+        "name" : "documentDate",
+        "nullable" : true,
+        "type" : {
+          "format" : "date",
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "documentNumber",
+        "name" : "documentNumber",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "documentStatus",
+        "name" : "documentStatus",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "documentType",
+        "name" : "documentType",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "id",
+        "name" : "id",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "indexingStatus",
+        "name" : "indexingStatus",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "languageCode",
+        "name" : "languageCode",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "lineageVersion",
+        "name" : "lineageVersion",
+        "nullable" : true,
+        "type" : {
+          "kind" : "integer"
+        }
+      }, {
+        "javaName" : "materialCreatedAt",
+        "name" : "materialCreatedAt",
+        "nullable" : true,
+        "type" : {
+          "format" : "date-time",
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "materialId",
+        "name" : "materialId",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "materialUpdatedAt",
+        "name" : "materialUpdatedAt",
+        "nullable" : true,
+        "type" : {
+          "format" : "date-time",
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "materialVersionId",
+        "name" : "materialVersionId",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "metadata",
+        "name" : "metadata",
+        "nullable" : true,
+        "type" : {
+          "kind" : "map",
+          "valueType" : {
+            "kind" : "unknown"
+          }
+        }
+      }, {
+        "javaName" : "metadataHash",
+        "name" : "metadataHash",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "projectKey",
+        "name" : "projectKey",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "snapshotId",
+        "name" : "snapshotId",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "sourceKey",
+        "name" : "sourceKey",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "title",
+        "name" : "title",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "versionLabel",
+        "name" : "versionLabel",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "versionState",
+        "name" : "versionState",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "workspaceKey",
+        "name" : "workspaceKey",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      } ],
+      "javaType" : "com.example.demo.model.eval.CorpusSnapshotItem",
+      "kind" : "record"
+    },
+    "eval.CorpusSnapshotItemDetail" : {
+      "fields" : [ {
+        "javaName" : "chunkCount",
+        "name" : "chunkCount",
+        "nullable" : true,
+        "type" : {
+          "kind" : "integer"
+        }
+      }, {
+        "javaName" : "chunkProfile",
+        "name" : "chunkProfile",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "chunkSetHash",
+        "name" : "chunkSetHash",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "contentHash",
+        "name" : "contentHash",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "createdAt",
+        "name" : "createdAt",
+        "nullable" : true,
+        "type" : {
+          "format" : "date-time",
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "documentDate",
+        "name" : "documentDate",
+        "nullable" : true,
+        "type" : {
+          "format" : "date",
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "documentNumber",
+        "name" : "documentNumber",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "documentStatus",
+        "name" : "documentStatus",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "documentType",
+        "name" : "documentType",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "id",
+        "name" : "id",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "indexingStatus",
+        "name" : "indexingStatus",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "languageCode",
+        "name" : "languageCode",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "lineageVersion",
+        "name" : "lineageVersion",
+        "nullable" : true,
+        "type" : {
+          "kind" : "integer"
+        }
+      }, {
+        "javaName" : "materialCreatedAt",
+        "name" : "materialCreatedAt",
+        "nullable" : true,
+        "type" : {
+          "format" : "date-time",
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "materialId",
+        "name" : "materialId",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "materialUpdatedAt",
+        "name" : "materialUpdatedAt",
+        "nullable" : true,
+        "type" : {
+          "format" : "date-time",
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "materialVersionId",
+        "name" : "materialVersionId",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "metadata",
+        "name" : "metadata",
+        "nullable" : true,
+        "type" : {
+          "kind" : "map",
+          "valueType" : {
+            "kind" : "unknown"
+          }
+        }
+      }, {
+        "javaName" : "metadataHash",
+        "name" : "metadataHash",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "projectKey",
+        "name" : "projectKey",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "snapshotId",
+        "name" : "snapshotId",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "sourceKey",
+        "name" : "sourceKey",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "title",
+        "name" : "title",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "versionLabel",
+        "name" : "versionLabel",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "versionState",
+        "name" : "versionState",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "workspaceKey",
+        "name" : "workspaceKey",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      } ],
+      "javaType" : "com.example.demo.model.eval.CorpusSnapshotItemDetail",
+      "kind" : "record"
+    },
+    "eval.CreateCorpusSnapshotRequest" : {
+      "fields" : [ {
+        "javaName" : "includeSuperseded",
+        "name" : "includeSuperseded",
+        "nullable" : true,
+        "type" : {
+          "kind" : "boolean"
+        }
+      }, {
+        "javaName" : "metadata",
+        "name" : "metadata",
+        "nullable" : true,
+        "type" : {
+          "kind" : "map",
+          "valueType" : {
+            "kind" : "unknown"
+          }
+        }
+      }, {
+        "javaName" : "referenceInstant",
+        "name" : "referenceInstant",
+        "nullable" : true,
+        "type" : {
+          "format" : "date-time",
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "snapshotKey",
+        "name" : "snapshotKey",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      } ],
+      "javaType" : "com.example.demo.model.eval.CreateCorpusSnapshotRequest",
+      "kind" : "record"
+    },
+    "eval.CreateE2EEvalRunRequest" : {
+      "fields" : [ {
+        "javaName" : "answerMode",
+        "name" : "answerMode",
+        "nullable" : true,
+        "type" : {
+          "kind" : "ref",
+          "name" : "AnswerMode"
+        }
+      }, {
+        "javaName" : "caseIds",
+        "name" : "caseIds",
+        "nullable" : true,
+        "type" : {
+          "itemType" : {
+            "kind" : "string"
+          },
+          "kind" : "array"
+        }
+      }, {
+        "javaName" : "corpusSnapshotId",
+        "name" : "corpusSnapshotId",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "datasetId",
+        "name" : "datasetId",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "datasetVersion",
+        "name" : "datasetVersion",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "executionConfigHash",
+        "name" : "executionConfigHash",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "judgeMode",
+        "name" : "judgeMode",
+        "nullable" : true,
+        "type" : {
+          "kind" : "ref",
+          "name" : "eval.EvalJudgeMode"
+        }
+      }, {
+        "javaName" : "limit",
+        "name" : "limit",
+        "nullable" : true,
+        "type" : {
+          "kind" : "integer"
+        }
+      }, {
+        "javaName" : "model",
+        "name" : "model",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "referenceInstant",
+        "name" : "referenceInstant",
+        "nullable" : true,
+        "type" : {
+          "format" : "date-time",
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "tags",
+        "name" : "tags",
+        "nullable" : true,
+        "type" : {
+          "itemType" : {
+            "kind" : "string"
+          },
+          "kind" : "array"
+        }
+      } ],
+      "javaType" : "com.example.demo.model.eval.CreateE2EEvalRunRequest",
+      "kind" : "record"
+    },
+    "eval.CreateEvalCandidateFromChatRunRequest" : {
+      "fields" : [ {
+        "javaName" : "artifacts",
+        "name" : "artifacts",
+        "nullable" : true,
+        "type" : {
+          "kind" : "map",
+          "valueType" : {
+            "kind" : "unknown"
+          }
+        }
+      }, {
+        "javaName" : "caseKey",
+        "name" : "caseKey",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "chatRunId",
+        "name" : "chatRunId",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "datasetId",
+        "name" : "datasetId",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "failureReason",
+        "name" : "failureReason",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "originalSources",
+        "name" : "originalSources",
+        "nullable" : true,
+        "type" : {
+          "itemType" : {
+            "kind" : "map",
+            "valueType" : {
+              "kind" : "unknown"
+            }
+          },
+          "kind" : "array"
+        }
+      }, {
+        "javaName" : "question",
+        "name" : "question",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "tags",
+        "name" : "tags",
+        "nullable" : true,
+        "type" : {
+          "itemType" : {
+            "kind" : "string"
+          },
+          "kind" : "array"
+        }
+      } ],
+      "javaType" : "com.example.demo.model.eval.CreateEvalCandidateFromChatRunRequest",
+      "kind" : "record"
+    },
+    "eval.CreateEvalCaseRequest" : {
+      "fields" : [ {
+        "javaName" : "acceptedAnswers",
+        "name" : "acceptedAnswers",
+        "nullable" : true,
+        "type" : {
+          "itemType" : {
+            "kind" : "string"
+          },
+          "kind" : "array"
+        }
+      }, {
+        "javaName" : "caseKey",
+        "name" : "caseKey",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "caseType",
+        "name" : "caseType",
+        "nullable" : true,
+        "type" : {
+          "kind" : "ref",
+          "name" : "eval.EvalCaseType"
+        }
+      }, {
+        "javaName" : "expectedMode",
+        "name" : "expectedMode",
+        "nullable" : true,
+        "type" : {
+          "kind" : "ref",
+          "name" : "eval.EvalExpectedMode"
+        }
+      }, {
+        "javaName" : "forbiddenDocumentRefs",
+        "name" : "forbiddenDocumentRefs",
+        "nullable" : true,
+        "type" : {
+          "itemType" : {
+            "kind" : "string"
+          },
+          "kind" : "array"
+        }
+      }, {
+        "javaName" : "goldEvidenceLocators",
+        "name" : "goldEvidenceLocators",
+        "nullable" : true,
+        "type" : {
+          "itemType" : {
+            "kind" : "ref",
+            "name" : "EvidenceLocator"
+          },
+          "kind" : "array"
+        }
+      }, {
+        "javaName" : "goldFacts",
+        "name" : "goldFacts",
+        "nullable" : true,
+        "type" : {
+          "itemType" : {
+            "kind" : "string"
+          },
+          "kind" : "array"
+        }
+      }, {
+        "javaName" : "knowledgeScope",
+        "name" : "knowledgeScope",
+        "nullable" : true,
+        "type" : {
+          "kind" : "map",
+          "valueType" : {
+            "kind" : "unknown"
+          }
+        }
+      }, {
+        "javaName" : "origin",
+        "name" : "origin",
+        "nullable" : true,
+        "type" : {
+          "kind" : "ref",
+          "name" : "eval.EvalCaseOrigin"
+        }
+      }, {
+        "javaName" : "question",
+        "name" : "question",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "requiredDocGroups",
+        "name" : "requiredDocGroups",
+        "nullable" : true,
+        "type" : {
+          "itemType" : {
+            "itemType" : {
+              "kind" : "ref",
+              "name" : "EvidenceLocator"
+            },
+            "kind" : "array"
+          },
+          "kind" : "array"
+        }
+      }, {
+        "javaName" : "retrievalFilters",
+        "name" : "retrievalFilters",
+        "nullable" : true,
+        "type" : {
+          "kind" : "map",
+          "valueType" : {
+            "kind" : "unknown"
+          }
+        }
+      }, {
+        "javaName" : "severity",
+        "name" : "severity",
+        "nullable" : true,
+        "type" : {
+          "kind" : "ref",
+          "name" : "eval.EvalCaseSeverity"
+        }
+      }, {
+        "javaName" : "tags",
+        "name" : "tags",
+        "nullable" : true,
+        "type" : {
+          "itemType" : {
+            "kind" : "string"
+          },
+          "kind" : "array"
+        }
+      } ],
+      "javaType" : "com.example.demo.model.eval.CreateEvalCaseRequest",
+      "kind" : "record"
+    },
+    "eval.CreateEvalCaseReviewRequest" : {
+      "fields" : [ {
+        "javaName" : "note",
+        "name" : "note",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "status",
+        "name" : "status",
+        "nullable" : true,
+        "type" : {
+          "kind" : "ref",
+          "name" : "eval.EvalReviewStatus"
+        }
+      } ],
+      "javaType" : "com.example.demo.model.eval.CreateEvalCaseReviewRequest",
+      "kind" : "record"
+    },
+    "eval.CreateEvalDatasetRequest" : {
+      "fields" : [ {
+        "javaName" : "datasetKey",
+        "name" : "datasetKey",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "description",
+        "name" : "description",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "kind",
+        "name" : "kind",
+        "nullable" : true,
+        "type" : {
+          "kind" : "ref",
+          "name" : "eval.EvalDatasetKind"
+        }
+      }, {
+        "javaName" : "name",
+        "name" : "name",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "tags",
+        "name" : "tags",
+        "nullable" : true,
+        "type" : {
+          "itemType" : {
+            "kind" : "string"
+          },
+          "kind" : "array"
+        }
+      }, {
+        "javaName" : "version",
+        "name" : "version",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      } ],
+      "javaType" : "com.example.demo.model.eval.CreateEvalDatasetRequest",
+      "kind" : "record"
+    },
+    "eval.CreateEvalDatasetVersionRequest" : {
+      "fields" : [ {
+        "javaName" : "note",
+        "name" : "note",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "version",
+        "name" : "version",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      } ],
+      "javaType" : "com.example.demo.model.eval.CreateEvalDatasetVersionRequest",
+      "kind" : "record"
+    },
+    "eval.CreateRetrievalEvalRunRequest" : {
+      "fields" : [ {
+        "javaName" : "caseIds",
+        "name" : "caseIds",
+        "nullable" : true,
+        "type" : {
+          "itemType" : {
+            "kind" : "string"
+          },
+          "kind" : "array"
+        }
+      }, {
+        "javaName" : "corpusSnapshotId",
+        "name" : "corpusSnapshotId",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "datasetId",
+        "name" : "datasetId",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "datasetVersion",
+        "name" : "datasetVersion",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "executionConfigHash",
+        "name" : "executionConfigHash",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "limit",
+        "name" : "limit",
+        "nullable" : true,
+        "type" : {
+          "kind" : "integer"
+        }
+      }, {
+        "javaName" : "referenceInstant",
+        "name" : "referenceInstant",
+        "nullable" : true,
+        "type" : {
+          "format" : "date-time",
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "tags",
+        "name" : "tags",
+        "nullable" : true,
+        "type" : {
+          "itemType" : {
+            "kind" : "string"
+          },
+          "kind" : "array"
+        }
+      } ],
+      "javaType" : "com.example.demo.model.eval.CreateRetrievalEvalRunRequest",
+      "kind" : "record"
+    },
+    "eval.EvalCase" : {
+      "fields" : [ {
+        "javaName" : "acceptedAnswers",
+        "name" : "acceptedAnswers",
+        "nullable" : true,
+        "type" : {
+          "itemType" : {
+            "kind" : "string"
+          },
+          "kind" : "array"
+        }
+      }, {
+        "javaName" : "active",
+        "name" : "active",
+        "nullable" : false,
+        "type" : {
+          "kind" : "boolean"
+        }
+      }, {
+        "javaName" : "caseKey",
+        "name" : "caseKey",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "caseType",
+        "name" : "caseType",
+        "nullable" : true,
+        "type" : {
+          "kind" : "ref",
+          "name" : "eval.EvalCaseType"
+        }
+      }, {
+        "javaName" : "createdAt",
+        "name" : "createdAt",
+        "nullable" : true,
+        "type" : {
+          "format" : "date-time",
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "datasetId",
+        "name" : "datasetId",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "expectedMode",
+        "name" : "expectedMode",
+        "nullable" : true,
+        "type" : {
+          "kind" : "ref",
+          "name" : "eval.EvalExpectedMode"
+        }
+      }, {
+        "javaName" : "forbiddenDocumentRefs",
+        "name" : "forbiddenDocumentRefs",
+        "nullable" : true,
+        "type" : {
+          "itemType" : {
+            "kind" : "string"
+          },
+          "kind" : "array"
+        }
+      }, {
+        "javaName" : "goldEvidenceLocators",
+        "name" : "goldEvidenceLocators",
+        "nullable" : true,
+        "type" : {
+          "itemType" : {
+            "kind" : "ref",
+            "name" : "EvidenceLocator"
+          },
+          "kind" : "array"
+        }
+      }, {
+        "javaName" : "goldFacts",
+        "name" : "goldFacts",
+        "nullable" : true,
+        "type" : {
+          "itemType" : {
+            "kind" : "string"
+          },
+          "kind" : "array"
+        }
+      }, {
+        "javaName" : "id",
+        "name" : "id",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "knowledgeScope",
+        "name" : "knowledgeScope",
+        "nullable" : true,
+        "type" : {
+          "kind" : "map",
+          "valueType" : {
+            "kind" : "unknown"
+          }
+        }
+      }, {
+        "javaName" : "origin",
+        "name" : "origin",
+        "nullable" : true,
+        "type" : {
+          "kind" : "ref",
+          "name" : "eval.EvalCaseOrigin"
+        }
+      }, {
+        "javaName" : "question",
+        "name" : "question",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "requiredDocGroups",
+        "name" : "requiredDocGroups",
+        "nullable" : true,
+        "type" : {
+          "itemType" : {
+            "itemType" : {
+              "kind" : "ref",
+              "name" : "EvidenceLocator"
+            },
+            "kind" : "array"
+          },
+          "kind" : "array"
+        }
+      }, {
+        "javaName" : "retrievalFilters",
+        "name" : "retrievalFilters",
+        "nullable" : true,
+        "type" : {
+          "kind" : "map",
+          "valueType" : {
+            "kind" : "unknown"
+          }
+        }
+      }, {
+        "javaName" : "reviewStatus",
+        "name" : "reviewStatus",
+        "nullable" : true,
+        "type" : {
+          "kind" : "ref",
+          "name" : "eval.EvalReviewStatus"
+        }
+      }, {
+        "javaName" : "revision",
+        "name" : "revision",
+        "nullable" : false,
+        "type" : {
+          "kind" : "integer"
+        }
+      }, {
+        "javaName" : "severity",
+        "name" : "severity",
+        "nullable" : true,
+        "type" : {
+          "kind" : "ref",
+          "name" : "eval.EvalCaseSeverity"
+        }
+      }, {
+        "javaName" : "tags",
+        "name" : "tags",
+        "nullable" : true,
+        "type" : {
+          "itemType" : {
+            "kind" : "string"
+          },
+          "kind" : "array"
+        }
+      }, {
+        "javaName" : "updatedAt",
+        "name" : "updatedAt",
+        "nullable" : true,
+        "type" : {
+          "format" : "date-time",
+          "kind" : "string"
+        }
+      } ],
+      "javaType" : "com.example.demo.model.eval.EvalCase",
+      "kind" : "record"
+    },
+    "eval.EvalCaseOrigin" : {
+      "fields" : [ {
+        "javaName" : "metadata",
+        "name" : "metadata",
+        "nullable" : true,
+        "type" : {
+          "kind" : "map",
+          "valueType" : {
+            "kind" : "unknown"
+          }
+        }
+      }, {
+        "javaName" : "note",
+        "name" : "note",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "sourceId",
+        "name" : "sourceId",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "sourceType",
+        "name" : "sourceType",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      } ],
+      "javaType" : "com.example.demo.model.eval.EvalCaseOrigin",
+      "kind" : "record"
+    },
+    "eval.EvalCasePromotion" : {
+      "fields" : [ {
+        "javaName" : "createdAt",
+        "name" : "createdAt",
+        "nullable" : true,
+        "type" : {
+          "format" : "date-time",
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "id",
+        "name" : "id",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "metadata",
+        "name" : "metadata",
+        "nullable" : true,
+        "type" : {
+          "kind" : "map",
+          "valueType" : {
+            "kind" : "unknown"
+          }
+        }
+      }, {
+        "javaName" : "note",
+        "name" : "note",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "promotedBy",
+        "name" : "promotedBy",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "sourceCaseId",
+        "name" : "sourceCaseId",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "sourceCaseRevision",
+        "name" : "sourceCaseRevision",
+        "nullable" : false,
+        "type" : {
+          "kind" : "integer"
+        }
+      }, {
+        "javaName" : "targetCaseId",
+        "name" : "targetCaseId",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "targetCaseRevision",
+        "name" : "targetCaseRevision",
+        "nullable" : false,
+        "type" : {
+          "kind" : "integer"
+        }
+      }, {
+        "javaName" : "targetDatasetId",
+        "name" : "targetDatasetId",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "targetDatasetVersionId",
+        "name" : "targetDatasetVersionId",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      } ],
+      "javaType" : "com.example.demo.model.eval.EvalCasePromotion",
+      "kind" : "record"
+    },
+    "eval.EvalCaseReview" : {
+      "fields" : [ {
+        "javaName" : "caseId",
+        "name" : "caseId",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "caseRevision",
+        "name" : "caseRevision",
+        "nullable" : true,
+        "type" : {
+          "kind" : "integer"
+        }
+      }, {
+        "javaName" : "createdAt",
+        "name" : "createdAt",
+        "nullable" : true,
+        "type" : {
+          "format" : "date-time",
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "id",
+        "name" : "id",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "metadata",
+        "name" : "metadata",
+        "nullable" : true,
+        "type" : {
+          "kind" : "map",
+          "valueType" : {
+            "kind" : "unknown"
+          }
+        }
+      }, {
+        "javaName" : "note",
+        "name" : "note",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "reviewer",
+        "name" : "reviewer",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "status",
+        "name" : "status",
+        "nullable" : true,
+        "type" : {
+          "kind" : "ref",
+          "name" : "eval.EvalReviewStatus"
+        }
+      }, {
+        "javaName" : "updatedAt",
+        "name" : "updatedAt",
+        "nullable" : true,
+        "type" : {
+          "format" : "date-time",
+          "kind" : "string"
+        }
+      } ],
+      "javaType" : "com.example.demo.model.eval.EvalCaseReview",
+      "kind" : "record"
+    },
+    "eval.EvalCaseRevision" : {
+      "fields" : [ {
+        "javaName" : "caseSnapshot",
+        "name" : "caseSnapshot",
+        "nullable" : true,
+        "type" : {
+          "kind" : "ref",
+          "name" : "eval.EvalCase"
+        }
+      }, {
+        "javaName" : "contentHash",
+        "name" : "contentHash",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "createdAt",
+        "name" : "createdAt",
+        "nullable" : true,
+        "type" : {
+          "format" : "date-time",
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "createdBy",
+        "name" : "createdBy",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "id",
+        "name" : "id",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      } ],
+      "javaType" : "com.example.demo.model.eval.EvalCaseRevision",
+      "kind" : "record"
+    },
+    "eval.EvalCaseSeverity" : {
+      "javaType" : "com.example.demo.model.eval.EvalCaseSeverity",
+      "kind" : "enum",
+      "values" : [ "BLOCKER", "HIGH", "MEDIUM", "LOW" ]
+    },
+    "eval.EvalCaseType" : {
+      "javaType" : "com.example.demo.model.eval.EvalCaseType",
+      "kind" : "enum",
+      "values" : [ "EXACT_FACT", "MULTI_DOCUMENT_COMPARISON", "DATE_VERSION_FILTER", "TABLE_QUESTION", "AMBIGUOUS_QUERY", "NO_ANSWER", "CONFLICTING_SOURCES" ]
+    },
+    "eval.EvalCompareRequest" : {
+      "fields" : [ {
+        "javaName" : "baselineRunId",
+        "name" : "baselineRunId",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "candidateRunId",
+        "name" : "candidateRunId",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      } ],
+      "javaType" : "com.example.demo.model.eval.EvalCompareRequest",
+      "kind" : "record"
+    },
+    "eval.EvalCompareStatus" : {
+      "javaType" : "com.example.demo.model.eval.EvalCompareStatus",
+      "kind" : "enum",
+      "values" : [ "UNKNOWN", "COMPATIBLE", "INCOMPATIBLE" ]
+    },
+    "eval.EvalCompatibilityReason" : {
+      "fields" : [ {
+        "javaName" : "code",
+        "name" : "code",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "details",
+        "name" : "details",
+        "nullable" : true,
+        "type" : {
+          "kind" : "map",
+          "valueType" : {
+            "kind" : "unknown"
+          }
+        }
+      }, {
+        "javaName" : "message",
+        "name" : "message",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "status",
+        "name" : "status",
+        "nullable" : true,
+        "type" : {
+          "kind" : "ref",
+          "name" : "eval.EvalCompatibilityStatus"
+        }
+      } ],
+      "javaType" : "com.example.demo.model.eval.EvalCompatibilityReason",
+      "kind" : "record"
+    },
+    "eval.EvalCompatibilityResult" : {
+      "fields" : [ {
+        "javaName" : "reasons",
+        "name" : "reasons",
+        "nullable" : true,
+        "type" : {
+          "itemType" : {
+            "kind" : "ref",
+            "name" : "eval.EvalCompatibilityReason"
+          },
+          "kind" : "array"
+        }
+      }, {
+        "javaName" : "status",
+        "name" : "status",
+        "nullable" : true,
+        "type" : {
+          "kind" : "ref",
+          "name" : "eval.EvalCompatibilityStatus"
+        }
+      }, {
+        "javaName" : "summary",
+        "name" : "summary",
+        "nullable" : true,
+        "type" : {
+          "kind" : "map",
+          "valueType" : {
+            "kind" : "unknown"
+          }
+        }
+      } ],
+      "javaType" : "com.example.demo.model.eval.EvalCompatibilityResult",
+      "kind" : "record"
+    },
+    "eval.EvalCompatibilityStatus" : {
+      "javaType" : "com.example.demo.model.eval.EvalCompatibilityStatus",
+      "kind" : "enum",
+      "values" : [ "COMPATIBLE", "BLOCKED", "WARNING_ONLY" ]
+    },
+    "eval.EvalDataset" : {
+      "fields" : [ {
+        "javaName" : "createdAt",
+        "name" : "createdAt",
+        "nullable" : true,
+        "type" : {
+          "format" : "date-time",
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "datasetKey",
+        "name" : "datasetKey",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "description",
+        "name" : "description",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "id",
+        "name" : "id",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "kind",
+        "name" : "kind",
+        "nullable" : true,
+        "type" : {
+          "kind" : "ref",
+          "name" : "eval.EvalDatasetKind"
+        }
+      }, {
+        "javaName" : "name",
+        "name" : "name",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "status",
+        "name" : "status",
+        "nullable" : true,
+        "type" : {
+          "kind" : "ref",
+          "name" : "eval.EvalLifecycleStatus"
+        }
+      }, {
+        "javaName" : "tags",
+        "name" : "tags",
+        "nullable" : true,
+        "type" : {
+          "itemType" : {
+            "kind" : "string"
+          },
+          "kind" : "array"
+        }
+      }, {
+        "javaName" : "updatedAt",
+        "name" : "updatedAt",
+        "nullable" : true,
+        "type" : {
+          "format" : "date-time",
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "version",
+        "name" : "version",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      } ],
+      "javaType" : "com.example.demo.model.eval.EvalDataset",
+      "kind" : "record"
+    },
+    "eval.EvalDatasetDetail" : {
+      "fields" : [ {
+        "javaName" : "cases",
+        "name" : "cases",
+        "nullable" : true,
+        "type" : {
+          "itemType" : {
+            "kind" : "ref",
+            "name" : "eval.EvalCase"
+          },
+          "kind" : "array"
+        }
+      }, {
+        "javaName" : "dataset",
+        "name" : "dataset",
+        "nullable" : true,
+        "type" : {
+          "kind" : "ref",
+          "name" : "eval.EvalDataset"
+        }
+      }, {
+        "javaName" : "reviews",
+        "name" : "reviews",
+        "nullable" : true,
+        "type" : {
+          "itemType" : {
+            "kind" : "ref",
+            "name" : "eval.EvalCaseReview"
+          },
+          "kind" : "array"
+        }
+      } ],
+      "javaType" : "com.example.demo.model.eval.EvalDatasetDetail",
+      "kind" : "record"
+    },
+    "eval.EvalDatasetKind" : {
+      "javaType" : "com.example.demo.model.eval.EvalDatasetKind",
+      "kind" : "enum",
+      "values" : [ "SMOKE", "GOLDEN", "CANDIDATE" ]
+    },
+    "eval.EvalDatasetSummary" : {
+      "fields" : [ {
+        "javaName" : "caseCount",
+        "name" : "caseCount",
+        "nullable" : false,
+        "type" : {
+          "kind" : "integer"
+        }
+      }, {
+        "javaName" : "createdAt",
+        "name" : "createdAt",
+        "nullable" : true,
+        "type" : {
+          "format" : "date-time",
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "datasetKey",
+        "name" : "datasetKey",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "description",
+        "name" : "description",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "id",
+        "name" : "id",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "kind",
+        "name" : "kind",
+        "nullable" : true,
+        "type" : {
+          "kind" : "ref",
+          "name" : "eval.EvalDatasetKind"
+        }
+      }, {
+        "javaName" : "name",
+        "name" : "name",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "status",
+        "name" : "status",
+        "nullable" : true,
+        "type" : {
+          "kind" : "ref",
+          "name" : "eval.EvalLifecycleStatus"
+        }
+      }, {
+        "javaName" : "tags",
+        "name" : "tags",
+        "nullable" : true,
+        "type" : {
+          "itemType" : {
+            "kind" : "string"
+          },
+          "kind" : "array"
+        }
+      }, {
+        "javaName" : "updatedAt",
+        "name" : "updatedAt",
+        "nullable" : true,
+        "type" : {
+          "format" : "date-time",
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "version",
+        "name" : "version",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      } ],
+      "javaType" : "com.example.demo.model.eval.EvalDatasetSummary",
+      "kind" : "record"
+    },
+    "eval.EvalDatasetVersion" : {
+      "fields" : [ {
+        "javaName" : "caseCount",
+        "name" : "caseCount",
+        "nullable" : false,
+        "type" : {
+          "kind" : "integer"
+        }
+      }, {
+        "javaName" : "caseRevisionRefs",
+        "name" : "caseRevisionRefs",
+        "nullable" : true,
+        "type" : {
+          "itemType" : {
+            "kind" : "map",
+            "valueType" : {
+              "kind" : "unknown"
+            }
+          },
+          "kind" : "array"
+        }
+      }, {
+        "javaName" : "createdAt",
+        "name" : "createdAt",
+        "nullable" : true,
+        "type" : {
+          "format" : "date-time",
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "createdBy",
+        "name" : "createdBy",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "datasetHash",
+        "name" : "datasetHash",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "datasetId",
+        "name" : "datasetId",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "id",
+        "name" : "id",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "note",
+        "name" : "note",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "version",
+        "name" : "version",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      } ],
+      "javaType" : "com.example.demo.model.eval.EvalDatasetVersion",
+      "kind" : "record"
+    },
+    "eval.EvalE2EScoreSummary" : {
+      "fields" : [ {
+        "javaName" : "details",
+        "name" : "details",
+        "nullable" : true,
+        "type" : {
+          "kind" : "map",
+          "valueType" : {
+            "kind" : "unknown"
+          }
+        }
+      }, {
+        "javaName" : "metrics",
+        "name" : "metrics",
+        "nullable" : true,
+        "type" : {
+          "kind" : "map",
+          "valueType" : {
+            "kind" : "number"
+          }
+        }
+      }, {
+        "javaName" : "notScorableMetricCount",
+        "name" : "notScorableMetricCount",
+        "nullable" : false,
+        "type" : {
+          "kind" : "integer"
+        }
+      }, {
+        "javaName" : "passed",
+        "name" : "passed",
+        "nullable" : false,
+        "type" : {
+          "kind" : "boolean"
+        }
+      }, {
+        "javaName" : "scoredMetricCount",
+        "name" : "scoredMetricCount",
+        "nullable" : false,
+        "type" : {
+          "kind" : "integer"
+        }
+      } ],
+      "javaType" : "com.example.demo.model.eval.EvalE2EScoreSummary",
+      "kind" : "record"
+    },
+    "eval.EvalExecutionConfig" : {
+      "fields" : [ {
+        "javaName" : "configHash",
+        "name" : "configHash",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "corpusSnapshotId",
+        "name" : "corpusSnapshotId",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "datasetId",
+        "name" : "datasetId",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "datasetVersion",
+        "name" : "datasetVersion",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "gitCommitSha",
+        "name" : "gitCommitSha",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "judgePromptVersion",
+        "name" : "judgePromptVersion",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "materialSetHash",
+        "name" : "materialSetHash",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "options",
+        "name" : "options",
+        "nullable" : true,
+        "type" : {
+          "kind" : "map",
+          "valueType" : {
+            "kind" : "unknown"
+          }
+        }
+      }, {
+        "javaName" : "promptVersion",
+        "name" : "promptVersion",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "providerPins",
+        "name" : "providerPins",
+        "nullable" : true,
+        "type" : {
+          "kind" : "map",
+          "valueType" : {
+            "kind" : "unknown"
+          }
+        }
+      }, {
+        "javaName" : "referenceInstant",
+        "name" : "referenceInstant",
+        "nullable" : true,
+        "type" : {
+          "format" : "date-time",
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "retrievalLimits",
+        "name" : "retrievalLimits",
+        "nullable" : true,
+        "type" : {
+          "kind" : "map",
+          "valueType" : {
+            "kind" : "unknown"
+          }
+        }
+      }, {
+        "javaName" : "revisionPins",
+        "name" : "revisionPins",
+        "nullable" : true,
+        "type" : {
+          "kind" : "map",
+          "valueType" : {
+            "kind" : "unknown"
+          }
+        }
+      }, {
+        "javaName" : "rolloutFlags",
+        "name" : "rolloutFlags",
+        "nullable" : true,
+        "type" : {
+          "kind" : "map",
+          "valueType" : {
+            "kind" : "unknown"
+          }
+        }
+      }, {
+        "javaName" : "searchStateHash",
+        "name" : "searchStateHash",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      } ],
+      "javaType" : "com.example.demo.model.eval.EvalExecutionConfig",
+      "kind" : "record"
+    },
+    "eval.EvalExpectedMode" : {
+      "javaType" : "com.example.demo.model.eval.EvalExpectedMode",
+      "kind" : "enum",
+      "values" : [ "ANSWER", "ABSTAIN", "CLARIFY" ]
+    },
+    "eval.EvalFailureCode" : {
+      "javaType" : "com.example.demo.model.eval.EvalFailureCode",
+      "kind" : "enum",
+      "values" : [ "RETRIEVAL_EMPTY", "RETRIEVAL_INSUFFICIENT", "SNAPSHOT_STALE", "CONFIG_MISMATCH", "CASE_NOT_SCORABLE", "RETRIEVAL_NO_RESULTS", "FILTER_VIOLATION", "RETRIEVAL_EXECUTION_ERROR", "CHAT_RUN_FAILED", "CHAT_RUN_CANCELLED", "CHAT_RUN_TIMEOUT", "OUTPUT_FORMAT_ERROR", "CITATION_RESOLUTION_ERROR", "PINNED_CASE_REVISION_MISSING", "SCORER_ERROR", "JUDGE_ERROR", "TIMEOUT", "UNKNOWN" ]
+    },
+    "eval.EvalJudgeMode" : {
+      "javaType" : "com.example.demo.model.eval.EvalJudgeMode",
+      "kind" : "enum",
+      "values" : [ "DETERMINISTIC_ONLY", "LLM_JUDGE" ]
+    },
+    "eval.EvalLifecycleStatus" : {
+      "javaType" : "com.example.demo.model.eval.EvalLifecycleStatus",
+      "kind" : "enum",
+      "values" : [ "DRAFT", "ACTIVE", "ARCHIVED" ]
+    },
+    "eval.EvalModuleStatusResponse" : {
+      "fields" : [ {
+        "javaName" : "capabilities",
+        "name" : "capabilities",
+        "nullable" : true,
+        "type" : {
+          "itemType" : {
+            "kind" : "string"
+          },
+          "kind" : "array"
+        }
+      }, {
+        "javaName" : "checkedAt",
+        "name" : "checkedAt",
+        "nullable" : true,
+        "type" : {
+          "format" : "date-time",
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "endpoints",
+        "name" : "endpoints",
+        "nullable" : true,
+        "type" : {
+          "itemType" : {
+            "kind" : "string"
+          },
+          "kind" : "array"
+        }
+      }, {
+        "javaName" : "readOnly",
+        "name" : "readOnly",
+        "nullable" : false,
+        "type" : {
+          "kind" : "boolean"
+        }
+      }, {
+        "javaName" : "schemaReady",
+        "name" : "schemaReady",
+        "nullable" : false,
+        "type" : {
+          "kind" : "boolean"
+        }
+      }, {
+        "javaName" : "storageReady",
+        "name" : "storageReady",
+        "nullable" : false,
+        "type" : {
+          "kind" : "boolean"
+        }
+      } ],
+      "javaType" : "com.example.demo.model.eval.EvalModuleStatusResponse",
+      "kind" : "record"
+    },
+    "eval.EvalReviewStatus" : {
+      "javaType" : "com.example.demo.model.eval.EvalReviewStatus",
+      "kind" : "enum",
+      "values" : [ "DRAFT", "READY_FOR_REVIEW", "APPROVED", "REJECTED", "PROMOTED", "ARCHIVED" ]
+    },
+    "eval.EvalRun" : {
+      "fields" : [ {
+        "javaName" : "completedAt",
+        "name" : "completedAt",
+        "nullable" : true,
+        "type" : {
+          "format" : "date-time",
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "configHash",
+        "name" : "configHash",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "createdAt",
+        "name" : "createdAt",
+        "nullable" : true,
+        "type" : {
+          "format" : "date-time",
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "datasetId",
+        "name" : "datasetId",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "executionConfig",
+        "name" : "executionConfig",
+        "nullable" : true,
+        "type" : {
+          "kind" : "ref",
+          "name" : "eval.EvalExecutionConfig"
+        }
+      }, {
+        "javaName" : "id",
+        "name" : "id",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "items",
+        "name" : "items",
+        "nullable" : true,
+        "type" : {
+          "itemType" : {
+            "kind" : "ref",
+            "name" : "eval.EvalRunItem"
+          },
+          "kind" : "array"
+        }
+      }, {
+        "javaName" : "runKind",
+        "name" : "runKind",
+        "nullable" : true,
+        "type" : {
+          "kind" : "ref",
+          "name" : "eval.EvalRunKind"
+        }
+      }, {
+        "javaName" : "snapshotId",
+        "name" : "snapshotId",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "startedAt",
+        "name" : "startedAt",
+        "nullable" : true,
+        "type" : {
+          "format" : "date-time",
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "status",
+        "name" : "status",
+        "nullable" : true,
+        "type" : {
+          "kind" : "ref",
+          "name" : "eval.EvalRunStatus"
+        }
+      }, {
+        "javaName" : "summary",
+        "name" : "summary",
+        "nullable" : true,
+        "type" : {
+          "kind" : "map",
+          "valueType" : {
+            "kind" : "unknown"
+          }
+        }
+      }, {
+        "javaName" : "updatedAt",
+        "name" : "updatedAt",
+        "nullable" : true,
+        "type" : {
+          "format" : "date-time",
+          "kind" : "string"
+        }
+      } ],
+      "javaType" : "com.example.demo.model.eval.EvalRun",
+      "kind" : "record"
+    },
+    "eval.EvalRunCompare" : {
+      "fields" : [ {
+        "javaName" : "baselineConfigHash",
+        "name" : "baselineConfigHash",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "baselineDatasetVersion",
+        "name" : "baselineDatasetVersion",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "baselineMaterialSetHash",
+        "name" : "baselineMaterialSetHash",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "baselineRunId",
+        "name" : "baselineRunId",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "baselineSearchStateHash",
+        "name" : "baselineSearchStateHash",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "baselineSnapshotId",
+        "name" : "baselineSnapshotId",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "candidateConfigHash",
+        "name" : "candidateConfigHash",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "candidateDatasetVersion",
+        "name" : "candidateDatasetVersion",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "candidateMaterialSetHash",
+        "name" : "candidateMaterialSetHash",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "candidateRunId",
+        "name" : "candidateRunId",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "candidateSearchStateHash",
+        "name" : "candidateSearchStateHash",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "candidateSnapshotId",
+        "name" : "candidateSnapshotId",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "compatibilityReason",
+        "name" : "compatibilityReason",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "compatibilityReasons",
+        "name" : "compatibilityReasons",
+        "nullable" : true,
+        "type" : {
+          "itemType" : {
+            "kind" : "ref",
+            "name" : "eval.EvalCompatibilityReason"
+          },
+          "kind" : "array"
+        }
+      }, {
+        "javaName" : "compatibilityStatus",
+        "name" : "compatibilityStatus",
+        "nullable" : true,
+        "type" : {
+          "kind" : "ref",
+          "name" : "eval.EvalCompatibilityStatus"
+        }
+      }, {
+        "javaName" : "createdAt",
+        "name" : "createdAt",
+        "nullable" : true,
+        "type" : {
+          "format" : "date-time",
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "id",
+        "name" : "id",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "status",
+        "name" : "status",
+        "nullable" : true,
+        "type" : {
+          "kind" : "ref",
+          "name" : "eval.EvalCompareStatus"
+        }
+      }, {
+        "javaName" : "summary",
+        "name" : "summary",
+        "nullable" : true,
+        "type" : {
+          "kind" : "map",
+          "valueType" : {
+            "kind" : "unknown"
+          }
+        }
+      }, {
+        "javaName" : "updatedAt",
+        "name" : "updatedAt",
+        "nullable" : true,
+        "type" : {
+          "format" : "date-time",
+          "kind" : "string"
+        }
+      } ],
+      "javaType" : "com.example.demo.model.eval.EvalRunCompare",
+      "kind" : "record"
+    },
+    "eval.EvalRunItem" : {
+      "fields" : [ {
+        "javaName" : "artifact",
+        "name" : "artifact",
+        "nullable" : true,
+        "type" : {
+          "kind" : "map",
+          "valueType" : {
+            "kind" : "unknown"
+          }
+        }
+      }, {
+        "javaName" : "caseId",
+        "name" : "caseId",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "caseRevision",
+        "name" : "caseRevision",
+        "nullable" : true,
+        "type" : {
+          "kind" : "integer"
+        }
+      }, {
+        "javaName" : "chatRunId",
+        "name" : "chatRunId",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "contextAssemblyId",
+        "name" : "contextAssemblyId",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "createdAt",
+        "name" : "createdAt",
+        "nullable" : true,
+        "type" : {
+          "format" : "date-time",
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "failureCode",
+        "name" : "failureCode",
+        "nullable" : true,
+        "type" : {
+          "kind" : "ref",
+          "name" : "eval.EvalFailureCode"
+        }
+      }, {
+        "javaName" : "failureMessage",
+        "name" : "failureMessage",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "id",
+        "name" : "id",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "runId",
+        "name" : "runId",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "scoreSummary",
+        "name" : "scoreSummary",
+        "nullable" : true,
+        "type" : {
+          "kind" : "map",
+          "valueType" : {
+            "kind" : "unknown"
+          }
+        }
+      }, {
+        "javaName" : "scorer",
+        "name" : "scorer",
+        "nullable" : true,
+        "type" : {
+          "kind" : "map",
+          "valueType" : {
+            "kind" : "unknown"
+          }
+        }
+      }, {
+        "javaName" : "status",
+        "name" : "status",
+        "nullable" : true,
+        "type" : {
+          "kind" : "ref",
+          "name" : "eval.EvalRunItemStatus"
+        }
+      }, {
+        "javaName" : "updatedAt",
+        "name" : "updatedAt",
+        "nullable" : true,
+        "type" : {
+          "format" : "date-time",
+          "kind" : "string"
+        }
+      } ],
+      "javaType" : "com.example.demo.model.eval.EvalRunItem",
+      "kind" : "record"
+    },
+    "eval.EvalRunItemArtifact" : {
+      "fields" : [ {
+        "javaName" : "artifactType",
+        "name" : "artifactType",
+        "nullable" : true,
+        "type" : {
+          "kind" : "ref",
+          "name" : "eval.EvalRunItemArtifactType"
+        }
+      }, {
+        "javaName" : "createdAt",
+        "name" : "createdAt",
+        "nullable" : true,
+        "type" : {
+          "format" : "date-time",
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "payload",
+        "name" : "payload",
+        "nullable" : true,
+        "type" : {
+          "kind" : "map",
+          "valueType" : {
+            "kind" : "unknown"
+          }
+        }
+      }, {
+        "javaName" : "runItemId",
+        "name" : "runItemId",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "updatedAt",
+        "name" : "updatedAt",
+        "nullable" : true,
+        "type" : {
+          "format" : "date-time",
+          "kind" : "string"
+        }
+      } ],
+      "javaType" : "com.example.demo.model.eval.EvalRunItemArtifact",
+      "kind" : "record"
+    },
+    "eval.EvalRunItemArtifactType" : {
+      "javaType" : "com.example.demo.model.eval.EvalRunItemArtifactType",
+      "kind" : "enum",
+      "values" : [ "CHAT_RUN_RESULT", "CHAT_RUN_TRACE", "CONTEXT_ASSEMBLY", "PROMPT_SNAPSHOT", "RETRIEVAL_SUMMARY", "CASE_SNAPSHOT", "RAW_OUTPUT", "STRUCTURED_OUTPUT", "ANSWER_CLAIMS", "JUDGE_OUTPUT", "SCORER_OUTPUT" ]
+    },
+    "eval.EvalRunItemStatus" : {
+      "javaType" : "com.example.demo.model.eval.EvalRunItemStatus",
+      "kind" : "enum",
+      "values" : [ "PENDING", "RUNNING", "PASSED", "FAILED", "ERROR", "SKIPPED" ]
+    },
+    "eval.EvalRunKind" : {
+      "javaType" : "com.example.demo.model.eval.EvalRunKind",
+      "kind" : "enum",
+      "values" : [ "E2E", "RETRIEVAL_ONLY" ]
+    },
+    "eval.EvalRunStatus" : {
+      "javaType" : "com.example.demo.model.eval.EvalRunStatus",
+      "kind" : "enum",
+      "values" : [ "QUEUED", "RUNNING", "COMPLETED", "FAILED", "CANCELLED" ]
+    },
+    "eval.EvalRuntimeStateSnapshot" : {
+      "fields" : [ {
+        "javaName" : "capturedAt",
+        "name" : "capturedAt",
+        "nullable" : true,
+        "type" : {
+          "format" : "date-time",
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "searchStateHash",
+        "name" : "searchStateHash",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "state",
+        "name" : "state",
+        "nullable" : true,
+        "type" : {
+          "kind" : "map",
+          "valueType" : {
+            "kind" : "unknown"
+          }
+        }
+      } ],
+      "javaType" : "com.example.demo.model.eval.EvalRuntimeStateSnapshot",
+      "kind" : "record"
+    },
+    "eval.EvalStructuredAnswer" : {
+      "fields" : [ {
+        "javaName" : "answer",
+        "name" : "answer",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "claims",
+        "name" : "claims",
+        "nullable" : true,
+        "type" : {
+          "itemType" : {
+            "kind" : "ref",
+            "name" : "eval.AnswerClaim"
+          },
+          "kind" : "array"
+        }
+      }, {
+        "javaName" : "finalMode",
+        "name" : "finalMode",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      } ],
+      "javaType" : "com.example.demo.model.eval.EvalStructuredAnswer",
+      "kind" : "record"
+    },
+    "eval.PromoteEvalCaseRequest" : {
+      "fields" : [ {
+        "javaName" : "note",
+        "name" : "note",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "targetDatasetId",
+        "name" : "targetDatasetId",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "version",
+        "name" : "version",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      } ],
+      "javaType" : "com.example.demo.model.eval.PromoteEvalCaseRequest",
+      "kind" : "record"
+    },
+    "eval.ResolveEvalExecutionConfigRequest" : {
+      "fields" : [ {
+        "javaName" : "corpusSnapshotId",
+        "name" : "corpusSnapshotId",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "datasetId",
+        "name" : "datasetId",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "datasetVersion",
+        "name" : "datasetVersion",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "gitCommitSha",
+        "name" : "gitCommitSha",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "judgePromptVersion",
+        "name" : "judgePromptVersion",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "options",
+        "name" : "options",
+        "nullable" : true,
+        "type" : {
+          "kind" : "map",
+          "valueType" : {
+            "kind" : "unknown"
+          }
+        }
+      }, {
+        "javaName" : "promptVersion",
+        "name" : "promptVersion",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "referenceInstant",
+        "name" : "referenceInstant",
+        "nullable" : true,
+        "type" : {
+          "format" : "date-time",
+          "kind" : "string"
+        }
+      } ],
+      "javaType" : "com.example.demo.model.eval.ResolveEvalExecutionConfigRequest",
+      "kind" : "record"
+    },
+    "eval.ResolvedEvalExecutionConfig" : {
+      "fields" : [ {
+        "javaName" : "configHash",
+        "name" : "configHash",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "executionConfig",
+        "name" : "executionConfig",
+        "nullable" : true,
+        "type" : {
+          "kind" : "ref",
+          "name" : "eval.EvalExecutionConfig"
+        }
+      }, {
+        "javaName" : "runtimeState",
+        "name" : "runtimeState",
+        "nullable" : true,
+        "type" : {
+          "kind" : "ref",
+          "name" : "eval.EvalRuntimeStateSnapshot"
+        }
+      } ],
+      "javaType" : "com.example.demo.model.eval.ResolvedEvalExecutionConfig",
+      "kind" : "record"
+    },
+    "eval.RetrievalEvalCandidate" : {
+      "fields" : [ {
+        "javaName" : "chunkIndex",
+        "name" : "chunkIndex",
+        "nullable" : true,
+        "type" : {
+          "kind" : "integer"
+        }
+      }, {
+        "javaName" : "chunkType",
+        "name" : "chunkType",
+        "nullable" : true,
+        "type" : {
+          "kind" : "ref",
+          "name" : "DocumentBlockType"
+        }
+      }, {
+        "javaName" : "evidenceLocator",
+        "name" : "evidenceLocator",
+        "nullable" : true,
+        "type" : {
+          "kind" : "ref",
+          "name" : "EvidenceLocator"
+        }
+      }, {
+        "javaName" : "excerpt",
+        "name" : "excerpt",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "finalScore",
+        "name" : "finalScore",
+        "nullable" : true,
+        "type" : {
+          "kind" : "integer"
+        }
+      }, {
+        "javaName" : "fusedScore",
+        "name" : "fusedScore",
+        "nullable" : true,
+        "type" : {
+          "kind" : "integer"
+        }
+      }, {
+        "javaName" : "lexicalScore",
+        "name" : "lexicalScore",
+        "nullable" : true,
+        "type" : {
+          "kind" : "number"
+        }
+      }, {
+        "javaName" : "materialId",
+        "name" : "materialId",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "page",
+        "name" : "page",
+        "nullable" : true,
+        "type" : {
+          "kind" : "integer"
+        }
+      }, {
+        "javaName" : "rank",
+        "name" : "rank",
+        "nullable" : false,
+        "type" : {
+          "kind" : "integer"
+        }
+      }, {
+        "javaName" : "scoreBreakdown",
+        "name" : "scoreBreakdown",
+        "nullable" : true,
+        "type" : {
+          "kind" : "ref",
+          "name" : "ChunkScoreBreakdown"
+        }
+      }, {
+        "javaName" : "semanticDistance",
+        "name" : "semanticDistance",
+        "nullable" : true,
+        "type" : {
+          "kind" : "number"
+        }
+      }, {
+        "javaName" : "stage",
+        "name" : "stage",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "title",
+        "name" : "title",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      } ],
+      "javaType" : "com.example.demo.model.eval.RetrievalEvalCandidate",
+      "kind" : "record"
+    },
+    "eval.RetrievalEvalCaseRef" : {
+      "fields" : [ {
+        "javaName" : "caseId",
+        "name" : "caseId",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "caseKey",
+        "name" : "caseKey",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "caseRevision",
+        "name" : "caseRevision",
+        "nullable" : true,
+        "type" : {
+          "kind" : "integer"
+        }
+      }, {
+        "javaName" : "datasetId",
+        "name" : "datasetId",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      } ],
+      "javaType" : "com.example.demo.model.eval.RetrievalEvalCaseRef",
+      "kind" : "record"
+    },
+    "eval.RetrievalEvalMetric" : {
+      "fields" : [ {
+        "javaName" : "k",
+        "name" : "k",
+        "nullable" : true,
+        "type" : {
+          "kind" : "integer"
+        }
+      }, {
+        "javaName" : "name",
+        "name" : "name",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "reason",
+        "name" : "reason",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "status",
+        "name" : "status",
+        "nullable" : true,
+        "type" : {
+          "kind" : "ref",
+          "name" : "eval.RetrievalEvalMetricStatus"
+        }
+      }, {
+        "javaName" : "value",
+        "name" : "value",
+        "nullable" : true,
+        "type" : {
+          "kind" : "number"
+        }
+      } ],
+      "javaType" : "com.example.demo.model.eval.RetrievalEvalMetric",
+      "kind" : "record"
+    },
+    "eval.RetrievalEvalMetricStatus" : {
+      "javaType" : "com.example.demo.model.eval.RetrievalEvalMetricStatus",
+      "kind" : "enum",
+      "values" : [ "SCORED", "NOT_SCORABLE" ]
+    },
+    "eval.RetrievalEvalPreviewRequest" : {
+      "fields" : [ {
+        "javaName" : "caseId",
+        "name" : "caseId",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "caseRevision",
+        "name" : "caseRevision",
+        "nullable" : true,
+        "type" : {
+          "kind" : "integer"
+        }
+      }, {
+        "javaName" : "corpusSnapshotId",
+        "name" : "corpusSnapshotId",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "datasetId",
+        "name" : "datasetId",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "datasetVersion",
+        "name" : "datasetVersion",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "dismissedRetrievalHintKeys",
+        "name" : "dismissedRetrievalHintKeys",
+        "nullable" : true,
+        "type" : {
+          "itemType" : {
+            "kind" : "string"
+          },
+          "kind" : "array"
+        }
+      }, {
+        "javaName" : "executionConfigHash",
+        "name" : "executionConfigHash",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "includeCandidates",
+        "name" : "includeCandidates",
+        "nullable" : true,
+        "type" : {
+          "kind" : "boolean"
+        }
+      }, {
+        "javaName" : "includeNeighborChunks",
+        "name" : "includeNeighborChunks",
+        "nullable" : true,
+        "type" : {
+          "kind" : "boolean"
+        }
+      }, {
+        "javaName" : "knowledgeScope",
+        "name" : "knowledgeScope",
+        "nullable" : true,
+        "type" : {
+          "kind" : "ref",
+          "name" : "KnowledgeScope"
+        }
+      }, {
+        "javaName" : "limit",
+        "name" : "limit",
+        "nullable" : true,
+        "type" : {
+          "kind" : "integer"
+        }
+      }, {
+        "javaName" : "query",
+        "name" : "query",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "referenceInstant",
+        "name" : "referenceInstant",
+        "nullable" : true,
+        "type" : {
+          "format" : "date-time",
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "retrievalFilters",
+        "name" : "retrievalFilters",
+        "nullable" : true,
+        "type" : {
+          "kind" : "ref",
+          "name" : "RetrievalFilters"
+        }
+      } ],
+      "javaType" : "com.example.demo.model.eval.RetrievalEvalPreviewRequest",
+      "kind" : "record"
+    },
+    "eval.RetrievalEvalPreviewResponse" : {
+      "fields" : [ {
+        "javaName" : "caseRef",
+        "name" : "caseRef",
+        "nullable" : true,
+        "type" : {
+          "kind" : "ref",
+          "name" : "eval.RetrievalEvalCaseRef"
+        }
+      }, {
+        "javaName" : "configHash",
+        "name" : "configHash",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "metrics",
+        "name" : "metrics",
+        "nullable" : true,
+        "type" : {
+          "itemType" : {
+            "kind" : "ref",
+            "name" : "eval.RetrievalEvalMetric"
+          },
+          "kind" : "array"
+        }
+      }, {
+        "javaName" : "query",
+        "name" : "query",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "reproducibilityStatus",
+        "name" : "reproducibilityStatus",
+        "nullable" : true,
+        "type" : {
+          "kind" : "ref",
+          "name" : "eval.RetrievalEvalReproducibilityStatus"
+        }
+      }, {
+        "javaName" : "snapshotRef",
+        "name" : "snapshotRef",
+        "nullable" : true,
+        "type" : {
+          "kind" : "ref",
+          "name" : "eval.RetrievalEvalSnapshotRef"
+        }
+      }, {
+        "javaName" : "stages",
+        "name" : "stages",
+        "nullable" : true,
+        "type" : {
+          "kind" : "ref",
+          "name" : "eval.RetrievalEvalStageTrace"
+        }
+      }, {
+        "javaName" : "trace",
+        "name" : "trace",
+        "nullable" : true,
+        "type" : {
+          "kind" : "ref",
+          "name" : "eval.RetrievalEvalTrace"
+        }
+      }, {
+        "javaName" : "warnings",
+        "name" : "warnings",
+        "nullable" : true,
+        "type" : {
+          "itemType" : {
+            "kind" : "string"
+          },
+          "kind" : "array"
+        }
+      } ],
+      "javaType" : "com.example.demo.model.eval.RetrievalEvalPreviewResponse",
+      "kind" : "record"
+    },
+    "eval.RetrievalEvalReproducibilityStatus" : {
+      "javaType" : "com.example.demo.model.eval.RetrievalEvalReproducibilityStatus",
+      "kind" : "enum",
+      "values" : [ "PINNED", "UNPINNED" ]
+    },
+    "eval.RetrievalEvalSnapshotRef" : {
+      "fields" : [ {
+        "javaName" : "corpusSnapshotId",
+        "name" : "corpusSnapshotId",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "materialSetHash",
+        "name" : "materialSetHash",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "referenceInstant",
+        "name" : "referenceInstant",
+        "nullable" : true,
+        "type" : {
+          "format" : "date-time",
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "searchStateHash",
+        "name" : "searchStateHash",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      } ],
+      "javaType" : "com.example.demo.model.eval.RetrievalEvalSnapshotRef",
+      "kind" : "record"
+    },
+    "eval.RetrievalEvalStageTrace" : {
+      "fields" : [ {
+        "javaName" : "finalChunks",
+        "name" : "finalChunks",
+        "nullable" : true,
+        "type" : {
+          "itemType" : {
+            "kind" : "ref",
+            "name" : "eval.RetrievalEvalCandidate"
+          },
+          "kind" : "array"
+        }
+      }, {
+        "javaName" : "fusedCandidates",
+        "name" : "fusedCandidates",
+        "nullable" : true,
+        "type" : {
+          "itemType" : {
+            "kind" : "ref",
+            "name" : "eval.RetrievalEvalCandidate"
+          },
+          "kind" : "array"
+        }
+      }, {
+        "javaName" : "lexicalCandidates",
+        "name" : "lexicalCandidates",
+        "nullable" : true,
+        "type" : {
+          "itemType" : {
+            "kind" : "ref",
+            "name" : "eval.RetrievalEvalCandidate"
+          },
+          "kind" : "array"
+        }
+      }, {
+        "javaName" : "preRerankCandidates",
+        "name" : "preRerankCandidates",
+        "nullable" : true,
+        "type" : {
+          "itemType" : {
+            "kind" : "ref",
+            "name" : "eval.RetrievalEvalCandidate"
+          },
+          "kind" : "array"
+        }
+      }, {
+        "javaName" : "semanticCandidates",
+        "name" : "semanticCandidates",
+        "nullable" : true,
+        "type" : {
+          "itemType" : {
+            "kind" : "ref",
+            "name" : "eval.RetrievalEvalCandidate"
+          },
+          "kind" : "array"
+        }
+      } ],
+      "javaType" : "com.example.demo.model.eval.RetrievalEvalStageTrace",
+      "kind" : "record"
+    },
+    "eval.RetrievalEvalTrace" : {
+      "fields" : [ {
+        "javaName" : "activeRolloutFlags",
+        "name" : "activeRolloutFlags",
+        "nullable" : true,
+        "type" : {
+          "kind" : "ref",
+          "name" : "QualityLayerFlags"
+        }
+      }, {
+        "javaName" : "appliedCapabilities",
+        "name" : "appliedCapabilities",
+        "nullable" : true,
+        "type" : {
+          "itemType" : {
+            "kind" : "string"
+          },
+          "kind" : "array"
+        }
+      }, {
+        "javaName" : "chunkProfile",
+        "name" : "chunkProfile",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "effectiveDate",
+        "name" : "effectiveDate",
+        "nullable" : true,
+        "type" : {
+          "format" : "date",
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "effectiveFilters",
+        "name" : "effectiveFilters",
+        "nullable" : true,
+        "type" : {
+          "kind" : "ref",
+          "name" : "RetrievalFilters"
+        }
+      }, {
+        "javaName" : "embeddingModel",
+        "name" : "embeddingModel",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "finalChunkCount",
+        "name" : "finalChunkCount",
+        "nullable" : false,
+        "type" : {
+          "kind" : "integer"
+        }
+      }, {
+        "javaName" : "fusedCandidateCount",
+        "name" : "fusedCandidateCount",
+        "nullable" : false,
+        "type" : {
+          "kind" : "integer"
+        }
+      }, {
+        "javaName" : "lexicalCandidateCount",
+        "name" : "lexicalCandidateCount",
+        "nullable" : false,
+        "type" : {
+          "kind" : "integer"
+        }
+      }, {
+        "javaName" : "lexicalProvider",
+        "name" : "lexicalProvider",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "manualFilters",
+        "name" : "manualFilters",
+        "nullable" : true,
+        "type" : {
+          "kind" : "ref",
+          "name" : "RetrievalFilters"
+        }
+      }, {
+        "javaName" : "preRerankCandidateCount",
+        "name" : "preRerankCandidateCount",
+        "nullable" : false,
+        "type" : {
+          "kind" : "integer"
+        }
+      }, {
+        "javaName" : "queryHints",
+        "name" : "queryHints",
+        "nullable" : true,
+        "type" : {
+          "kind" : "ref",
+          "name" : "RetrievalQueryHints"
+        }
+      }, {
+        "javaName" : "referenceInstant",
+        "name" : "referenceInstant",
+        "nullable" : true,
+        "type" : {
+          "format" : "date-time",
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "relevanceProfile",
+        "name" : "relevanceProfile",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "retrievalConfigHash",
+        "name" : "retrievalConfigHash",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "semanticCandidateCount",
+        "name" : "semanticCandidateCount",
+        "nullable" : false,
+        "type" : {
+          "kind" : "integer"
+        }
+      }, {
+        "javaName" : "supportVerdict",
+        "name" : "supportVerdict",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "suppressedCapabilities",
+        "name" : "suppressedCapabilities",
+        "nullable" : true,
+        "type" : {
+          "itemType" : {
+            "kind" : "string"
+          },
+          "kind" : "array"
+        }
+      }, {
+        "javaName" : "uploadedAfterInclusive",
+        "name" : "uploadedAfterInclusive",
+        "nullable" : true,
+        "type" : {
+          "format" : "date-time",
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "uploadedBeforeExclusive",
+        "name" : "uploadedBeforeExclusive",
+        "nullable" : true,
+        "type" : {
+          "format" : "date-time",
+          "kind" : "string"
+        }
+      } ],
+      "javaType" : "com.example.demo.model.eval.RetrievalEvalTrace",
+      "kind" : "record"
+    },
+    "eval.SubmitEvalCaseReviewRequest" : {
+      "fields" : [ {
+        "javaName" : "note",
+        "name" : "note",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      } ],
+      "javaType" : "com.example.demo.model.eval.SubmitEvalCaseReviewRequest",
+      "kind" : "record"
+    },
+    "eval.UpdateEvalCaseRequest" : {
+      "fields" : [ {
+        "javaName" : "acceptedAnswers",
+        "name" : "acceptedAnswers",
+        "nullable" : true,
+        "type" : {
+          "itemType" : {
+            "kind" : "string"
+          },
+          "kind" : "array"
+        }
+      }, {
+        "javaName" : "caseType",
+        "name" : "caseType",
+        "nullable" : true,
+        "type" : {
+          "kind" : "ref",
+          "name" : "eval.EvalCaseType"
+        }
+      }, {
+        "javaName" : "expectedMode",
+        "name" : "expectedMode",
+        "nullable" : true,
+        "type" : {
+          "kind" : "ref",
+          "name" : "eval.EvalExpectedMode"
+        }
+      }, {
+        "javaName" : "forbiddenDocumentRefs",
+        "name" : "forbiddenDocumentRefs",
+        "nullable" : true,
+        "type" : {
+          "itemType" : {
+            "kind" : "string"
+          },
+          "kind" : "array"
+        }
+      }, {
+        "javaName" : "goldEvidenceLocators",
+        "name" : "goldEvidenceLocators",
+        "nullable" : true,
+        "type" : {
+          "itemType" : {
+            "kind" : "ref",
+            "name" : "EvidenceLocator"
+          },
+          "kind" : "array"
+        }
+      }, {
+        "javaName" : "goldFacts",
+        "name" : "goldFacts",
+        "nullable" : true,
+        "type" : {
+          "itemType" : {
+            "kind" : "string"
+          },
+          "kind" : "array"
+        }
+      }, {
+        "javaName" : "knowledgeScope",
+        "name" : "knowledgeScope",
+        "nullable" : true,
+        "type" : {
+          "kind" : "map",
+          "valueType" : {
+            "kind" : "unknown"
+          }
+        }
+      }, {
+        "javaName" : "origin",
+        "name" : "origin",
+        "nullable" : true,
+        "type" : {
+          "kind" : "ref",
+          "name" : "eval.EvalCaseOrigin"
+        }
+      }, {
+        "javaName" : "question",
+        "name" : "question",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "requiredDocGroups",
+        "name" : "requiredDocGroups",
+        "nullable" : true,
+        "type" : {
+          "itemType" : {
+            "itemType" : {
+              "kind" : "ref",
+              "name" : "EvidenceLocator"
+            },
+            "kind" : "array"
+          },
+          "kind" : "array"
+        }
+      }, {
+        "javaName" : "retrievalFilters",
+        "name" : "retrievalFilters",
+        "nullable" : true,
+        "type" : {
+          "kind" : "map",
+          "valueType" : {
+            "kind" : "unknown"
+          }
+        }
+      }, {
+        "javaName" : "severity",
+        "name" : "severity",
+        "nullable" : true,
+        "type" : {
+          "kind" : "ref",
+          "name" : "eval.EvalCaseSeverity"
+        }
+      }, {
+        "javaName" : "tags",
+        "name" : "tags",
+        "nullable" : true,
+        "type" : {
+          "itemType" : {
+            "kind" : "string"
+          },
+          "kind" : "array"
+        }
+      } ],
+      "javaType" : "com.example.demo.model.eval.UpdateEvalCaseRequest",
+      "kind" : "record"
+    },
+    "eval.UpdateEvalDatasetRequest" : {
+      "fields" : [ {
+        "javaName" : "description",
+        "name" : "description",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "name",
+        "name" : "name",
+        "nullable" : true,
+        "type" : {
+          "kind" : "string"
+        }
+      }, {
+        "javaName" : "tags",
+        "name" : "tags",
+        "nullable" : true,
+        "type" : {
+          "itemType" : {
+            "kind" : "string"
+          },
+          "kind" : "array"
+        }
+      } ],
+      "javaType" : "com.example.demo.model.eval.UpdateEvalDatasetRequest",
       "kind" : "record"
     }
   }

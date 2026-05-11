@@ -89,6 +89,7 @@ app:
   rollout:
     metadata-v1: false
     structured-v1: false
+    structured-v1-proof-compare-id: "${APP_ROLLOUT_STRUCTURED_V1_PROOF_COMPARE_ID:}"
     metadata-filters-v1: false
     search-api-v1: false
     reranker-v1: false
@@ -157,6 +158,11 @@ app:
     compatibility-wait-timeout-seconds: "${APP_CHAT_EXECUTION_COMPATIBILITY_WAIT_TIMEOUT_SECONDS:30}"
     claim-lease-seconds: 300
     max-attempts: 2
+  eval:
+    e2e:
+      reconciler-enabled: "${APP_EVAL_E2E_RECONCILER_ENABLED:true}"
+      reconcile-delay-ms: "${APP_EVAL_E2E_RECONCILE_DELAY_MS:5000}"
+      chat-run-timeout-ms: "${APP_EVAL_E2E_CHAT_RUN_TIMEOUT_MS:0}"
   search-sync:
     enabled: false
     index-prefix: rag-chunks

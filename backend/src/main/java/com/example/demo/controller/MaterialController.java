@@ -2,6 +2,7 @@ package com.example.demo.controller;
 
 import com.example.demo.api.ApiException;
 import com.example.demo.model.CreateTextMaterialRequest;
+import com.example.demo.model.MaterialLineageOverrideInput;
 import com.example.demo.model.MaterialMetadataInput;
 import com.example.demo.model.MaterialListResponse;
 import com.example.demo.model.MaterialLineageResponse;
@@ -79,16 +80,17 @@ public class MaterialController {
                 "Request payload is required"
             );
         }
-        return materialService.saveText(request.title(), request.content(), request.metadata());
+        return materialService.saveText(request.title(), request.content(), request.metadata(), request.lineageOverride());
     }
 
     @PostMapping(path = "/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public MaterialSummary uploadMaterial(
         @RequestPart("file") MultipartFile file,
         @RequestParam(required = false) String title,
-        @Valid @RequestPart(value = "metadata", required = false) MaterialMetadataInput metadata
+        @Valid @RequestPart(value = "metadata", required = false) MaterialMetadataInput metadata,
+        @Valid @RequestPart(value = "lineageOverride", required = false) MaterialLineageOverrideInput lineageOverride
     ) {
-        return materialService.saveUpload(title, file, metadata);
+        return materialService.saveUpload(title, file, metadata, lineageOverride);
     }
 
     @PostMapping(path = "/{id}/versions", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)

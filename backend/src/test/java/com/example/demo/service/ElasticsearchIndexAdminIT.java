@@ -4,6 +4,7 @@ import com.example.demo.service.material.MaterialChunkSearchMatch;
 import com.example.demo.service.material.SearchableChunkDocument;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
@@ -16,6 +17,7 @@ import com.example.demo.support.PostgresIntegrationTestSupport;
 import java.io.IOException;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -136,6 +138,26 @@ class ElasticsearchIndexAdminIT extends PostgresIntegrationTestSupport {
         assertEquals(Set.of("rag-chunks-admin-it-v2"), aliasTargets(searchSyncProperties.readAlias()));
         assertTrue(afterPromoteOld.isEmpty());
         assertEquals(List.of("material-v2"), afterPromoteNew.stream().map(MaterialChunkSearchMatch::materialId).distinct().toList());
+    }
+
+    @Test
+    void preparedIndexRejectsUnknownFieldsBecauseMappingIsStrict() {
+        indexAdminService.prepareWriteIndex("v1");
+
+        assertThrows(co.elastic.clients.elasticsearch._types.ElasticsearchException.class, () ->
+            elasticsearchClient.index(index -> index
+                .index("rag-chunks-admin-it-v1")
+                .id("bad-document")
+                .document(Map.of(
+                    "chunkId", "bad-document",
+                    "materialId", "material-bad",
+                    "sourceKey", "strict-mapping",
+                    "title", "Strict mapping",
+                    "chunkText", "Unknown fields must be rejected.",
+                    "unexpectedField", "not allowed"
+                ))
+            )
+        );
     }
 
     private void indexDocument(String indexName, SearchableChunkDocument document) throws IOException {

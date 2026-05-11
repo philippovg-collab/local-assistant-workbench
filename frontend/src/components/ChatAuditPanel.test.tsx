@@ -270,6 +270,30 @@ describe("ChatAuditPanel", () => {
     expect(screen.getByText("История запусков пока пуста")).toBeTruthy();
   });
 
+  it("renders the optional candidate action without owning eval logic", async () => {
+    const user = userEvent.setup();
+    const selectedRun = buildRunDetail();
+    const onCreateCandidate = vi.fn(async () => null);
+
+    render(
+      <ChatAuditPanel
+        runs={[summaryOf(selectedRun)]}
+        selectedRun={selectedRun}
+        error={null}
+        onLoadRun={vi.fn()}
+        candidateAction={{ onCreateCandidate }}
+        currentAuditRunId={selectedRun.id}
+        currentInstructionTrace={selectedRun.instructionTrace}
+        currentKnowledgeScopeResolved={selectedRun.knowledgeScopeResolved}
+        currentRetrievalTrace={selectedRun.retrievalTrace}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: /Create candidate/i }));
+
+    expect(onCreateCandidate).toHaveBeenCalledWith(selectedRun);
+  });
+
   it("loads compare runs, switches the base run, and renders diff plus inspectors", async () => {
     const user = userEvent.setup();
     const selectedRun = buildRunDetail();

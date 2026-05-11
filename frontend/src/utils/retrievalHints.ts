@@ -2,9 +2,11 @@ import type {
   DocumentStatus,
   DocumentType,
   MaterialLanguageCode,
+  MaterialVersionState,
   RetrievalFilters,
   RetrievalQueryHints,
   SourceTrustLevel,
+  VersionSelectionMode,
 } from "@/types";
 
 export type RetrievalFilterKey = keyof RetrievalFilters;
@@ -14,6 +16,12 @@ export const RETRIEVAL_FILTER_KEYS: RetrievalFilterKey[] = [
   "documentNumber",
   "documentDateFrom",
   "documentDateTo",
+  "versionLabel",
+  "effectiveDate",
+  "versionSelectionMode",
+  "versionState",
+  "uploadedAfterInclusive",
+  "uploadedBeforeExclusive",
   "department",
   "project",
   "counterparty",
@@ -35,6 +43,7 @@ export const HINT_OWNED_FILTER_KEYS: RetrievalFilterKey[] = [
   "documentNumber",
   "documentDateFrom",
   "documentDateTo",
+  "versionLabel",
   "department",
   "project",
   "counterparty",
@@ -60,6 +69,12 @@ export const emptyRetrievalFilters = (): RetrievalFilters => ({
   documentNumber: null,
   documentDateFrom: null,
   documentDateTo: null,
+  versionLabel: null,
+  effectiveDate: null,
+  versionSelectionMode: null,
+  versionState: null,
+  uploadedAfterInclusive: null,
+  uploadedBeforeExclusive: null,
   department: null,
   project: null,
   counterparty: null,
@@ -115,6 +130,12 @@ export const normalizeRetrievalFilters = (filters?: Partial<RetrievalFilters> | 
   documentNumber: normalizeOptionalText(filters?.documentNumber),
   documentDateFrom: normalizeOptionalDate(filters?.documentDateFrom),
   documentDateTo: normalizeOptionalDate(filters?.documentDateTo),
+  versionLabel: normalizeOptionalText(filters?.versionLabel),
+  effectiveDate: normalizeOptionalDate(filters?.effectiveDate),
+  versionSelectionMode: normalizeVersionSelectionMode(filters?.versionSelectionMode),
+  versionState: normalizeMaterialVersionState(filters?.versionState),
+  uploadedAfterInclusive: normalizeOptionalInstant(filters?.uploadedAfterInclusive),
+  uploadedBeforeExclusive: normalizeOptionalInstant(filters?.uploadedBeforeExclusive),
   department: normalizeOptionalText(filters?.department),
   project: normalizeOptionalText(filters?.project),
   counterparty: normalizeOptionalText(filters?.counterparty),
@@ -323,6 +344,8 @@ const hintValueForFilter = (
       return hints?.documentDateFrom ?? null;
     case "documentDateTo":
       return hints?.documentDateTo ?? null;
+    case "versionLabel":
+      return hints?.versionLabel ?? null;
     case "department":
       return hints?.department ?? null;
     case "project":
@@ -388,6 +411,33 @@ const normalizeOptionalText = (value?: string | null) => {
 };
 
 const normalizeOptionalDate = (value?: string | null) => normalizeDate(value);
+
+const normalizeOptionalInstant = (value?: string | null) => {
+  const normalized = normalizeOptionalText(value);
+  if (!normalized) {
+    return null;
+  }
+  const timestamp = Date.parse(normalized);
+  return Number.isNaN(timestamp) ? null : new Date(timestamp).toISOString();
+};
+
+const VERSION_SELECTION_MODES = new Set<VersionSelectionMode>([
+  "ACTIVE_ONLY",
+  "INCLUDE_HISTORY",
+  "VERSION_LABEL",
+  "VERSION_STATE",
+]);
+
+const MATERIAL_VERSION_STATES = new Set<MaterialVersionState>([
+  "ACTIVE",
+  "SUPERSEDED",
+]);
+
+const normalizeVersionSelectionMode = (value?: VersionSelectionMode | null) =>
+  value && VERSION_SELECTION_MODES.has(value) ? value : null;
+
+const normalizeMaterialVersionState = (value?: MaterialVersionState | null) =>
+  value && MATERIAL_VERSION_STATES.has(value) ? value : null;
 
 const normalizeTags = (tags?: string[] | null) => {
   if (!tags || tags.length === 0) {

@@ -68,12 +68,30 @@ class OperatorAuditCoverageTest {
         "DELETE /api/llm-providers/{id}",
         "POST /api/llm-providers/{id}/probe",
         "POST /api/llm-providers/{id}/activate",
-        "POST /api/llm-providers/fallback/activate"
+        "POST /api/llm-providers/fallback/activate",
+        "POST /api/evals/datasets",
+        "PATCH /api/evals/datasets/{id}",
+        "POST /api/evals/datasets/{id}/archive",
+        "POST /api/evals/datasets/{id}/versions",
+        "POST /api/evals/datasets/{id}/cases",
+        "PATCH /api/evals/cases/{id}",
+        "POST /api/evals/cases/{id}/submit-review",
+        "POST /api/evals/cases/{id}/reviews",
+        "POST /api/evals/cases/{id}/archive",
+        "POST /api/evals/candidates/from-chat-run",
+        "POST /api/evals/cases/{id}/promote",
+        "POST /api/evals/snapshots",
+        "POST /api/evals/runs/retrieval",
+        "POST /api/evals/runs/e2e",
+        "POST /api/evals/runs/{id}/reconcile",
+        "POST /api/evals/compares"
     );
 
     private static final Map<String, String> ALLOWLIST = Map.of(
         "POST /api/search", "read-like query; covered by access log only",
-        "POST /api/client-events", "frontend telemetry endpoint; intentionally not durable operator audit"
+        "POST /api/client-events", "frontend telemetry endpoint; intentionally not durable operator audit",
+        "POST /api/evals/preview/retrieval", "read-like retrieval preview; no durable eval state is mutated",
+        "POST /api/evals/execution-configs/resolve", "dry-run config fingerprint; does not mutate eval state"
     );
 
     @Test

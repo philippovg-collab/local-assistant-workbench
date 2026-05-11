@@ -3,6 +3,7 @@ package com.example.demo.service.material;
 import com.example.demo.model.KnowledgeScope;
 import com.example.demo.model.RetrievalFilters;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.LinkedHashSet;
 import java.util.Set;
 
@@ -10,6 +11,7 @@ public record MaterialSearchScope(
     Mode mode,
     KnowledgeScope knowledgeScope,
     RetrievalFilters retrievalFilters,
+    LocalDate effectiveDate,
     Instant uploadedAfterInclusive,
     Instant uploadedBeforeExclusive,
     Set<String> materialIds
@@ -35,6 +37,7 @@ public record MaterialSearchScope(
             RetrievalFilters.empty(),
             null,
             null,
+            null,
             Set.of()
         );
     }
@@ -46,6 +49,25 @@ public record MaterialSearchScope(
             RetrievalFilters.empty(),
             null,
             null,
+            null,
+            Set.of()
+        );
+    }
+
+    public static MaterialSearchScope filtered(
+        KnowledgeScope knowledgeScope,
+        RetrievalFilters retrievalFilters,
+        LocalDate effectiveDate,
+        Instant uploadedAfterInclusive,
+        Instant uploadedBeforeExclusive
+    ) {
+        return new MaterialSearchScope(
+            Mode.FILTERED,
+            knowledgeScope,
+            retrievalFilters,
+            effectiveDate,
+            uploadedAfterInclusive,
+            uploadedBeforeExclusive,
             Set.of()
         );
     }
@@ -56,14 +78,49 @@ public record MaterialSearchScope(
         Instant uploadedAfterInclusive,
         Instant uploadedBeforeExclusive
     ) {
+        return filtered(knowledgeScope, retrievalFilters, null, uploadedAfterInclusive, uploadedBeforeExclusive);
+    }
+
+    public static MaterialSearchScope filteredMaterialIds(
+        Set<String> materialIds,
+        KnowledgeScope knowledgeScope,
+        RetrievalFilters retrievalFilters,
+        LocalDate effectiveDate,
+        Instant uploadedAfterInclusive,
+        Instant uploadedBeforeExclusive
+    ) {
+        Set<String> normalizedIds = normalizeMaterialIds(materialIds);
+        if (normalizedIds.isEmpty()) {
+            return noResults();
+        }
         return new MaterialSearchScope(
-            Mode.FILTERED,
+            Mode.MATERIAL_IDS,
             knowledgeScope,
             retrievalFilters,
+            effectiveDate,
             uploadedAfterInclusive,
             uploadedBeforeExclusive,
-            Set.of()
+            normalizedIds
         );
+    }
+
+    public static MaterialSearchScope fromRetrievalCriteria(
+        KnowledgeScope knowledgeScope,
+        RetrievalFilters retrievalFilters,
+        LocalDate effectiveDate,
+        Instant uploadedAfterInclusive,
+        Instant uploadedBeforeExclusive
+    ) {
+        KnowledgeScope safeScope = knowledgeScope == null ? KnowledgeScope.empty() : knowledgeScope;
+        RetrievalFilters safeFilters = retrievalFilters == null ? RetrievalFilters.empty() : retrievalFilters;
+        if (isEmptyScope(safeScope)
+            && safeFilters.isEmpty()
+            && effectiveDate == null
+            && uploadedAfterInclusive == null
+            && uploadedBeforeExclusive == null) {
+            return unscoped();
+        }
+        return filtered(safeScope, safeFilters, effectiveDate, uploadedAfterInclusive, uploadedBeforeExclusive);
     }
 
     public static MaterialSearchScope fromRetrievalCriteria(
@@ -72,15 +129,7 @@ public record MaterialSearchScope(
         Instant uploadedAfterInclusive,
         Instant uploadedBeforeExclusive
     ) {
-        KnowledgeScope safeScope = knowledgeScope == null ? KnowledgeScope.empty() : knowledgeScope;
-        RetrievalFilters safeFilters = retrievalFilters == null ? RetrievalFilters.empty() : retrievalFilters;
-        if (isEmptyScope(safeScope)
-            && safeFilters.isEmpty()
-            && uploadedAfterInclusive == null
-            && uploadedBeforeExclusive == null) {
-            return unscoped();
-        }
-        return filtered(safeScope, safeFilters, uploadedAfterInclusive, uploadedBeforeExclusive);
+        return fromRetrievalCriteria(knowledgeScope, retrievalFilters, null, uploadedAfterInclusive, uploadedBeforeExclusive);
     }
 
     public static MaterialSearchScope fromLegacyMaterialIds(Set<String> allowedMaterialIds) {
@@ -97,6 +146,7 @@ public record MaterialSearchScope(
             RetrievalFilters.empty(),
             null,
             null,
+            null,
             normalizedIds
         );
     }
@@ -109,7 +159,7 @@ public record MaterialSearchScope(
         if (allowedMaterialIds == null) {
             return safeFilters.isEmpty()
                 ? unscoped()
-                : filtered(KnowledgeScope.empty(), safeFilters, null, null);
+                : filtered(KnowledgeScope.empty(), safeFilters, safeFilters.effectiveDate(), null, null);
         }
         Set<String> normalizedIds = normalizeMaterialIds(allowedMaterialIds);
         if (normalizedIds.isEmpty()) {
@@ -119,6 +169,7 @@ public record MaterialSearchScope(
             Mode.MATERIAL_IDS,
             KnowledgeScope.empty(),
             safeFilters,
+            safeFilters.effectiveDate(),
             null,
             null,
             normalizedIds
@@ -143,7 +194,15 @@ public record MaterialSearchScope(
 
     public boolean requiresCriteriaFiltering() {
         return mode == Mode.FILTERED
-            || (mode == Mode.MATERIAL_IDS && !retrievalFilters.isEmpty());
+            || (mode == Mode.MATERIAL_IDS && hasCriteriaFiltering());
+    }
+
+    public boolean hasCriteriaFiltering() {
+        return !isEmptyScope(knowledgeScope)
+            || !retrievalFilters.isEmpty()
+            || effectiveDate != null
+            || uploadedAfterInclusive != null
+            || uploadedBeforeExclusive != null;
     }
 
     private static boolean isEmptyScope(KnowledgeScope scope) {

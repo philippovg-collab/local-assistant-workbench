@@ -137,6 +137,68 @@ class OllamaClient {}
             self.identifiers(),
         )
 
+    def test_production_code_importing_eval_context_fails(self) -> None:
+        self.write(
+            "backend/src/main/java/com/example/demo/service/MaterialRetrievalService.java",
+            """
+package com.example.demo.service;
+
+import com.example.demo.model.eval.EvalDataset;
+
+class MaterialRetrievalService {}
+""",
+        )
+
+        self.assertIn(
+            "production-eval-import|backend/src/main/java/com/example/demo/service/MaterialRetrievalService.java|"
+            "com.example.demo.model.eval.EvalDataset",
+            self.identifiers(),
+        )
+
+    def test_eval_context_imports_are_allowed_inside_eval_packages(self) -> None:
+        self.write(
+            "backend/src/main/java/com/example/demo/service/eval/EvalCatalogService.java",
+            """
+package com.example.demo.service.eval;
+
+import com.example.demo.model.eval.EvalDataset;
+import com.example.demo.service.eval.port.EvalDatasetRepository;
+
+class EvalCatalogService {}
+""",
+        )
+        self.write(
+            "backend/src/main/java/com/example/demo/infrastructure/eval/PostgresEvalDatasetRepository.java",
+            """
+package com.example.demo.infrastructure.eval;
+
+import com.example.demo.model.eval.EvalDataset;
+import com.example.demo.service.eval.port.EvalDatasetRepository;
+
+class PostgresEvalDatasetRepository {}
+""",
+        )
+
+        self.assertEqual(set(), self.identifiers())
+
+    def test_chat_trace_repository_eval_sql_fails(self) -> None:
+        self.write(
+            "backend/src/main/java/com/example/demo/infrastructure/audit/PostgresChatRunTraceRepository.java",
+            """
+package com.example.demo.infrastructure.audit;
+
+class PostgresChatRunTraceRepository {
+  String sql = "SELECT COUNT(*) FROM eval_runs";
+}
+""",
+        )
+
+        self.assertIn(
+            "chat-trace-repository-eval-sql|backend/src/main/java/com/example/demo/infrastructure/audit/"
+            "PostgresChatRunTraceRepository.java|eval table access",
+            self.identifiers(),
+        )
+
     def test_frontend_component_network_call_fails(self) -> None:
         self.write(
             "frontend/src/components/MaterialPanel.tsx",

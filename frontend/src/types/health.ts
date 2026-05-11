@@ -88,6 +88,14 @@ export type HealthResponse = {
   indexingOldestInProgressAt?: string | null;
   qualityLayer?: {
     flags: QualityLayerFlags;
+    configuredChunkProfile?: string | null;
+    effectiveChunkProfile?: string | null;
+    structuredV1ProofStatus?: {
+      status?: string | null;
+      compareId?: string | null;
+      reasonCode?: string | null;
+      reasonMessage?: string | null;
+    } | null;
     metadataCoverage: {
       activeTotal: number;
       activeWithEffectiveMetadata: number;

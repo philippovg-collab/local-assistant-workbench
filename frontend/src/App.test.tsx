@@ -1101,6 +1101,7 @@ describe("App", () => {
     const ragButton = screen.getByRole("button", { name: /rag studio/i });
     const directButton = screen.getByRole("button", { name: /direct studio/i });
     const memoryButton = screen.getByRole("button", { name: /память/i });
+    const evalButton = container.querySelector("#nav-eval") as HTMLButtonElement;
     const settingsButton = screen.getByRole("button", { name: /настройки/i });
 
     const desktopNavigation = container.querySelector("aside nav") as HTMLElement;
@@ -1112,6 +1113,7 @@ describe("App", () => {
       expect.stringContaining("Direct Studio"),
       expect.stringContaining("Справочники"),
       expect.stringContaining("Память"),
+      expect.stringContaining("Eval"),
       expect.stringContaining("Настройки"),
     ]);
     const desktopSidebar = container.querySelector("aside") as HTMLElement;
@@ -1126,6 +1128,7 @@ describe("App", () => {
     expect(ragButton.getAttribute("aria-current")).toBeNull();
     expect(directButton.getAttribute("aria-current")).toBeNull();
     expect(memoryButton.getAttribute("aria-current")).toBeNull();
+    expect(evalButton.getAttribute("aria-current")).toBeNull();
     expect(settingsButton.getAttribute("aria-current")).toBeNull();
 
     const overviewPanel = container.querySelector("#panel-overview") as HTMLElement;

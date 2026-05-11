@@ -27,7 +27,7 @@ class MaterialControllerUnexpectedErrorTest {
         MaterialService materialService = org.mockito.Mockito.mock(MaterialService.class);
         doThrow(new IllegalStateException("boom"))
             .when(materialService)
-            .saveUpload(any(), any(), any());
+            .saveUpload(any(), any(), any(), any());
         mockMvc = MockMvcBuilders
             .standaloneSetup(new MaterialController(materialService))
             .setControllerAdvice(new ApiExceptionHandler(new MaterialProperties()))

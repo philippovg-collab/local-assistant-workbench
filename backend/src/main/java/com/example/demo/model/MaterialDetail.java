@@ -16,6 +16,9 @@ public record MaterialDetail(
     Instant updatedAt,
     MaterialMetadataSnapshot metadata,
     List<MaterialChunkDetail> chunks,
+    String sourceKey,
+    Integer lineageVersion,
+    MaterialLineageOverrideInfo lineageOverride,
     MaterialEnrichmentStatus enrichmentStatus
 ) {
     public MaterialDetail {
@@ -51,7 +54,45 @@ public record MaterialDetail(
             updatedAt,
             metadata,
             chunks,
+            null,
+            null,
+            null,
             MaterialEnrichmentStatus.notRequested()
+        );
+    }
+
+    public MaterialDetail(
+        String id,
+        String title,
+        String sourceType,
+        String originalFileName,
+        String mediaType,
+        String content,
+        MaterialIndexingStatus status,
+        MaterialVersionState versionState,
+        Instant createdAt,
+        Instant updatedAt,
+        MaterialMetadataSnapshot metadata,
+        List<MaterialChunkDetail> chunks,
+        MaterialEnrichmentStatus enrichmentStatus
+    ) {
+        this(
+            id,
+            title,
+            sourceType,
+            originalFileName,
+            mediaType,
+            content,
+            status,
+            versionState,
+            createdAt,
+            updatedAt,
+            metadata,
+            chunks,
+            null,
+            null,
+            null,
+            enrichmentStatus
         );
     }
 }

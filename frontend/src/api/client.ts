@@ -38,6 +38,7 @@ import type {
   MemoryReviewActionRequest,
   MaterialDetail,
   MaterialListResponse,
+  MaterialLineageOverrideInput,
   MaterialMetadataInput,
   MaterialLineageResponse,
   MaterialUploadPolicy,
@@ -52,177 +53,11 @@ import type {
   ReferenceWorkspace,
   ReferenceWorkspaceInput,
 } from "../types";
+import type { ClientEventInput } from "@/utils/clientEvents";
+import { rememberCsrf, requestJson, requestVoid } from "./apiTransport";
 import { ApiClientError } from "./errors";
 
 export { ApiClientError, isApiClientError } from "./errors";
-
-const API_URL = (import.meta.env.VITE_API_URL ?? "").trim().replace(/\/$/, "");
-const BACKEND_ORIGIN = (import.meta.env.VITE_BACKEND_ORIGIN ?? "").trim().replace(/\/$/, "");
-const DEFAULT_BACKEND_ORIGIN = "http://127.0.0.1:8080";
-const FRONTEND_SAME_ORIGIN_PORTS = new Set(["8080", "8088"]);
-const FRONTEND_DEV_PORTS = new Set(["5173", "4173"]);
-const LOCAL_HOSTNAMES = new Set(["127.0.0.1", "localhost"]);
-
-const resolvePort = (origin: string, port: string) => {
-  if (port) {
-    return port;
-  }
-
-  try {
-    return new URL(origin).port;
-  } catch {
-    return "";
-  }
-};
-
-const isFrontendDevOrigin = (origin: string) => {
-  try {
-    const url = new URL(origin);
-    return LOCAL_HOSTNAMES.has(url.hostname) && FRONTEND_DEV_PORTS.has(resolvePort(url.origin, url.port));
-  } catch {
-    return false;
-  }
-};
-
-const resolveApiBaseUrl = () => {
-  if (typeof window === "undefined") {
-    if (API_URL) {
-      return API_URL;
-    }
-
-    if (BACKEND_ORIGIN) {
-      return BACKEND_ORIGIN;
-    }
-
-    return DEFAULT_BACKEND_ORIGIN;
-  }
-
-  const { hostname, origin, port, protocol } = window.location;
-  const resolvedPort = resolvePort(origin, port);
-  const isLocalHostname = LOCAL_HOSTNAMES.has(hostname);
-
-  if (!resolvedPort || FRONTEND_SAME_ORIGIN_PORTS.has(resolvedPort)) {
-    return origin;
-  }
-
-  if (!isLocalHostname || protocol === "https:") {
-    return origin;
-  }
-
-  if (FRONTEND_DEV_PORTS.has(resolvedPort)) {
-    if (API_URL && !isFrontendDevOrigin(API_URL)) {
-      return API_URL;
-    }
-
-    if (BACKEND_ORIGIN) {
-      return BACKEND_ORIGIN;
-    }
-
-    return `${protocol}//${hostname}:8080`;
-  }
-
-  if (API_URL) {
-    return API_URL;
-  }
-
-  if (BACKEND_ORIGIN) {
-    return BACKEND_ORIGIN;
-  }
-
-  return DEFAULT_BACKEND_ORIGIN;
-};
-
-const buildApiUrl = (path: string) => `${resolveApiBaseUrl()}${path}`;
-const CSRF_UNSAFE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
-
-let csrfHeaderName = "X-XSRF-TOKEN";
-let csrfToken: string | null = null;
-
-type ApiErrorPayload = {
-  code?: string;
-  error?: string;
-  message?: string;
-  requestId?: string;
-  timestamp?: string;
-};
-
-export type ClientEventInput = {
-  severity: "info" | "warn" | "error" | "fatal";
-  type: string;
-  message?: string;
-  stack?: string;
-  componentStack?: string;
-  path?: string;
-  requestId?: string;
-  metadata?: Record<string, unknown>;
-};
-
-const readErrorPayload = async (response: Response): Promise<ApiErrorPayload> => {
-  const contentType = response.headers.get("content-type") ?? "";
-
-  if (contentType.includes("application/json")) {
-    try {
-      return (await response.json()) as ApiErrorPayload;
-    } catch {
-      return {};
-    }
-  }
-
-  const text = await response.text();
-  return {
-    message: text || `API responded with status ${response.status}`,
-  };
-};
-
-const buildApiClientError = async (response: Response) => {
-  const payload = await readErrorPayload(response);
-  const message = payload.message ?? payload.error ?? `API responded with status ${response.status}`;
-
-  return new ApiClientError(message, {
-    code: payload.code,
-    requestId: payload.requestId,
-    status: response.status,
-    timestamp: payload.timestamp,
-  });
-};
-
-const rememberCsrf = (session: AuthSession) => {
-  if (session.csrfHeaderName) {
-    csrfHeaderName = session.csrfHeaderName;
-  }
-  csrfToken = session.csrfToken ?? null;
-};
-
-const shouldAttachCsrf = (method?: string) =>
-  CSRF_UNSAFE_METHODS.has((method ?? "GET").toUpperCase()) && csrfToken !== null;
-
-const buildRequestInit = (init: RequestInit = {}): RequestInit => {
-  const headers = new Headers(init.headers);
-  if (shouldAttachCsrf(init.method)) {
-    headers.set(csrfHeaderName, csrfToken ?? "");
-  }
-  return {
-    ...init,
-    credentials: "include",
-    headers,
-  };
-};
-
-const requestJson = async <T>(path: string, init?: RequestInit) => {
-  const response = await fetch(buildApiUrl(path), buildRequestInit(init));
-  if (!response.ok) {
-    throw await buildApiClientError(response);
-  }
-
-  return (await response.json()) as T;
-};
-
-const requestVoid = async (path: string, init?: RequestInit) => {
-  const response = await fetch(buildApiUrl(path), buildRequestInit(init));
-  if (!response.ok) {
-    throw await buildApiClientError(response);
-  }
-};
 
 const refreshCsrf = async () => {
   const session = await requestJson<AuthSession>("/api/auth/session");
@@ -352,7 +187,12 @@ export const apiClient = {
   fetchMaterialUploadPolicy(signal?: AbortSignal) {
     return requestJson<MaterialUploadPolicy>("/api/materials/policy", { signal });
   },
-  createTextMaterial(input: { title: string; content: string; metadata?: MaterialMetadataInput }) {
+  createTextMaterial(input: {
+    title: string;
+    content: string;
+    metadata?: MaterialMetadataInput;
+    lineageOverride?: MaterialLineageOverrideInput;
+  }) {
     return requestJson<MaterialSummary>("/api/materials", {
       method: "POST",
       headers: {
@@ -361,7 +201,12 @@ export const apiClient = {
       body: JSON.stringify(input),
     });
   },
-  uploadMaterial(input: { title: string; file: File; metadata?: MaterialMetadataInput }) {
+  uploadMaterial(input: {
+    title: string;
+    file: File;
+    metadata?: MaterialMetadataInput;
+    lineageOverride?: MaterialLineageOverrideInput;
+  }) {
     const formData = new FormData();
     formData.append("file", input.file);
     if (input.title.trim()) {
@@ -369,6 +214,9 @@ export const apiClient = {
     }
     if (input.metadata) {
       formData.append("metadata", new Blob([JSON.stringify(input.metadata)], { type: "application/json" }));
+    }
+    if (input.lineageOverride) {
+      formData.append("lineageOverride", new Blob([JSON.stringify(input.lineageOverride)], { type: "application/json" }));
     }
 
     return requestJson<MaterialSummary>("/api/materials/upload", {

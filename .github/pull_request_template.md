@@ -13,6 +13,9 @@
 - [ ] `npm --prefix frontend run test:coverage`
 - [ ] `npm --prefix frontend run build`
 - [ ] `bash scripts/scalability-smoke.sh all`
+- [ ] Eval smoke report attached or linked (`backend/target/eval-reports/smoke-report.json`)
+- [ ] Eval golden report attached or linked for risk paths (`backend/target/eval-reports/golden-report.json`)
+- [ ] Eval compare report attached or linked for retrieval/chunking/reranker/prompt/model/config paths (`backend/target/eval-reports/compare-report.json`)
 - Evidence / skipped tests: <!-- summarize results or explain why a check is not applicable -->
 
 ## Security / Data / Deploy Impact

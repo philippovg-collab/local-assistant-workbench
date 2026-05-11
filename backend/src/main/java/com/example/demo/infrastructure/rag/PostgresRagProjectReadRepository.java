@@ -4,10 +4,14 @@ import com.example.demo.error.ErrorType;
 import com.example.demo.error.StorageException;
 import com.example.demo.service.rag.StoredRagProjectSummary;
 import com.example.demo.service.rag.port.RagProjectReadRepository;
+import java.time.Clock;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
@@ -30,8 +34,8 @@ public class PostgresRagProjectReadRepository implements RagProjectReadRepositor
                 WHERE m.version_state = 'ACTIVE'
                   AND m.indexing_status IN ('READY', 'PARTIAL_READY')
                   AND m.document_status = 'ACTIVE'
-                  AND (m.period_start IS NULL OR m.period_start <= CURRENT_DATE)
-                  AND (m.period_end IS NULL OR m.period_end >= CURRENT_DATE)
+                  AND (m.period_start IS NULL OR m.period_start <= ?)
+                  AND (m.period_end IS NULL OR m.period_end >= ?)
             ) AS ready_material_count
         FROM reference_workspaces rw
         LEFT JOIN materials m ON m.workspace_key = rw.key
@@ -55,9 +59,16 @@ public class PostgresRagProjectReadRepository implements RagProjectReadRepositor
         );
 
     private final JdbcTemplate jdbcTemplate;
+    private final Clock clock;
 
     public PostgresRagProjectReadRepository(JdbcTemplate jdbcTemplate) {
+        this(jdbcTemplate, Clock.systemUTC());
+    }
+
+    @Autowired
+    public PostgresRagProjectReadRepository(JdbcTemplate jdbcTemplate, Clock clock) {
         this.jdbcTemplate = jdbcTemplate;
+        this.clock = clock == null ? Clock.systemUTC() : clock;
     }
 
     @Override
@@ -73,6 +84,8 @@ public class PostgresRagProjectReadRepository implements RagProjectReadRepositor
                     ORDER BY rw.sort_order ASC, rw.name_ru ASC
                     """,
                 SUMMARY_ROW_MAPPER,
+                currentDate(),
+                currentDate(),
                 activeOnly
             );
         } catch (DataAccessException exception) {
@@ -98,6 +111,8 @@ public class PostgresRagProjectReadRepository implements RagProjectReadRepositor
                     LIMIT 1
                     """,
                 SUMMARY_ROW_MAPPER,
+                currentDate(),
+                currentDate(),
                 key
             );
             return records.stream().findFirst();
@@ -113,5 +128,9 @@ public class PostgresRagProjectReadRepository implements RagProjectReadRepositor
 
     private static Instant toInstant(Timestamp timestamp) {
         return timestamp == null ? Instant.now() : timestamp.toInstant();
+    }
+
+    private LocalDate currentDate() {
+        return LocalDate.ofInstant(clock.instant(), ZoneOffset.UTC);
     }
 }

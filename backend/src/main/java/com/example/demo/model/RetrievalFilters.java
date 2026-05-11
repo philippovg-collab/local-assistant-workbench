@@ -1,6 +1,8 @@
 package com.example.demo.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.validation.constraints.Size;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -36,7 +38,14 @@ public record RetrievalFilters(
     LocalDate periodStartFrom,
     LocalDate periodStartTo,
     LocalDate periodEndFrom,
-    LocalDate periodEndTo
+    LocalDate periodEndTo,
+    @Size(max = 128)
+    String versionLabel,
+    LocalDate effectiveDate,
+    VersionSelectionMode versionSelectionMode,
+    MaterialVersionState versionState,
+    Instant uploadedAfterInclusive,
+    Instant uploadedBeforeExclusive
 ) {
 
     public RetrievalFilters {
@@ -46,11 +55,13 @@ public record RetrievalFilters(
         counterparty = normalizeText(counterparty);
         businessStatus = normalizeText(businessStatus);
         language = normalizeText(language);
+        versionLabel = normalizeText(versionLabel);
         tags = normalizeTags(tags);
         documentTypes = documentTypes == null ? List.of() : List.copyOf(new LinkedHashSet<>(documentTypes));
         documentStatuses = documentStatuses == null ? List.of() : List.copyOf(new LinkedHashSet<>(documentStatuses));
         projectKeys = normalizeStringList(projectKeys);
         languageCodes = languageCodes == null ? List.of() : List.copyOf(new LinkedHashSet<>(languageCodes));
+        versionSelectionMode = normalizeVersionSelectionMode(versionSelectionMode, versionLabel, versionState);
         if (documentDateFrom != null && documentDateTo != null && documentDateFrom.isAfter(documentDateTo)) {
             throw new IllegalArgumentException("documentDateFrom must not be after documentDateTo");
         }
@@ -59,6 +70,11 @@ public record RetrievalFilters(
         }
         if (periodEndFrom != null && periodEndTo != null && periodEndFrom.isAfter(periodEndTo)) {
             throw new IllegalArgumentException("periodEndFrom must not be after periodEndTo");
+        }
+        if (uploadedAfterInclusive != null
+            && uploadedBeforeExclusive != null
+            && !uploadedAfterInclusive.isBefore(uploadedBeforeExclusive)) {
+            throw new IllegalArgumentException("uploadedAfterInclusive must be before uploadedBeforeExclusive");
         }
     }
 
@@ -92,6 +108,60 @@ public record RetrievalFilters(
             null,
             null,
             null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null
+        );
+    }
+
+    public RetrievalFilters(
+        String documentNumber,
+        LocalDate documentDateFrom,
+        LocalDate documentDateTo,
+        String department,
+        String project,
+        String counterparty,
+        String businessStatus,
+        String language,
+        List<String> tags,
+        SourceTrustLevel sourceTrustMin,
+        List<DocumentType> documentTypes,
+        List<DocumentStatus> documentStatuses,
+        List<String> projectKeys,
+        List<MaterialLanguageCode> languageCodes,
+        LocalDate periodStartFrom,
+        LocalDate periodStartTo,
+        LocalDate periodEndFrom,
+        LocalDate periodEndTo
+    ) {
+        this(
+            documentNumber,
+            documentDateFrom,
+            documentDateTo,
+            department,
+            project,
+            counterparty,
+            businessStatus,
+            language,
+            tags,
+            sourceTrustMin,
+            documentTypes,
+            documentStatuses,
+            projectKeys,
+            languageCodes,
+            periodStartFrom,
+            periodStartTo,
+            periodEndFrom,
+            periodEndTo,
+            null,
+            null,
+            null,
+            null,
+            null,
             null
         );
     }
@@ -104,6 +174,7 @@ public record RetrievalFilters(
         RetrievalFilters safeFallback = fallback == null ? empty() : fallback;
         boolean hasProjectCriteria = project != null || !projectKeys.isEmpty();
         boolean hasLanguageCriteria = language != null || !languageCodes.isEmpty();
+        boolean hasVersionCriteria = hasVersionSelectionCriteria();
         return new RetrievalFilters(
             documentNumber != null ? documentNumber : safeFallback.documentNumber(),
             documentDateFrom != null ? documentDateFrom : safeFallback.documentDateFrom(),
@@ -122,10 +193,17 @@ public record RetrievalFilters(
             periodStartFrom != null ? periodStartFrom : safeFallback.periodStartFrom(),
             periodStartTo != null ? periodStartTo : safeFallback.periodStartTo(),
             periodEndFrom != null ? periodEndFrom : safeFallback.periodEndFrom(),
-            periodEndTo != null ? periodEndTo : safeFallback.periodEndTo()
+            periodEndTo != null ? periodEndTo : safeFallback.periodEndTo(),
+            versionLabel != null ? versionLabel : hasVersionCriteria ? null : safeFallback.versionLabel(),
+            effectiveDate != null ? effectiveDate : safeFallback.effectiveDate(),
+            hasVersionCriteria ? versionSelectionMode : safeFallback.versionSelectionMode(),
+            versionState != null ? versionState : hasVersionCriteria ? null : safeFallback.versionState(),
+            uploadedAfterInclusive != null ? uploadedAfterInclusive : safeFallback.uploadedAfterInclusive(),
+            uploadedBeforeExclusive != null ? uploadedBeforeExclusive : safeFallback.uploadedBeforeExclusive()
         );
     }
 
+    @JsonIgnore
     public boolean isEmpty() {
         return documentNumber == null
             && documentDateFrom == null
@@ -144,7 +222,13 @@ public record RetrievalFilters(
             && periodStartFrom == null
             && periodStartTo == null
             && periodEndFrom == null
-            && periodEndTo == null;
+            && periodEndTo == null
+            && versionLabel == null
+            && effectiveDate == null
+            && !hasVersionSelectionCriteria()
+            && versionState == null
+            && uploadedAfterInclusive == null
+            && uploadedBeforeExclusive == null;
     }
 
     public boolean matches(MaterialMetadataSnapshot metadata) {
@@ -175,6 +259,9 @@ public record RetrievalFilters(
         if (language != null && !equalsIgnoreCase(language, safeMetadata.language())) {
             return false;
         }
+        if (versionLabel != null && !equalsIgnoreCase(versionLabel, safeMetadata.versionLabel())) {
+            return false;
+        }
         if (!documentTypes.isEmpty() && !documentTypes.contains(safeMetadata.documentType())) {
             return false;
         }
@@ -200,6 +287,11 @@ public record RetrievalFilters(
             return false;
         }
         if (periodEndTo != null && (safeMetadata.periodEnd() == null || safeMetadata.periodEnd().isAfter(periodEndTo))) {
+            return false;
+        }
+        if (effectiveDate != null
+            && ((safeMetadata.periodStart() != null && safeMetadata.periodStart().isAfter(effectiveDate))
+                || (safeMetadata.periodEnd() != null && safeMetadata.periodEnd().isBefore(effectiveDate)))) {
             return false;
         }
         if (!tags.isEmpty()) {
@@ -256,6 +348,12 @@ public record RetrievalFilters(
             || periodEndTo != null
             || documentDateFrom != null
             || documentDateTo != null;
+    }
+
+    public boolean hasVersionSelectionCriteria() {
+        return versionSelectionMode != VersionSelectionMode.ACTIVE_ONLY
+            || versionLabel != null
+            || versionState != null;
     }
 
     public static int trustRank(SourceTrustLevel level) {
@@ -323,5 +421,22 @@ public record RetrievalFilters(
         } catch (IllegalArgumentException ignored) {
             return List.of();
         }
+    }
+
+    private static VersionSelectionMode normalizeVersionSelectionMode(
+        VersionSelectionMode rawMode,
+        String versionLabel,
+        MaterialVersionState versionState
+    ) {
+        if (versionLabel != null) {
+            return VersionSelectionMode.VERSION_LABEL;
+        }
+        if (versionState != null) {
+            return VersionSelectionMode.VERSION_STATE;
+        }
+        if (rawMode == VersionSelectionMode.VERSION_LABEL || rawMode == VersionSelectionMode.VERSION_STATE) {
+            return VersionSelectionMode.ACTIVE_ONLY;
+        }
+        return rawMode == null ? VersionSelectionMode.ACTIVE_ONLY : rawMode;
     }
 }

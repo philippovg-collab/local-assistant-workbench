@@ -169,6 +169,9 @@ public class OperatorAuditFilter extends OncePerRequestFilter {
         if ("llm-providers".equals(segment(segments, 1))) {
             return resolveLlmProvider(method, segments);
         }
+        if ("evals".equals(segment(segments, 1))) {
+            return resolveEval(method, segments);
+        }
         return null;
     }
 
@@ -340,8 +343,94 @@ public class OperatorAuditFilter extends OncePerRequestFilter {
         return null;
     }
 
+    private AuditOperation resolveEval(String method, List<String> segments) {
+        if ("POST".equals(method) && segments.size() == 3 && "datasets".equals(segment(segments, 2))) {
+            return new AuditOperation("eval.dataset.create", null, "eval_dataset", null, null);
+        }
+        if ("PATCH".equals(method) && segments.size() == 4 && "datasets".equals(segment(segments, 2))) {
+            return new AuditOperation("eval.dataset.update", null, "eval_dataset", segment(segments, 3), null);
+        }
+        if ("POST".equals(method)
+            && segments.size() == 5
+            && "datasets".equals(segment(segments, 2))
+            && "archive".equals(segment(segments, 4))) {
+            return new AuditOperation("eval.dataset.archive", null, "eval_dataset", segment(segments, 3), null);
+        }
+        if ("POST".equals(method)
+            && segments.size() == 5
+            && "datasets".equals(segment(segments, 2))
+            && "versions".equals(segment(segments, 4))) {
+            return new AuditOperation("eval.dataset.version.create", null, "eval_dataset", segment(segments, 3), null);
+        }
+        if ("POST".equals(method)
+            && segments.size() == 5
+            && "datasets".equals(segment(segments, 2))
+            && "cases".equals(segment(segments, 4))) {
+            return new AuditOperation("eval.case.create", null, "eval_case", null, null);
+        }
+        if ("PATCH".equals(method) && segments.size() == 4 && "cases".equals(segment(segments, 2))) {
+            return new AuditOperation("eval.case.update", null, "eval_case", segment(segments, 3), null);
+        }
+        if ("POST".equals(method)
+            && segments.size() == 5
+            && "cases".equals(segment(segments, 2))
+            && "submit-review".equals(segment(segments, 4))) {
+            return new AuditOperation("eval.case.submit_review", null, "eval_case", segment(segments, 3), null);
+        }
+        if ("POST".equals(method)
+            && segments.size() == 5
+            && "cases".equals(segment(segments, 2))
+            && "reviews".equals(segment(segments, 4))) {
+            return new AuditOperation("eval.case.review", null, "eval_case", segment(segments, 3), null);
+        }
+        if ("POST".equals(method)
+            && segments.size() == 5
+            && "cases".equals(segment(segments, 2))
+            && "archive".equals(segment(segments, 4))) {
+            return new AuditOperation("eval.case.archive", null, "eval_case", segment(segments, 3), null);
+        }
+        if ("POST".equals(method)
+            && segments.size() == 4
+            && "candidates".equals(segment(segments, 2))
+            && "from-chat-run".equals(segment(segments, 3))) {
+            return new AuditOperation("eval.candidate.from_chat_run", null, "eval_case", null, null);
+        }
+        if ("POST".equals(method)
+            && segments.size() == 5
+            && "cases".equals(segment(segments, 2))
+            && "promote".equals(segment(segments, 4))) {
+            return new AuditOperation("eval.case.promote", null, "eval_case", segment(segments, 3), null);
+        }
+        if ("POST".equals(method) && segments.size() == 3 && "snapshots".equals(segment(segments, 2))) {
+            return new AuditOperation("eval.snapshot.create", null, "corpus_snapshot", null, null);
+        }
+        if ("POST".equals(method)
+            && segments.size() == 4
+            && "runs".equals(segment(segments, 2))
+            && "retrieval".equals(segment(segments, 3))) {
+            return new AuditOperation("eval.retrieval_run.create", null, "eval_run", null, null);
+        }
+        if ("POST".equals(method)
+            && segments.size() == 4
+            && "runs".equals(segment(segments, 2))
+            && "e2e".equals(segment(segments, 3))) {
+            return new AuditOperation("eval.e2e_run.create", null, "eval_run", null, null);
+        }
+        if ("POST".equals(method)
+            && segments.size() == 5
+            && "runs".equals(segment(segments, 2))
+            && "reconcile".equals(segment(segments, 4))) {
+            return new AuditOperation("eval.e2e_run.reconcile", null, "eval_run", segment(segments, 3), null);
+        }
+        if ("POST".equals(method) && segments.size() == 3 && "compares".equals(segment(segments, 2))) {
+            return new AuditOperation("eval.compare.create", null, "eval_compare", null, null);
+        }
+        return null;
+    }
+
     private boolean isAuditExcluded(String path) {
         return path.equals("/api/search")
+            || path.equals("/api/evals/preview/retrieval")
             || path.equals("/api/client-events")
             || path.equals("/api/liveness")
             || path.startsWith("/api/auth/");

@@ -1,4 +1,4 @@
-import { History, Radar } from "lucide-react";
+import { ClipboardCheck, History, Radar } from "lucide-react";
 import { EmptyState } from "@/components/app/EmptyState";
 import { SectionIntro } from "@/components/app/SectionIntro";
 import { Badge } from "@/components/ui/badge";
@@ -25,11 +25,18 @@ import {
   materialLanguageCodeLabels,
 } from "@/utils/materialMetadata";
 
+export type ChatAuditCandidateAction = {
+  error?: string | null;
+  isCreating?: boolean;
+  onCreateCandidate: (run: ChatAuditRunDetail) => Promise<unknown> | unknown;
+};
+
 type ChatAuditPanelProps = {
   runs: ChatAuditRunSummary[];
   selectedRun: ChatAuditRunDetail | null;
   error: string | null;
   onLoadRun: (runId: string) => Promise<ChatAuditRunDetail | null>;
+  candidateAction?: ChatAuditCandidateAction | null;
   currentAuditRunId?: string | null;
   currentInstructionTrace?: InstructionTraceEntry[];
   currentKnowledgeScopeResolved?: KnowledgeScopeResolved | null;
@@ -345,6 +352,7 @@ export function ChatAuditPanel({
   currentInstructionTrace = [],
   currentKnowledgeScopeResolved,
   currentRetrievalTrace,
+  candidateAction,
 }: ChatAuditPanelProps) {
   const comparison = useChatAuditComparison({
     runs,
@@ -355,6 +363,7 @@ export function ChatAuditPanel({
 
   const currentScope = knowledgeScopeResolvedWithDefaults(currentKnowledgeScopeResolved);
   const currentTrace = retrievalTraceWithDefaults(currentRetrievalTrace);
+  const candidateSourceRun = selectedRun ?? comparison.baseRun ?? comparison.compareRun;
 
   return (
     <article className="surface-subtle space-y-4 rounded-[24px] p-5">
@@ -369,9 +378,26 @@ export function ChatAuditPanel({
       {comparison.traceError ? <p className="text-sm leading-6 text-warning">{comparison.traceError}</p> : null}
 
       <div className="rounded-[22px] border border-field-border bg-field px-4 py-4 text-sm leading-6 text-foreground">
-        <p>
-          Текущий запуск: stack {currentInstructionTrace.length}, scope {formatScopeSummary(currentScope)}, final chunks {currentTrace.finalChunks}, support {supportVerdictLabels[currentTrace.supportVerdict]}.
-        </p>
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <p>
+            Текущий запуск: stack {currentInstructionTrace.length}, scope {formatScopeSummary(currentScope)}, final chunks {currentTrace.finalChunks}, support {supportVerdictLabels[currentTrace.supportVerdict]}.
+          </p>
+          {candidateAction ? (
+            <Button
+              disabled={!candidateSourceRun || candidateAction.isCreating}
+              size="sm"
+              type="button"
+              variant="secondary"
+              onClick={() => candidateSourceRun ? void candidateAction.onCreateCandidate(candidateSourceRun) : undefined}
+            >
+              <ClipboardCheck className="h-4 w-4" />
+              {candidateAction.isCreating ? "Creating..." : "Create candidate"}
+            </Button>
+          ) : null}
+        </div>
+        {candidateAction?.error ? (
+          <p className="mt-3 text-sm leading-6 text-destructive">{candidateAction.error}</p>
+        ) : null}
       </div>
 
       {runs.length === 0 && !currentAuditRunId ? (

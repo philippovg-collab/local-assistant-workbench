@@ -5,6 +5,7 @@ import com.example.demo.model.DocumentBlockType;
 import com.example.demo.service.material.SearchableChunkDocument;
 import com.example.demo.service.material.SearchableMaterialChunkSnapshot;
 import com.example.demo.service.material.SearchableMaterialSnapshot;
+import com.example.demo.service.ElasticsearchMappingDefinition;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -14,6 +15,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.example.demo.model.DocumentType;
 import com.example.demo.model.MaterialMetadataInput;
 import com.example.demo.model.MaterialMetadataSnapshot;
+import com.example.demo.model.MaterialVersionState;
 import com.example.demo.model.SourceTrustLevel;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -29,6 +31,8 @@ class SearchableChunkDocumentTest {
             "material-123",
             true,
             "pricing-faq",
+            MaterialVersionState.ACTIVE,
+            3,
             "Pricing FAQ",
             "file",
             "pricing.txt",
@@ -88,6 +92,9 @@ class SearchableChunkDocumentTest {
         assertEquals("material-123:0", documents.get(0).chunkId());
         assertEquals("material-123", documents.get(0).materialId());
         assertEquals("pricing-faq", documents.get(0).sourceKey());
+        assertEquals("v2", documents.get(0).versionLabel());
+        assertEquals("ACTIVE", documents.get(0).versionState());
+        assertEquals(3, documents.get(0).lineageVersion());
         assertEquals("Pricing FAQ", documents.get(0).title());
         assertEquals("Первый чанк", documents.get(0).chunkText());
         assertEquals(1, documents.get(0).page());
@@ -125,6 +132,7 @@ class SearchableChunkDocumentTest {
     @Test
     void elasticsearchStrictMappingCoversEverySerializedDocumentField() throws Exception {
         ObjectMapper objectMapper = new ObjectMapper();
+        ElasticsearchMappingDefinition mappingDefinition = new ElasticsearchMappingDefinition(objectMapper);
         SearchableChunkDocument document = new SearchableChunkDocument(
             "material-123:0",
             "material-123:0",
@@ -170,10 +178,23 @@ class SearchableChunkDocumentTest {
                 .path("mappings")
                 .path("properties");
 
+            assertEquals("strict", mappingDefinition.dynamicMode());
+            assertEquals(64, mappingDefinition.mappingHash().length());
             assertFalse(serializedDocument.has("documentId"));
             serializedDocument.fieldNames().forEachRemaining(fieldName ->
                 assertTrue(mappedProperties.has(fieldName), "Missing Elasticsearch mapping for " + fieldName)
             );
         }
+    }
+
+    @Test
+    void elasticsearchMappingHashIsStableForCurrentStrictContract() {
+        ElasticsearchMappingDefinition mappingDefinition = new ElasticsearchMappingDefinition(new ObjectMapper());
+
+        assertEquals("strict", mappingDefinition.dynamicMode());
+        assertEquals(
+            "c4037fabecf322869b1b057d3811d1dfeb804565edb57e953847ecd25eea67b8",
+            mappingDefinition.mappingHash()
+        );
     }
 }

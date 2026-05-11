@@ -3,6 +3,7 @@ import { apiClient } from "@/api/client";
 import type {
   MaterialListResponse,
   MaterialLineageResponse,
+  MaterialLineageOverrideInput,
   MaterialMetadataInput,
   MaterialSummary,
   MaterialUploadPolicy,
@@ -53,7 +54,12 @@ export const useMaterialMutations = ({
     };
   };
 
-  const createTextMaterial = async (input: { title: string; content: string; metadata?: MaterialMetadataInput }) => {
+  const createTextMaterial = async (input: {
+    title: string;
+    content: string;
+    metadata?: MaterialMetadataInput;
+    lineageOverride?: MaterialLineageOverrideInput;
+  }) => {
     setActionError(null);
     setMessage(null);
 
@@ -95,6 +101,7 @@ export const useMaterialMutations = ({
             title: item.title ?? "",
             file: item.file,
             metadata: withWorkspaceMetadata(item.metadata),
+            lineageOverride: item.lineageOverride,
           });
           createdMaterials.push(created);
         } catch (fileError) {

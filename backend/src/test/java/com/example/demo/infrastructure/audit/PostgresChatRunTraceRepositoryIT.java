@@ -13,6 +13,7 @@ import com.example.demo.model.ChatRunTraceDetail;
 import com.example.demo.model.KnowledgeScopeResolved;
 import com.example.demo.model.LlmCallTrace;
 import com.example.demo.model.PromptPolicySnapshot;
+import com.example.demo.model.RetrievalDebug;
 import com.example.demo.model.RetrievalTrace;
 import com.example.demo.service.audit.ChatRunLeaseToken;
 import com.example.demo.support.PostgresIntegrationTestSupport;
@@ -225,6 +226,47 @@ class PostgresChatRunTraceRepositoryIT extends PostgresIntegrationTestSupport {
         repository.saveOutput(runId, new ChatRunOutputTrace("raw", "Answer", List.of(), null, false, false));
 
         assertEquals("RECEIVED", stringValue("SELECT status FROM chat_run_headers WHERE id = ?::uuid", runId));
+    }
+
+    @Test
+    void retrievalSummaryPersistsSearchProviderAndModelProvenanceColumns() {
+        String runId = runId();
+        Instant createdAt = Instant.parse("2026-04-19T00:00:00Z");
+        repository.insertHeader(runId, ChatMode.RAG, "qwen2.5:7b", AnswerMode.BRIEF, createdAt);
+
+        repository.saveRetrievalSummary(
+            runId,
+            "DONE",
+            new RetrievalTrace(1, 1, 1, 1, 1, 1, 1, 1, 1),
+            new RetrievalDebug(
+                null,
+                null,
+                null,
+                1,
+                1,
+                1,
+                1,
+                "sufficient",
+                "hybrid-rerank-v1",
+                null,
+                List.of("metadata-filters-v1"),
+                List.of(),
+                Instant.parse("2026-04-19T00:00:00Z"),
+                java.time.LocalDate.parse("2026-04-19"),
+                null,
+                null,
+                "abc123",
+                "postgres",
+                "nomic-embed-text",
+                "structured-v1"
+            )
+        );
+
+        ChatRunTraceDetail trace = repository.findTrace(runId).orElseThrow();
+
+        assertEquals("postgres", trace.retrievalSummary().lexicalProvider());
+        assertEquals("nomic-embed-text", trace.retrievalSummary().embeddingModel());
+        assertEquals("structured-v1", trace.retrievalSummary().chunkProfile());
     }
 
     @Test

@@ -6,9 +6,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.example.demo.model.DocumentStatus;
 import com.example.demo.model.DocumentType;
 import com.example.demo.model.MaterialLanguageCode;
+import com.example.demo.model.MaterialVersionState;
 import com.example.demo.model.RetrievalFilters;
 import com.example.demo.model.SourceTrustLevel;
+import com.example.demo.model.VersionSelectionMode;
 import java.time.LocalDate;
+import java.time.Instant;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -114,5 +117,78 @@ class PostgresMaterialFilterSqlBuilderTest {
 
         assertEquals("__INVALID_LANGUAGE__", sql.language());
         assertTrue(sql.sql().contains("m.language_code = ?"));
+    }
+
+    @Test
+    void versionAndUploadedFiltersAreBoundInSearchFilterSql() {
+        RetrievalFilters filters = new RetrievalFilters(
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            List.of(),
+            null,
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of(),
+            null,
+            null,
+            null,
+            null,
+            "v1",
+            LocalDate.parse("2026-04-19"),
+            null,
+            null,
+            Instant.parse("2026-04-19T00:00:00Z"),
+            Instant.parse("2026-04-20T00:00:00Z")
+        );
+
+        PostgresMaterialFilterSqlBuilder.SearchFilterSql sql = builder.buildSearchFilterSql(filters);
+
+        assertEquals("v1", sql.versionLabel());
+        assertEquals(Instant.parse("2026-04-19T00:00:00Z"), sql.uploadedAfterInclusive());
+        assertEquals(Instant.parse("2026-04-20T00:00:00Z"), sql.uploadedBeforeExclusive());
+        assertTrue(sql.sql().contains("LOWER(m.version_label) = ?"));
+        assertTrue(sql.sql().contains("m.created_at >= ?"));
+    }
+
+    @Test
+    void versionStateModeBindsExactVersionState() {
+        RetrievalFilters filters = new RetrievalFilters(
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            List.of(),
+            null,
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of(),
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            VersionSelectionMode.VERSION_STATE,
+            MaterialVersionState.SUPERSEDED,
+            null,
+            null
+        );
+
+        PostgresMaterialFilterSqlBuilder.SearchFilterSql sql = builder.buildSearchFilterSql(filters);
+
+        assertEquals("SUPERSEDED", sql.versionState());
+        assertTrue(sql.sql().contains("m.version_state = ?"));
     }
 }

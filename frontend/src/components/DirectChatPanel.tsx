@@ -5,7 +5,7 @@ import { EmptyState } from "@/components/app/EmptyState";
 import { SectionIntro } from "@/components/app/SectionIntro";
 import { StudioScaffold } from "@/components/app/StudioScaffold";
 import { AppliedInstructionList } from "@/components/AppliedInstructionList";
-import { ChatAuditPanel } from "@/components/ChatAuditPanel";
+import { ChatAuditPanel, type ChatAuditCandidateAction } from "@/components/ChatAuditPanel";
 import { ChatForm } from "@/components/ChatForm";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
@@ -48,6 +48,7 @@ type DirectChatPanelProps = {
   chatRuns: ChatAuditRunSummary[];
   selectedChatRun: ChatAuditRunDetail | null;
   chatRunsError: string | null;
+  evalCandidateAction?: ChatAuditCandidateAction | null;
   onLoadChatRun: (runId: string) => Promise<ChatAuditRunDetail | null>;
   onSubmit: () => Promise<unknown>;
   onCancelCurrentRun?: () => Promise<unknown>;
@@ -85,6 +86,7 @@ export function DirectChatPanel({
   chatRuns,
   selectedChatRun,
   chatRunsError,
+  evalCandidateAction,
   onLoadChatRun,
   onSubmit,
   onCancelCurrentRun,
@@ -196,6 +198,7 @@ export function DirectChatPanel({
                   currentKnowledgeScopeResolved={response.knowledgeScopeResolved}
                   currentRetrievalTrace={response.retrievalTrace}
                   error={chatRunsError}
+                  candidateAction={evalCandidateAction}
                   runs={chatRuns}
                   selectedRun={selectedChatRun}
                   onLoadRun={onLoadChatRun}

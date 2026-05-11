@@ -31,6 +31,7 @@ import com.example.demo.model.DocumentType;
 import com.example.demo.model.MaterialLanguageCode;
 import com.example.demo.model.MaterialDetail;
 import com.example.demo.model.MaterialIndexingStatus;
+import com.example.demo.model.MaterialLineageOverrideInput;
 import com.example.demo.model.MaterialLineageResponse;
 import com.example.demo.model.MaterialMetadataInput;
 import com.example.demo.model.MaterialSummary;
@@ -115,6 +116,81 @@ class MaterialServiceTest {
 
         assertEquals(first.id(), duplicate.id());
         assertEquals(1, service.listSummaries().size());
+    }
+
+    @Test
+    void savesTextWithOperatorLineageOverrideAndExposesStatus() {
+        MaterialService service = createService(new DeterministicEmbeddingClient());
+
+        MaterialSummary summary = service.saveText(
+            "Golden policy",
+            "Операторский документ для golden dataset.",
+            null,
+            new MaterialLineageOverrideInput("Golden Policy 2026", "Golden dataset stable identity", false)
+        );
+
+        MaterialDetail detail = service.getDetail(summary.id());
+        MaterialLineageResponse lineage = service.getLineage(summary.id());
+
+        assertEquals("golden-policy-2026", detail.lineageOverride().lineageKey());
+        assertEquals(detail.sourceKey(), detail.lineageOverride().sourceKey());
+        assertTrue(lineage.lineageOverride().active());
+        assertEquals("Golden dataset stable identity", lineage.lineageOverride().reason());
+    }
+
+    @Test
+    void lineageOverrideReuseRequiresConfirmationAndThenCreatesNewVersion() {
+        MaterialService service = createService(new DeterministicEmbeddingClient());
+        MaterialLineageOverrideInput initialOverride =
+            new MaterialLineageOverrideInput("Golden Policy 2026", "Initial operator key", false);
+
+        MaterialSummary first = service.saveText(
+            "Golden policy",
+            "Первая версия операторского документа.",
+            null,
+            initialOverride
+        );
+
+        ApplicationException missingConfirmation = assertThrows(ApplicationException.class, () -> service.saveText(
+            "Golden policy renamed",
+            "Вторая версия операторского документа.",
+            null,
+            new MaterialLineageOverrideInput("Golden Policy 2026", "Reuse operator key", false)
+        ));
+        assertEquals("material.lineage_override_confirmation_required", missingConfirmation.getCode());
+
+        MaterialSummary second = service.saveText(
+            "Golden policy renamed",
+            "Вторая версия операторского документа.",
+            null,
+            new MaterialLineageOverrideInput("Golden Policy 2026", "Reuse operator key", true)
+        );
+
+        MaterialLineageResponse lineage = service.getLineage(second.id());
+        assertEquals(second.id(), lineage.activeMaterialId());
+        assertEquals(2, lineage.versions().size());
+        assertTrue(lineage.versions().stream().anyMatch(version -> first.id().equals(version.id())));
+    }
+
+    @Test
+    void lineageOverrideRejectsCollisionBetweenExistingLineages() {
+        MaterialService service = createService(new DeterministicEmbeddingClient());
+        service.saveText("Natural lineage", "Первая естественная lineage.");
+        service.saveText(
+            "Operator lineage",
+            "Отдельная операторская lineage.",
+            null,
+            new MaterialLineageOverrideInput("Operator Stable Key", "Separate operator key", false)
+        );
+
+        ApplicationException collision = assertThrows(ApplicationException.class, () -> service.saveText(
+            "Natural lineage",
+            "Новая версия естественной lineage.",
+            null,
+            new MaterialLineageOverrideInput("Operator Stable Key", "Attempted merge", true)
+        ));
+
+        assertEquals("material.lineage_override_collision", collision.getCode());
     }
 
     @Test
@@ -1200,6 +1276,7 @@ class MaterialServiceTest {
             new MaterialQueryService(
                 repository,
                 repository,
+                repository,
                 properties,
                 formatRegistry,
                 ocrCapabilityService,
@@ -1208,6 +1285,7 @@ class MaterialServiceTest {
                 indexingService,
                 afterCommitExecutor,
                 effectiveRolloutProperties,
+                StructuredV1ProofService.allowAllForTests(effectiveRolloutProperties),
                 new MaterialMetadataResolver(new com.example.demo.support.NoopReferenceDataRepository()),
                 autoTaggingLifecycleService
             ),

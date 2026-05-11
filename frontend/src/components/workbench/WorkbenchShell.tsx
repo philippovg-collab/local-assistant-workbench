@@ -1,8 +1,10 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useEvalCandidatePromotion } from "@/hooks/useEvalCandidatePromotion";
 import { useWorkbenchResources } from "@/hooks/useWorkbenchResources";
 import { useWorkbenchState } from "@/hooks/useWorkbenchState";
-import type { AuthSession } from "@/types";
+import type { AuthSession, ChatAuditRunDetail } from "@/types";
 import { DirectStudioTab } from "./DirectStudioTab";
+import { EvalTab, type EvalFocus } from "@/components/eval/EvalTab";
 import { InstructionsTab } from "./InstructionsTab";
 import { LlmProviderSettingsPanel } from "@/components/LlmProviderSettingsPanel";
 import { MaterialsTab } from "./MaterialsTab";
@@ -22,6 +24,8 @@ type WorkbenchShellProps = {
 
 export function WorkbenchShell({ session, isLoggingOut, onLogout }: WorkbenchShellProps) {
   const state = useWorkbenchState();
+  const [evalFocus, setEvalFocus] = useState<EvalFocus | null>(null);
+  const evalCandidatePromotion = useEvalCandidatePromotion();
   const {
     activeTab,
     setActiveTab,
@@ -94,6 +98,20 @@ export function WorkbenchShell({ session, isLoggingOut, onLogout }: WorkbenchShe
     }
     setActiveTab(tab);
     setMobileNavOpen(false);
+  };
+  const createEvalCandidateFromAudit = async (run: ChatAuditRunDetail) => {
+    const candidate = await evalCandidatePromotion.createCandidate(run);
+    if (candidate) {
+      setEvalFocus({
+        caseId: candidate.id ?? null,
+        datasetId: candidate.datasetId ?? null,
+        nonce: Date.now(),
+        view: "datasets",
+      });
+      setActiveTab("eval");
+      setMobileNavOpen(false);
+    }
+    return candidate;
   };
 
   useEffect(() => {
@@ -229,6 +247,11 @@ export function WorkbenchShell({ session, isLoggingOut, onLogout }: WorkbenchShe
               longTermMemoryEnabled={isLongTermMemoryEnabled}
               selectedInstructionIds={ragInstructionIds}
               onToggleInstruction={toggleInstructionSelection(setRagInstructionIds)}
+              evalCandidateAction={{
+                error: evalCandidatePromotion.error,
+                isCreating: evalCandidatePromotion.isCreating,
+                onCreateCandidate: createEvalCandidateFromAudit,
+              }}
             />
           </section>
 
@@ -253,7 +276,21 @@ export function WorkbenchShell({ session, isLoggingOut, onLogout }: WorkbenchShe
               longTermMemoryEnabled={isLongTermMemoryEnabled}
               selectedInstructionIds={directInstructionIds}
               onToggleInstruction={toggleInstructionSelection(setDirectInstructionIds)}
+              evalCandidateAction={{
+                error: evalCandidatePromotion.error,
+                isCreating: evalCandidatePromotion.isCreating,
+                onCreateCandidate: createEvalCandidateFromAudit,
+              }}
             />
+          </section>
+
+          <section
+            aria-labelledby="nav-eval"
+            hidden={activeTab !== "eval"}
+            id="panel-eval"
+            role="region"
+          >
+            {activeTab === "eval" ? <EvalTab focus={evalFocus} /> : null}
           </section>
 
           <section

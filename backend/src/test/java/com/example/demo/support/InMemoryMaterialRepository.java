@@ -8,6 +8,7 @@ import com.example.demo.service.material.MaterialAutoTaggingTask;
 import com.example.demo.service.material.MaterialChunkSearchMatch;
 import com.example.demo.service.material.MaterialIndexingLease;
 import com.example.demo.service.material.MaterialLineageIdentity;
+import com.example.demo.service.material.MaterialLineageOperatorOverride;
 import com.example.demo.service.material.MaterialRetrievalScopeSnapshot;
 import com.example.demo.service.material.MaterialSearchScope;
 import com.example.demo.service.material.MaterialSearchSyncQueueEntry;
@@ -40,6 +41,7 @@ import com.example.demo.model.RetrievalFilters;
 import com.example.demo.model.MaterialVersionState;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
@@ -75,6 +77,7 @@ public class InMemoryMaterialRepository implements
     private final Map<String, StoredMaterialRecord> recordsById = new LinkedHashMap<>();
     private final Map<String, String> idsBySourceKeyAndContentHash = new LinkedHashMap<>();
     private final Map<String, String> sourceKeysByIdentity = new LinkedHashMap<>();
+    private final Map<String, MaterialLineageOperatorOverride> lineageOverridesByKey = new LinkedHashMap<>();
     private final Map<String, List<StoredMaterialChunk>> rawChunksByMaterialId = new LinkedHashMap<>();
     private final Map<String, List<StoredMaterialSegment>> segmentsByMaterialId = new LinkedHashMap<>();
     private final Map<String, String> chunkProfilesByMaterialId = new LinkedHashMap<>();
@@ -176,6 +179,44 @@ public class InMemoryMaterialRepository implements
     @Override
     public synchronized String resolveSourceKey(MaterialLineageIdentity identity) {
         return sourceKeysByIdentity.computeIfAbsent(identityKey(identity), ignored -> identity.sourceKey());
+    }
+
+    @Override
+    public synchronized Optional<MaterialLineageOperatorOverride> findActiveOverride(String lineageKey) {
+        return Optional.ofNullable(lineageOverridesByKey.get(lineageKey))
+            .filter(MaterialLineageOperatorOverride::active);
+    }
+
+    @Override
+    public synchronized Optional<MaterialLineageOperatorOverride> findActiveOverrideBySourceKey(String sourceKey) {
+        return lineageOverridesByKey.values().stream()
+            .filter(MaterialLineageOperatorOverride::active)
+            .filter(override -> Objects.equals(sourceKey, override.sourceKey()))
+            .findFirst();
+    }
+
+    @Override
+    public synchronized MaterialLineageOperatorOverride saveOverride(
+        String lineageKey,
+        String sourceKey,
+        String reason,
+        String author,
+        Instant now
+    ) {
+        Instant timestamp = now == null ? Instant.now() : now;
+        MaterialLineageOperatorOverride previous = lineageOverridesByKey.get(lineageKey);
+        MaterialLineageOperatorOverride override = new MaterialLineageOperatorOverride(
+            previous == null ? java.util.UUID.randomUUID().toString() : previous.id(),
+            lineageKey,
+            sourceKey,
+            reason,
+            author,
+            true,
+            previous == null ? timestamp : previous.createdAt(),
+            null
+        );
+        lineageOverridesByKey.put(lineageKey, override);
+        return override;
     }
 
     @Override
@@ -397,6 +438,9 @@ public class InMemoryMaterialRepository implements
         List<StoredMaterialRecord> allRecords = new ArrayList<>(recordsById.values());
         KnowledgeScope effectiveScope = knowledgeScope == null ? KnowledgeScope.empty() : knowledgeScope;
         RetrievalFilters effectiveFilters = retrievalFilters == null ? RetrievalFilters.empty() : retrievalFilters;
+        LocalDate effectiveDate = effectiveFilters.effectiveDate() == null
+            ? LocalDate.now(ZoneOffset.UTC)
+            : effectiveFilters.effectiveDate();
         List<StoredMaterialRecord> scopedRecords = allRecords.stream()
             .filter(record -> matchesKnowledgeScope(record, effectiveScope, uploadedAfterInclusive, uploadedBeforeExclusive))
             .filter(record -> matchesRetrievalFilters(record, effectiveFilters))
@@ -404,10 +448,10 @@ public class InMemoryMaterialRepository implements
         return new MaterialRetrievalScopeSnapshot(
             allRecords.size(),
             (int) allRecords.stream().filter(record -> record.versionState() == MaterialVersionState.ACTIVE).count(),
-            (int) allRecords.stream().filter(this::isSearchable).count(),
+            (int) allRecords.stream().filter(record -> isSearchable(record, RetrievalFilters.empty(), effectiveDate)).count(),
             scopedRecords.size(),
             (int) scopedRecords.stream().filter(record -> record.versionState() == MaterialVersionState.ACTIVE).count(),
-            (int) scopedRecords.stream().filter(this::isSearchable).count()
+            (int) scopedRecords.stream().filter(record -> isSearchable(record, effectiveFilters, effectiveDate)).count()
         );
     }
 
@@ -523,7 +567,7 @@ public class InMemoryMaterialRepository implements
             return List.of();
         }
 
-        return readyRecords().stream()
+        return readyRecords(safeScope).stream()
             .filter(record -> matchesMaterialSearchScope(record, safeScope))
             .flatMap(record -> embeddedChunksByMaterialId.getOrDefault(record.id(), List.of()).stream()
                 .map(chunk -> new SemanticCandidate(record, chunk, cosineDistance(queryEmbedding, chunk.embedding()))))
@@ -589,7 +633,7 @@ public class InMemoryMaterialRepository implements
         Set<String> queryTokens = tokenize(query);
         String normalizedPrompt = normalize(query);
 
-        return readyRecords().stream()
+        return readyRecords(safeScope).stream()
             .filter(record -> matchesMaterialSearchScope(record, safeScope))
             .flatMap(record -> embeddedChunksByMaterialId.getOrDefault(record.id(), List.of()).stream()
                 .map(chunk -> new LexicalCandidate(record, chunk, lexicalScore(record.title(), chunk.text(), normalizedPrompt, queryTokens))))
@@ -1298,6 +1342,8 @@ public class InMemoryMaterialRepository implements
             record.id(),
             true,
             record.sourceKey(),
+            record.versionState(),
+            record.lineageVersion(),
             record.title(),
             record.sourceType(),
             record.originalFileName(),
@@ -1320,7 +1366,18 @@ public class InMemoryMaterialRepository implements
 
     private List<StoredMaterialRecord> readyRecords() {
         return new ArrayList<>(recordsById.values().stream()
-            .filter(this::isSearchable)
+            .filter(record -> isSearchable(record, RetrievalFilters.empty(), LocalDate.now(ZoneOffset.UTC)))
+            .toList());
+    }
+
+    private List<StoredMaterialRecord> readyRecords(MaterialSearchScope scope) {
+        MaterialSearchScope safeScope = scope == null ? MaterialSearchScope.unscoped() : scope;
+        RetrievalFilters filters = safeScope.retrievalFilters();
+        LocalDate effectiveDate = safeScope.effectiveDate() == null
+            ? filters.effectiveDate() == null ? LocalDate.now(ZoneOffset.UTC) : filters.effectiveDate()
+            : safeScope.effectiveDate();
+        return new ArrayList<>(recordsById.values().stream()
+            .filter(record -> isSearchable(record, filters, effectiveDate))
             .toList());
     }
 
@@ -1352,13 +1409,24 @@ public class InMemoryMaterialRepository implements
     }
 
     private boolean isSearchable(StoredMaterialRecord record) {
-        LocalDate today = LocalDate.now();
+        return isSearchable(record, RetrievalFilters.empty(), LocalDate.now(ZoneOffset.UTC));
+    }
+
+    private boolean isSearchable(StoredMaterialRecord record, RetrievalFilters filters, LocalDate effectiveDate) {
+        RetrievalFilters safeFilters = filters == null ? RetrievalFilters.empty() : filters;
+        LocalDate safeEffectiveDate = effectiveDate == null ? LocalDate.now(ZoneOffset.UTC) : effectiveDate;
         MaterialMetadataSnapshot metadata = record.metadata() == null ? MaterialMetadataSnapshot.empty() : record.metadata();
-        return record.versionState() == MaterialVersionState.ACTIVE
+        boolean versionAllowed = switch (safeFilters.versionSelectionMode()) {
+            case INCLUDE_HISTORY, VERSION_LABEL -> true;
+            case VERSION_STATE -> safeFilters.versionState() != null && record.versionState() == safeFilters.versionState();
+            case ACTIVE_ONLY -> record.versionState() == MaterialVersionState.ACTIVE;
+        };
+        boolean hasExplicitPeriods = safeFilters.hasExplicitPeriods();
+        return versionAllowed
             && (record.status() == MaterialIndexingStatus.READY || record.status() == MaterialIndexingStatus.PARTIAL_READY)
             && metadata.documentStatus() == DocumentStatus.ACTIVE
-            && (metadata.periodStart() == null || !metadata.periodStart().isAfter(today))
-            && (metadata.periodEnd() == null || !metadata.periodEnd().isBefore(today));
+            && (hasExplicitPeriods || metadata.periodStart() == null || !metadata.periodStart().isAfter(safeEffectiveDate))
+            && (hasExplicitPeriods || metadata.periodEnd() == null || !metadata.periodEnd().isBefore(safeEffectiveDate));
     }
 
     private boolean matchesKnowledgeScope(
@@ -1443,6 +1511,17 @@ public class InMemoryMaterialRepository implements
 
     private boolean matchesRetrievalFilters(StoredMaterialRecord record, RetrievalFilters filters) {
         RetrievalFilters safeFilters = filters == null ? RetrievalFilters.empty() : filters;
+        if (safeFilters.versionSelectionMode() == com.example.demo.model.VersionSelectionMode.VERSION_STATE
+            && safeFilters.versionState() != null
+            && record.versionState() != safeFilters.versionState()) {
+            return false;
+        }
+        if (safeFilters.uploadedAfterInclusive() != null && record.createdAt().isBefore(safeFilters.uploadedAfterInclusive())) {
+            return false;
+        }
+        if (safeFilters.uploadedBeforeExclusive() != null && !record.createdAt().isBefore(safeFilters.uploadedBeforeExclusive())) {
+            return false;
+        }
         return safeFilters.isEmpty() || safeFilters.matches(record.metadata());
     }
 

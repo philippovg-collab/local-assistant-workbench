@@ -1,0 +1,68 @@
+name: Eval Compare
+
+on:
+  pull_request:
+    paths:
+      - "backend/src/main/java/com/example/demo/service/MaterialRetrievalService.java"
+      - "backend/src/main/java/com/example/demo/service/Retrieval*.java"
+      - "backend/src/main/java/com/example/demo/service/Hybrid*.java"
+      - "backend/src/main/java/com/example/demo/service/PromptPolicyResolver.java"
+      - "backend/src/main/java/com/example/demo/service/eval/**"
+      - "backend/src/main/java/com/example/demo/service/material/**"
+      - "backend/src/main/java/com/example/demo/infrastructure/material/**"
+      - "backend/src/main/java/com/example/demo/model/Retrieval*.java"
+      - "backend/src/main/java/com/example/demo/model/eval/**"
+      - "backend/src/main/java/com/example/demo/config/EvalProperties.java"
+      - "backend/src/main/resources/application.yml"
+      - "backend/src/main/resources/db/migration/**"
+      - "backend/src/main/resources/elasticsearch/**"
+      - "frontend/src/components/eval/**"
+      - "frontend/src/hooks/useEval*.ts"
+      - "frontend/src/hooks/useEval*.tsx"
+      - "frontend/src/api/evalClient.ts"
+      - "frontend/src/api/evalClient.test.ts"
+      - "frontend/src/types/evals.ts"
+      - "scripts/eval-*"
+      - "config/eval-gates.yml"
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  eval-compare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      - name: Run deterministic compare eval
+        run: bash scripts/eval-run.sh compare
+
+      - name: Require compare eval report
+        run: test -s backend/target/eval-reports/compare-report.json
+
+      - name: Gate compare eval report
+        run: python3 scripts/eval-gate.py backend/target/eval-reports/compare-report.json --mode compare
+
+      - name: Summarize compare eval
+        if: always()
+        run: python3 scripts/eval-report-summary.py backend/target/eval-reports/compare-report.json --github-step-summary
+
+      - name: Upload compare eval artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-compare-report
+          path: backend/target/eval-reports/compare-report.*
+          if-no-files-found: error

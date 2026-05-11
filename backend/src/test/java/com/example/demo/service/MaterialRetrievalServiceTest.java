@@ -16,6 +16,8 @@ import com.example.demo.service.material.port.SemanticSearchRepository;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -27,6 +29,7 @@ import static org.mockito.Mockito.when;
 
 import com.example.demo.error.ApplicationException;
 import com.example.demo.error.ErrorType;
+import com.example.demo.config.EmbeddingProperties;
 import com.example.demo.config.MaterialProperties;
 import com.example.demo.config.RagProperties;
 import com.example.demo.config.RolloutProperties;
@@ -47,8 +50,10 @@ import com.example.demo.support.DeterministicEmbeddingClient;
 import com.example.demo.support.InMemoryMaterialRepository;
 import com.example.demo.support.TestLexicalRoutingSupport;
 import com.example.demo.support.TestMaterialServices;
+import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -577,6 +582,8 @@ class MaterialRetrievalServiceTest {
         ChatSource topSource = result.sources().getFirst();
         assertEquals("Dispatch matrix", topSource.title());
         assertEquals(DocumentBlockType.TABLE, topSource.chunkType());
+        assertEquals("table-1", topSource.evidenceLocator().tableId());
+        assertEquals(List.of("Dispatch", "Dispatch matrix"), topSource.evidenceLocator().headingTrail());
         assertTrue(topSource.scoreBreakdown() != null);
         assertTrue(topSource.scoreBreakdown().identifierBonus() >= 20);
         assertTrue(topSource.scoreBreakdown().metadataBonus() >= 4);
@@ -971,7 +978,8 @@ class MaterialRetrievalServiceTest {
         );
 
         assertFalse(result.sources().isEmpty());
-        assertTrue(result.retrievalDebug().effectiveFilters().isEmpty());
+        assertNull(result.retrievalDebug().effectiveFilters().department());
+        assertNotNull(result.retrievalDebug().effectiveFilters().effectiveDate());
         assertEquals("South operations", result.retrievalDebug().manualFilters().department());
         assertFalse(result.retrievalDebug().appliedCapabilities().contains("metadata-filters-v1"));
         assertTrue(result.retrievalDebug().suppressedCapabilities().contains("metadata-filters-v1"));
@@ -1090,7 +1098,8 @@ class MaterialRetrievalServiceTest {
         assertTrue(searchScope.materialIds().isEmpty());
         assertEquals(List.of(KnowledgeDocumentClass.CONTRACTS), searchScope.knowledgeScope().documentClasses());
         assertEquals("north-upgrade", searchScope.knowledgeScope().workspaceKey());
-        assertTrue(searchScope.retrievalFilters().isEmpty());
+        assertEquals(searchScope.effectiveDate(), searchScope.retrievalFilters().effectiveDate());
+        assertEquals(null, searchScope.retrievalFilters().documentNumber());
         verify(lexicalSearchRouter).search(
             eq("Какая цена North Upgrade?"),
             eq(12),
@@ -1100,6 +1109,52 @@ class MaterialRetrievalServiceTest {
         assertEquals(1, result.scopedMaterialCount());
         assertEquals(1, result.scopedReadyMaterialCount());
         assertTrue(result.sources().stream().allMatch(source -> source.materialId().equals(allowedRecord.id())));
+    }
+
+    @Test
+    void uploadedTodayScopeUsesInjectedUtcClockInSearchScopeAndDebug() {
+        MaterialCatalogRepository catalogRepository = Mockito.mock(MaterialCatalogRepository.class);
+        SemanticSearchRepository semanticSearchRepository = Mockito.mock(SemanticSearchRepository.class);
+        ProductionLexicalSearchRouter lexicalSearchRouter = Mockito.mock(ProductionLexicalSearchRouter.class);
+        StoredMaterialRecord record = readyRecord("Today policy", "today clock anchor", "today-lineage", MaterialMetadataSnapshot.empty());
+        when(catalogRepository.describeRetrievalScope(any(), any(), any(), any())).thenReturn(scopeSnapshot(
+            List.of(record),
+            List.of(record)
+        ));
+        when(catalogRepository.findById(record.id())).thenReturn(java.util.Optional.of(record));
+        when(semanticSearchRepository.searchSemantic(any(), anyInt(), any(MaterialSearchScope.class)))
+            .thenReturn(List.of(matchFor(record, 0.12d, null)));
+        when(lexicalSearchRouter.search(any(), anyInt(), any(MaterialSearchScope.class))).thenReturn(new ProductionLexicalSearchRouter.LexicalSearchResult(
+            LexicalProviderMode.POSTGRES,
+            LexicalProviderType.POSTGRES,
+            false,
+            "search.sync_disabled",
+            "Elasticsearch search sync is disabled by configuration.",
+            null,
+            List.of(matchFor(record, 0.12d, 0.9d))
+        ));
+        Clock fixedClock = Clock.fixed(Instant.parse("2026-04-19T23:30:00Z"), ZoneOffset.UTC);
+        MaterialRetrievalService service = createMockDrivenService(
+            catalogRepository,
+            semanticSearchRepository,
+            lexicalSearchRouter,
+            fixedClock
+        );
+
+        MaterialRetrievalResult result = service.retrieveContext(
+            "today clock anchor",
+            new KnowledgeScope(List.of(), List.of(), List.of(), null, true)
+        );
+
+        ArgumentCaptor<MaterialSearchScope> searchScopeCaptor = ArgumentCaptor.forClass(MaterialSearchScope.class);
+        verify(semanticSearchRepository).searchSemantic(any(), eq(12), searchScopeCaptor.capture());
+        MaterialSearchScope searchScope = searchScopeCaptor.getValue();
+        assertEquals(Instant.parse("2026-04-19T00:00:00Z"), searchScope.uploadedAfterInclusive());
+        assertEquals(Instant.parse("2026-04-20T00:00:00Z"), searchScope.uploadedBeforeExclusive());
+        assertEquals(LocalDate.parse("2026-04-19"), searchScope.effectiveDate());
+        assertEquals(Instant.parse("2026-04-19T23:30:00Z"), result.retrievalDebug().referenceInstant());
+        assertEquals("postgres", result.retrievalDebug().lexicalProvider());
+        assertTrue(result.retrievalDebug().retrievalConfigHash() != null);
     }
 
     @Test
@@ -1287,9 +1342,24 @@ class MaterialRetrievalServiceTest {
         SemanticSearchRepository semanticSearchRepository,
         ProductionLexicalSearchRouter lexicalSearchRouter
     ) {
+        return createMockDrivenService(
+            catalogRepository,
+            semanticSearchRepository,
+            lexicalSearchRouter,
+            Clock.systemUTC()
+        );
+    }
+
+    private MaterialRetrievalService createMockDrivenService(
+        MaterialCatalogRepository catalogRepository,
+        SemanticSearchRepository semanticSearchRepository,
+        ProductionLexicalSearchRouter lexicalSearchRouter,
+        Clock clock
+    ) {
         MaterialProperties properties = new MaterialProperties();
         MaterialContentSupport contentSupport = new MaterialContentSupport(properties);
         RagProperties ragProperties = new RagProperties();
+        RolloutProperties rolloutProperties = RolloutProperties.enabledForTests();
         EmbeddingClient embeddingClient = new EmbeddingClient() {
             @Override
             public float[] embed(String input) {
@@ -1304,7 +1374,7 @@ class MaterialRetrievalServiceTest {
             }
         };
         MaterialChunkingRepository chunkingRepository = Mockito.mock(MaterialChunkingRepository.class);
-        return TestMaterialServices.retrievalService(
+        return new MaterialRetrievalService(
             catalogRepository,
             chunkingRepository,
             semanticSearchRepository,
@@ -1312,9 +1382,16 @@ class MaterialRetrievalServiceTest {
             embeddingClient,
             ragProperties,
             new HybridChunkRanker(),
+            new ChunkReranker(contentSupport),
             contentSupport,
+            new RetrievalQueryHintExtractor(),
             (query, productionProvider, productionMatches, limit) -> {
-            }
+            },
+            new AnswerModePostProcessor(contentSupport),
+            rolloutProperties,
+            QualityLayerHealthService.noop(rolloutProperties),
+            new EmbeddingProperties(),
+            clock
         );
     }
 

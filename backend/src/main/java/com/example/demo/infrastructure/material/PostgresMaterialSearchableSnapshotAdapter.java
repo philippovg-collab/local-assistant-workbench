@@ -36,6 +36,8 @@ final class PostgresMaterialSearchableSnapshotAdapter
             material.id(),
             true,
             material.sourceKey(),
+            material.versionState(),
+            material.lineageVersion(),
             material.title(),
             material.sourceType(),
             material.originalFileName(),

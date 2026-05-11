@@ -11,6 +11,7 @@ import com.example.demo.service.material.port.SemanticSearchRepository;
 
 import com.example.demo.error.ApplicationException;
 import com.example.demo.error.ErrorType;
+import com.example.demo.config.EmbeddingProperties;
 import com.example.demo.config.RolloutProperties;
 import com.example.demo.config.RagProperties;
 import com.example.demo.embedding.EmbeddingClient;
@@ -25,8 +26,10 @@ import com.example.demo.model.RetrievalDebug;
 import com.example.demo.model.RetrievalFilters;
 import com.example.demo.model.RetrievalQueryHints;
 import com.example.demo.model.RetrievalTrace;
+import java.time.Clock;
 import java.time.Instant;
-import java.time.ZoneId;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -61,6 +64,8 @@ public class MaterialRetrievalService {
     private final RetrievalSearchResponseBuilder searchResponseBuilder;
     private final RetrievalRelevancePolicyResolver relevancePolicyResolver;
     private final RetrievalCandidateMaterialLoader candidateMaterialLoader;
+    private final EmbeddingProperties embeddingProperties;
+    private final Clock clock;
 
     @Autowired
     public MaterialRetrievalService(
@@ -77,7 +82,9 @@ public class MaterialRetrievalService {
         LexicalShadowComparisonService lexicalShadowComparisonService,
         AnswerModePostProcessor answerModePostProcessor,
         RolloutProperties rolloutProperties,
-        QualityLayerHealthService qualityLayerHealthService
+        QualityLayerHealthService qualityLayerHealthService,
+        EmbeddingProperties embeddingProperties,
+        Clock clock
     ) {
         this.catalogRepository = catalogRepository;
         this.chunkingRepository = chunkingRepository;
@@ -101,6 +108,44 @@ public class MaterialRetrievalService {
         this.searchResponseBuilder = new RetrievalSearchResponseBuilder(this.resultMapper);
         this.relevancePolicyResolver = new RetrievalRelevancePolicyResolver(ragProperties, this.rolloutProperties);
         this.candidateMaterialLoader = new RetrievalCandidateMaterialLoader(catalogRepository, chunkingRepository);
+        this.embeddingProperties = embeddingProperties == null ? new EmbeddingProperties() : embeddingProperties;
+        this.clock = clock == null ? Clock.systemUTC() : clock;
+    }
+
+    public MaterialRetrievalService(
+        MaterialCatalogRepository catalogRepository,
+        MaterialChunkingRepository chunkingRepository,
+        SemanticSearchRepository semanticSearchRepository,
+        ProductionLexicalSearchRouter productionLexicalSearchRouter,
+        EmbeddingClient embeddingClient,
+        RagProperties ragProperties,
+        HybridChunkRanker hybridChunkRanker,
+        ChunkReranker chunkReranker,
+        MaterialContentSupport contentSupport,
+        RetrievalQueryHintExtractor retrievalQueryHintExtractor,
+        LexicalShadowComparisonService lexicalShadowComparisonService,
+        AnswerModePostProcessor answerModePostProcessor,
+        RolloutProperties rolloutProperties,
+        QualityLayerHealthService qualityLayerHealthService
+    ) {
+        this(
+            catalogRepository,
+            chunkingRepository,
+            semanticSearchRepository,
+            productionLexicalSearchRouter,
+            embeddingClient,
+            ragProperties,
+            hybridChunkRanker,
+            chunkReranker,
+            contentSupport,
+            retrievalQueryHintExtractor,
+            lexicalShadowComparisonService,
+            answerModePostProcessor,
+            rolloutProperties,
+            qualityLayerHealthService,
+            new EmbeddingProperties(),
+            Clock.systemUTC()
+        );
     }
 
     public MaterialRetrievalService(
@@ -161,7 +206,9 @@ public class MaterialRetrievalService {
             retrievalFilters,
             dismissedRetrievalHintKeys,
             ragProperties.getFinalContextLimit(),
-            true
+            true,
+            null,
+            null
         ).toMaterialRetrievalResult();
     }
 
@@ -192,9 +239,40 @@ public class MaterialRetrievalService {
             request.filters(),
             List.of(),
             limit,
-            false
+            false,
+            null,
+            null
         );
         return searchResponseBuilder.build(request, execution);
+    }
+
+    public RetrievalSearchExecution executeRetrieval(RetrievalExecutionRequest request) {
+        RetrievalExecutionRequest safeRequest = request == null
+            ? new RetrievalExecutionRequest(null, null, null, null, null, false, null, null)
+            : request;
+        int finalLimit = fallbackPolicy.normalizeSearchLimit(
+            safeRequest.finalLimit(),
+            ragProperties.getFinalContextLimit(),
+            ragProperties.getMaxSearchLimit()
+        );
+        return executeSearch(
+            safeRequest.query(),
+            safeRequest.knowledgeScope(),
+            safeRequest.retrievalFilters(),
+            safeRequest.dismissedRetrievalHintKeys(),
+            finalLimit,
+            safeRequest.recordWindow(),
+            safeRequest.referenceInstant(),
+            safeRequest.materialIds()
+        );
+    }
+
+    public String currentRetrievalConfigHash(int finalLimit) {
+        QualityLayerFlags activeRolloutFlags = qualityLayerHealthService.flags();
+        RelevanceProfile relevanceProfile = relevancePolicyResolver.configuredRelevancePolicy().profile();
+        String embeddingModel = embeddingProperties.getModel();
+        String chunkProfile = contentSupport.configuredChunkProfile(rolloutProperties.isStructuredV1()).propertyValue();
+        return retrievalConfigHash(relevanceProfile, activeRolloutFlags, finalLimit, embeddingModel, chunkProfile);
     }
 
     private RetrievalSearchExecution executeSearch(
@@ -203,7 +281,9 @@ public class MaterialRetrievalService {
         RetrievalFilters retrievalFilters,
         List<String> dismissedRetrievalHintKeys,
         int finalLimit,
-        boolean recordWindow
+        boolean recordWindow,
+        Instant referenceInstant,
+        Set<String> materialIds
     ) {
         Set<String> queryTokens = contentSupport.tokenize(prompt);
         if (queryTokens.isEmpty()) {
@@ -244,14 +324,17 @@ public class MaterialRetrievalService {
         KnowledgeScope effectiveScope = knowledgeScope == null ? KnowledgeScope.empty() : knowledgeScope;
         RelevancePolicy relevancePolicy = relevancePolicyResolver.configuredRelevancePolicy();
         RelevanceProfile relevanceProfile = relevancePolicy.profile();
-        ZoneId currentZone = ZoneId.systemDefault();
-        Instant uploadedAfterInclusive = null;
-        Instant uploadedBeforeExclusive = null;
-        if (effectiveScope.uploadedTodayOnly()) {
-            java.time.LocalDate today = java.time.LocalDate.now(currentZone);
-            uploadedAfterInclusive = today.atStartOfDay(currentZone).toInstant();
-            uploadedBeforeExclusive = today.plusDays(1).atStartOfDay(currentZone).toInstant();
-        }
+        RetrievalExecutionContext executionContext = buildExecutionContext(
+            effectiveScope,
+            effectiveFilters,
+            relevanceProfile,
+            activeRolloutFlags,
+            finalLimit,
+            referenceInstant
+        );
+        effectiveFilters = executionContext.effectiveFilters();
+        Instant uploadedAfterInclusive = executionContext.uploadedAfterInclusive();
+        Instant uploadedBeforeExclusive = executionContext.uploadedBeforeExclusive();
         MaterialRetrievalScopeSnapshot scopeSnapshot = catalogRepository.describeRetrievalScope(
             effectiveScope,
             effectiveFilters,
@@ -264,12 +347,22 @@ public class MaterialRetrievalService {
         int scopedMaterialCount = scopeSnapshot.scopedMaterialCount();
         int scopedActiveMaterialCount = scopeSnapshot.scopedActiveMaterialCount();
         int scopedReadyMaterialCount = scopeSnapshot.scopedReadyMaterialCount();
-        MaterialSearchScope searchScope = MaterialSearchScope.fromRetrievalCriteria(
-            effectiveScope,
-            effectiveFilters,
-            uploadedAfterInclusive,
-            uploadedBeforeExclusive
-        );
+        MaterialSearchScope searchScope = materialIds == null
+            ? MaterialSearchScope.fromRetrievalCriteria(
+                effectiveScope,
+                effectiveFilters,
+                executionContext.effectiveDate(),
+                uploadedAfterInclusive,
+                uploadedBeforeExclusive
+            )
+            : MaterialSearchScope.filteredMaterialIds(
+                materialIds,
+                effectiveScope,
+                effectiveFilters,
+                executionContext.effectiveDate(),
+                uploadedAfterInclusive,
+                uploadedBeforeExclusive
+            );
 
         if (materialCount == 0 || activeMaterialCount == 0 || readyMaterialCount == 0
             || scopedMaterialCount == 0 || scopedActiveMaterialCount == 0 || scopedReadyMaterialCount == 0) {
@@ -302,6 +395,8 @@ public class MaterialRetrievalService {
                 List.of(),
                 fallbackPolicy.emptyLexicalResult(),
                 List.of(),
+                List.of(),
+                List.of(),
                 0,
                 List.of(),
                 Map.of(),
@@ -319,7 +414,15 @@ public class MaterialRetrievalService {
                     relevanceProfile.propertyValue(),
                     activeRolloutFlags,
                     appliedCapabilities,
-                    suppressedCapabilities
+                    suppressedCapabilities,
+                    executionContext.referenceInstant(),
+                    executionContext.effectiveDate(),
+                    executionContext.uploadedAfterInclusive(),
+                    executionContext.uploadedBeforeExclusive(),
+                    executionContext.retrievalConfigHash(),
+                    configuredLexicalProvider(),
+                    executionContext.embeddingModel(),
+                    executionContext.chunkProfile()
                 ),
                 relevanceProfile,
                 activeRolloutFlags,
@@ -349,10 +452,15 @@ public class MaterialRetrievalService {
         int rerankPoolLimit = relevanceProfile == RelevanceProfile.HYBRID_RERANK_V1
             ? Math.max(finalLimit, ragProperties.getRerankCandidateLimit())
             : finalLimit;
+        List<HybridChunkRanker.RankedChunk> fusedMatches = hybridChunkRanker.fuse(
+            semanticMatches,
+            lexicalMatches,
+            rerankPoolLimit
+        );
         List<HybridChunkRanker.RankedChunk> rankedMatches = relevancePolicy.filterRankedMatches(
             semanticMatches,
             lexicalMatches,
-            hybridChunkRanker.fuse(semanticMatches, lexicalMatches, rerankPoolLimit),
+            fusedMatches,
             ragProperties
         );
         List<HybridChunkRanker.RankedChunk> preRerankMatches = List.copyOf(rankedMatches);
@@ -396,10 +504,16 @@ public class MaterialRetrievalService {
                 .toList()
         );
 
+        Map<String, List<StoredMaterialChunk>> locatorChunksByMaterialId = chunksByMaterialId;
         List<RetrievedMaterialChunk> matches = rankedMatches.stream()
             .map(chunk -> new RetrievedMaterialChunk(
                 chunk.match().chunkText(),
-                resultMapper.buildChatSource(chunk, queryTokens, candidateRecordsById.get(chunk.match().materialId()))
+                resultMapper.buildChatSource(
+                    chunk,
+                    queryTokens,
+                    candidateRecordsById.get(chunk.match().materialId()),
+                    chunkFor(chunk.match(), locatorChunksByMaterialId)
+                )
             ))
             .toList();
 
@@ -432,6 +546,8 @@ public class MaterialRetrievalService {
             scopedReadyMaterialCount,
             semanticMatches,
             lexicalSearchResult,
+            fusedMatches,
+            preRerankMatches,
             rankedMatches,
             rerankCandidateCount,
             matches,
@@ -450,7 +566,15 @@ public class MaterialRetrievalService {
                 relevanceProfile.propertyValue(),
                 activeRolloutFlags,
                 appliedCapabilities,
-                suppressedCapabilities
+                suppressedCapabilities,
+                executionContext.referenceInstant(),
+                executionContext.effectiveDate(),
+                executionContext.uploadedAfterInclusive(),
+                executionContext.uploadedBeforeExclusive(),
+                executionContext.retrievalConfigHash(),
+                lexicalSearchResult.effectiveProvider().propertyValue(),
+                executionContext.embeddingModel(),
+                executionContext.chunkProfile()
             ),
             relevanceProfile,
             activeRolloutFlags,
@@ -461,6 +585,132 @@ public class MaterialRetrievalService {
 
     private void logSuppressedCapability(String capability, String reason) {
         logger.info("Quality-layer capability suppressed: capability={} reason={}", capability, reason);
+    }
+
+    private RetrievalExecutionContext buildExecutionContext(
+        KnowledgeScope scope,
+        RetrievalFilters filters,
+        RelevanceProfile relevanceProfile,
+        QualityLayerFlags activeRolloutFlags,
+        int finalLimit,
+        Instant referenceInstantOverride
+    ) {
+        Instant referenceInstant = referenceInstantOverride == null ? clock.instant() : referenceInstantOverride;
+        LocalDate effectiveDate = filters.effectiveDate() == null
+            ? LocalDate.ofInstant(referenceInstant, ZoneOffset.UTC)
+            : filters.effectiveDate();
+        Instant uploadedAfterInclusive = filters.uploadedAfterInclusive();
+        Instant uploadedBeforeExclusive = filters.uploadedBeforeExclusive();
+        if (uploadedAfterInclusive == null && uploadedBeforeExclusive == null && scope.uploadedTodayOnly()) {
+            LocalDate referenceDate = LocalDate.ofInstant(referenceInstant, ZoneOffset.UTC);
+            uploadedAfterInclusive = referenceDate.atStartOfDay(ZoneOffset.UTC).toInstant();
+            uploadedBeforeExclusive = referenceDate.plusDays(1).atStartOfDay(ZoneOffset.UTC).toInstant();
+        }
+        RetrievalFilters effectiveFilters = withExecutionFields(
+            filters,
+            effectiveDate,
+            uploadedAfterInclusive,
+            uploadedBeforeExclusive
+        );
+        String embeddingModel = embeddingProperties.getModel();
+        String chunkProfile = contentSupport.configuredChunkProfile(rolloutProperties.isStructuredV1()).propertyValue();
+        return new RetrievalExecutionContext(
+            effectiveFilters,
+            referenceInstant,
+            effectiveDate,
+            uploadedAfterInclusive,
+            uploadedBeforeExclusive,
+            retrievalConfigHash(relevanceProfile, activeRolloutFlags, finalLimit, embeddingModel, chunkProfile),
+            embeddingModel,
+            chunkProfile
+        );
+    }
+
+    private RetrievalFilters withExecutionFields(
+        RetrievalFilters filters,
+        LocalDate effectiveDate,
+        Instant uploadedAfterInclusive,
+        Instant uploadedBeforeExclusive
+    ) {
+        RetrievalFilters safeFilters = filters == null ? RetrievalFilters.empty() : filters;
+        return new RetrievalFilters(
+            safeFilters.documentNumber(),
+            safeFilters.documentDateFrom(),
+            safeFilters.documentDateTo(),
+            safeFilters.department(),
+            safeFilters.project(),
+            safeFilters.counterparty(),
+            safeFilters.businessStatus(),
+            safeFilters.language(),
+            safeFilters.tags(),
+            safeFilters.sourceTrustMin(),
+            safeFilters.documentTypes(),
+            safeFilters.documentStatuses(),
+            safeFilters.projectKeys(),
+            safeFilters.languageCodes(),
+            safeFilters.periodStartFrom(),
+            safeFilters.periodStartTo(),
+            safeFilters.periodEndFrom(),
+            safeFilters.periodEndTo(),
+            safeFilters.versionLabel(),
+            effectiveDate,
+            safeFilters.versionSelectionMode(),
+            safeFilters.versionState(),
+            uploadedAfterInclusive,
+            uploadedBeforeExclusive
+        );
+    }
+
+    private String retrievalConfigHash(
+        RelevanceProfile relevanceProfile,
+        QualityLayerFlags activeRolloutFlags,
+        int finalLimit,
+        String embeddingModel,
+        String chunkProfile
+    ) {
+        String payload = String.join(
+            "|",
+            "semantic=" + ragProperties.getSemanticCandidateLimit(),
+            "lexical=" + ragProperties.getLexicalCandidateLimit(),
+            "rerank=" + ragProperties.getRerankCandidateLimit(),
+            "final=" + finalLimit,
+            "maxDistance=" + ragProperties.getMaxSemanticDistance(),
+            "lexicalProvider=" + ragProperties.getLexicalProvider(),
+            "relevance=" + (relevanceProfile == null ? "" : relevanceProfile.propertyValue()),
+            "embedding=" + (embeddingModel == null ? "" : embeddingModel),
+            "chunkProfile=" + (chunkProfile == null ? "" : chunkProfile),
+            "rollout=" + activeRolloutFlags
+        );
+        return contentSupport.sha256(payload).substring(0, 16);
+    }
+
+    private String configuredLexicalProvider() {
+        return ragProperties.getLexicalProvider();
+    }
+
+    private StoredMaterialChunk chunkFor(
+        MaterialChunkSearchMatch match,
+        Map<String, List<StoredMaterialChunk>> chunksByMaterialId
+    ) {
+        if (match == null || chunksByMaterialId == null || chunksByMaterialId.isEmpty()) {
+            return null;
+        }
+        return chunksByMaterialId.getOrDefault(match.materialId(), List.of()).stream()
+            .filter(chunk -> chunk.index() == match.chunkIndex())
+            .findFirst()
+            .orElse(null);
+    }
+
+    private record RetrievalExecutionContext(
+        RetrievalFilters effectiveFilters,
+        Instant referenceInstant,
+        LocalDate effectiveDate,
+        Instant uploadedAfterInclusive,
+        Instant uploadedBeforeExclusive,
+        String retrievalConfigHash,
+        String embeddingModel,
+        String chunkProfile
+    ) {
     }
 
 }

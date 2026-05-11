@@ -52,6 +52,21 @@ export type MaterialMetadataInput = {
   manualTags?: string[];
 };
 
+export type MaterialLineageOverrideInput = {
+  lineageKey: string;
+  reason: string;
+  confirmSupersedeExistingLineage?: boolean;
+};
+
+export type MaterialLineageOverrideInfo = {
+  lineageKey: string;
+  sourceKey: string;
+  active: boolean;
+  reason?: string | null;
+  createdBy?: string | null;
+  createdAt?: string | null;
+};
+
 export type CompatibilityMetadataInput = {
   knowledgeDocumentClass?: KnowledgeDocumentClass;
   documentDate?: string | null;
@@ -113,6 +128,7 @@ export type MaterialLineageResponse = {
   requestedMaterialId: string;
   activeMaterialId?: string | null;
   versions: MaterialLineageVersion[];
+  lineageOverride?: MaterialLineageOverrideInfo | null;
 };
 
 export type MaterialPdfUploadPolicy = {
@@ -137,6 +153,7 @@ export type MaterialUploadItemInput = {
   file: File;
   title?: string;
   metadata?: MaterialMetadataInput;
+  lineageOverride?: MaterialLineageOverrideInput;
 };
 
 export type MaterialVersionUploadInput = {
@@ -173,5 +190,8 @@ export type MaterialDetail = {
   updatedAt?: string;
   metadata?: MaterialMetadata;
   chunks: MaterialChunkDetail[];
+  sourceKey?: string | null;
+  lineageVersion?: number | null;
+  lineageOverride?: MaterialLineageOverrideInfo | null;
   enrichmentStatus?: MaterialEnrichmentStatus | null;
 };

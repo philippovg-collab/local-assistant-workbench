@@ -23,7 +23,7 @@ public interface LexicalSearchProvider {
             return search(query, limit);
         }
         if (safeScope.isMaterialIds()) {
-            if (!safeScope.retrievalFilters().isEmpty()) {
+            if (safeScope.requiresCriteriaFiltering()) {
                 throw new UnsupportedOperationException("Lexical search provider does not support filtered material ids");
             }
             return search(query, limit).stream()

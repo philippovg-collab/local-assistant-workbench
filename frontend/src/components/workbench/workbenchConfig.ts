@@ -1,6 +1,7 @@
 import {
   Database,
   Brain,
+  ClipboardCheck,
   Files,
   LayoutDashboard,
   MessageCircleCode,
@@ -14,7 +15,7 @@ import kegocLogoAsset from "@/assets/logo-kegoc.png";
 export const kegocLogo = kegocLogoAsset;
 export const ACTIVE_RAG_PROJECT_STORAGE_KEY = "kegoc.activeRagProjectKey";
 
-export type WorkspaceTab = "overview" | "materials" | "instructions" | "references" | "memory" | "rag" | "direct" | "settings";
+export type WorkspaceTab = "overview" | "materials" | "instructions" | "references" | "memory" | "rag" | "direct" | "eval" | "settings";
 
 export type WorkspaceTabConfig = {
   id: WorkspaceTab;
@@ -65,6 +66,12 @@ export const workspaceTabs: WorkspaceTabConfig[] = [
     label: "Память",
     description: "Review queue и pinned continuity",
     icon: Brain,
+  },
+  {
+    id: "eval",
+    label: "Eval",
+    description: "Регрессии, golden sets и сравнение запусков",
+    icon: ClipboardCheck,
   },
   {
     id: "settings",

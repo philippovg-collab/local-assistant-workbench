@@ -24,6 +24,12 @@ CONTROLLER_PREFIX = "com.example.demo.controller."
 INFRASTRUCTURE_PREFIX = "com.example.demo.infrastructure."
 SERVICE_PREFIX = "com.example.demo.service."
 SPRING_HTTP_STATUS = "org.springframework.http.HttpStatus"
+EVAL_IMPORT_PREFIXES = (
+    "com.example.demo.controller.eval.",
+    "com.example.demo.service.eval.",
+    "com.example.demo.infrastructure.eval.",
+    "com.example.demo.model.eval.",
+)
 
 IMPORT_PATTERN = re.compile(r"^\s*import\s+(?:static\s+)?(?P<imported>[^;]+);\s*$")
 API_CLIENT_CALL_PATTERN = re.compile(r"\bapiClient\.(?P<method>[A-Za-z_$][\w$]*)\s*\(")
@@ -184,6 +190,18 @@ def is_infrastructure_service_usecase_import(imported: str) -> bool:
     return "." not in service_relative or class_name.endswith(("Service", "UseCase"))
 
 
+def is_eval_import(imported: str) -> bool:
+    return imported.startswith(EVAL_IMPORT_PREFIXES)
+
+
+def is_eval_source_path(path: Path, repo_root: Path) -> bool:
+    try:
+        relative = path.relative_to(backend_root(repo_root))
+    except ValueError:
+        return False
+    return "eval" in relative.parts
+
+
 BACKEND_RULES: tuple[BoundaryRule, ...] = (
     BoundaryRule(
         "model-forbidden-import",
@@ -239,6 +257,9 @@ REFERENCE_DATA_REPOSITORY_PATH = BACKEND_PACKAGE_ROOT / "service/reference/port/
 POSTGRES_REFERENCE_DATA_REPOSITORY_PATH = (
     BACKEND_PACKAGE_ROOT / "infrastructure/reference/PostgresReferenceDataRepository.java"
 )
+POSTGRES_CHAT_RUN_TRACE_REPOSITORY_PATH = (
+    BACKEND_PACKAGE_ROOT / "infrastructure/audit/PostgresChatRunTraceRepository.java"
+)
 
 SOURCE_RULES: tuple[SourceBoundaryRule, ...] = (
     SourceBoundaryRule(
@@ -254,6 +275,13 @@ SOURCE_RULES: tuple[SourceBoundaryRule, ...] = (
         re.compile(r"\b(?:FROM|JOIN)\s+materials\b", re.IGNORECASE),
         "materials table access",
         "PostgresReferenceDataRepository must not read materials; use rag/material infrastructure adapters behind dedicated ports.",
+    ),
+    SourceBoundaryRule(
+        "chat-trace-repository-eval-sql",
+        POSTGRES_CHAT_RUN_TRACE_REPOSITORY_PATH,
+        re.compile(r"\beval_[a-z0-9_]+\b", re.IGNORECASE),
+        "eval table access",
+        "Keep eval persistence in infrastructure.eval repositories; PostgresChatRunTraceRepository must stay focused on chat-run trace tables.",
     ),
 )
 
@@ -274,6 +302,17 @@ def collect_backend_violations(repo_root: Path) -> list[Violation]:
                         import_record.imported,
                         import_record.line,
                         rule.fix,
+                        repo_root,
+                    ))
+        if not is_eval_source_path(path, repo_root):
+            for import_record in imports:
+                if is_eval_import(import_record.imported):
+                    violations.append(Violation(
+                        "production-eval-import",
+                        path,
+                        import_record.imported,
+                        import_record.line,
+                        "Keep eval dependencies inside *.eval packages; production chat/search/audit code must not depend on eval bounded context types.",
                         repo_root,
                     ))
     return violations

@@ -291,10 +291,14 @@ Important `/api/health` fields:
 - `databaseStatus` and `vectorStatus`: PostgreSQL and pgvector health.
 - `contextFeatures`: effective Context Manager flags for context, conversations, history, sticky state, rewrite, summary, and long-term memory.
 - `indexingPendingCount`, `indexingInProgressCount`, `indexingFailedCount`, `indexingNextRetryAt`, `indexingOldestPendingAt`, `indexingOldestInProgressAt`: material indexing queue state.
+- `qualityLayer.configuredChunkProfile` and `qualityLayer.effectiveChunkProfile`: configured chunking mode and rollout-effective mode.
+- `qualityLayer.structuredV1ProofStatus`: `DISABLED`, `PROOF_MISSING`, `PROOF_NOT_FOUND`, `PROOF_INCOMPATIBLE`, `PROOF_FAILED`, or `COMPATIBLE` structured-v1 write proof state with compare id/reason details.
 
 ## Material Indexing
 
 Material upload and text save persist content with a durable auto-tagging task. The API exposes `enrichmentStatus` on material summary/detail responses so operators can see whether enrichment is `PENDING`, `RUNNING`, `FAILED`, or `DONE`. Executor rejection leaves the task `PENDING`; provider and parse failures retry through the queue before surfacing as `FAILED`. Successful enrichment updates metadata through the material lifecycle and moves the material back to `PENDING` so indexing refreshes searchable metadata.
+
+When `APP_ROLLOUT_STRUCTURED_V1=true`, material writes and rechunk operations fail closed until `APP_ROLLOUT_STRUCTURED_V1_PROOF_COMPARE_ID` points to a compatible eval compare with overall verdict `PASS`. Missing, not found, incompatible, failed, warning-only, or unavailable proof returns `material.structured_rollout_proof_required`. Read-only startup and health checks remain available so operators can inspect state and roll back config.
 
 Material indexing uses bounded worker slots. Tune concurrent drains with:
 
@@ -303,6 +307,27 @@ export APP_MATERIALS_INDEXING_WORKER_COUNT=2
 ```
 
 Each worker claims one material at a time and stops after `app.materials.indexing-drain-max-jobs`. Pending, in-progress, failed, retry, and oldest outstanding timestamps are visible in `/api/health`.
+
+## Material Lineage Override
+
+Text create and file upload can include an optional `lineageOverride` payload:
+
+```json
+{
+  "lineageKey": "policy-grid-2026",
+  "reason": "Operator confirmed this renamed file is the next version of the existing policy lineage.",
+  "confirmSupersedeExistingLineage": true
+}
+```
+
+Use it only when an operator intentionally wants a renamed title or file to continue an existing lineage. The reason is required and is surfaced on material detail/lineage responses through `lineageOverride` with `lineageKey`, `active`, `reason`, `createdBy`, and `createdAt`.
+
+Collision rules:
+
+- empty key or reason is rejected;
+- reusing an override that already has versions requires `confirmSupersedeExistingLineage=true`;
+- attempts to merge two different existing natural lineages fail with `material.lineage_override_collision`;
+- override records are stored in `material_lineage_operator_overrides` with deterministic `operator:<sha256(normalizedLineageKey)>` source keys and do not rewrite historical material content.
 
 ## OCR
 

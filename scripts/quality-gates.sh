@@ -12,8 +12,11 @@ BACKEND_CONTRACT_TESTS=(
   DtoSerializationCompatibilityTest
   MaterialMetadataSnapshotTest
   MaterialMetadataResolverTest
+  MaterialServiceTest
   MaterialIndexingServiceTest
   MaterialSearchSyncLifecycleServiceTest
+  SearchableChunkDocumentTest
+  StructuredV1ProofServiceTest
   ChatControllerContractTest
   ChatRunCommandControllerContractTest
   ChatRunQueryControllerContractTest
@@ -46,17 +49,41 @@ BACKEND_CONTRACT_TESTS=(
   OllamaEmbeddingClientTest
 )
 
+BACKEND_EVAL_TESTS=(
+  EvalControllerContractTest
+  EvalDatasetLifecycleServiceTest
+  EvalDatasetVersionCaseResolverTest
+  EvalExecutionConfigServiceTest
+  RetrievalEvalRunServiceTest
+  RetrievalEvalPreviewServiceTest
+  EvalE2ERunServiceTest
+  EvalChatRunReconcilerTest
+  EvalComparisonServiceTest
+  EvalCiReportServiceTest
+  EvalStructuredOutputParserTest
+  EvalCitationResolverTest
+  RetrievalScoringServiceTest
+)
+
 FRONTEND_CONTRACT_TESTS=(
   src/types.contract.test.ts
   src/api/client.test.ts
+  src/api/evalClient.test.ts
   src/App.test.tsx
   src/components/ConversationThreadPanel.test.tsx
+  src/components/eval/EvalTab.test.tsx
   src/components/LlmProviderSettingsPanel.test.tsx
   src/components/MemoryReviewPanel.test.tsx
+  src/components/StatusSummary.test.tsx
   src/hooks/useChatExecution.test.tsx
   src/hooks/useConversationChatExecution.test.tsx
   src/hooks/useConversationRuns.test.tsx
   src/hooks/useConversations.test.tsx
+  src/hooks/useEvalCandidatePromotion.test.tsx
+  src/hooks/useEvalCompare.test.tsx
+  src/hooks/useEvalDatasets.test.tsx
+  src/hooks/useEvalRunDetail.test.tsx
+  src/hooks/useEvalRuns.test.tsx
   src/utils/materialMetadata.test.ts
   src/utils/readiness.test.ts
   src/utils/retrievalHints.test.ts
@@ -82,6 +109,9 @@ run_static_gates() {
   python3 scripts/test_architecture_boundary_gate.py
   python3 scripts/complexity-budget-gate.py
   python3 scripts/review-contract.py --skip-body
+  python3 scripts/eval-release-gate.py
+  python3 scripts/test_eval_release_gate.py
+  python3 scripts/test_eval_gate.py
 }
 
 run_backend_contract_tests() {
@@ -89,6 +119,14 @@ run_backend_contract_tests() {
   cd "$ROOT_DIR/backend"
   local tests
   tests="$(IFS=,; echo "${BACKEND_CONTRACT_TESTS[*]}")"
+  mvn -B -Dtest="$tests" test
+}
+
+run_backend_eval_tests() {
+  echo "== Backend Eval release-gate tests =="
+  cd "$ROOT_DIR/backend"
+  local tests
+  tests="$(IFS=,; echo "${BACKEND_EVAL_TESTS[*]}")"
   mvn -B -Dtest="$tests" test
 }
 
@@ -127,11 +165,13 @@ case "$MODE" in
   fast)
     run_static_gates
     run_backend_contract_tests
+    run_backend_eval_tests
     run_frontend_contract_tests
     ;;
   full)
     run_static_gates
     run_backend_contract_tests
+    run_backend_eval_tests
     run_frontend_contract_tests
     run_backend_verify
     run_backend_coverage

@@ -5,6 +5,8 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
+import java.time.Instant;
+import java.time.LocalDate;
 import org.junit.jupiter.api.Test;
 
 class RetrievalFiltersTest {
@@ -151,6 +153,77 @@ class RetrievalFiltersTest {
         assertTrue(filters.matches(metadata(null, null, "DRAFT", DocumentStatus.ACTIVE)));
     }
 
+    @Test
+    void queryHintVersionLabelBecomesVersionLabelFilter() {
+        RetrievalQueryHints hints = new RetrievalQueryHints(
+            null,
+            null,
+            null,
+            "v2",
+            null,
+            null,
+            null,
+            null,
+            null
+        );
+
+        RetrievalFilters filters = hints.toRetrievalFilters();
+
+        assertEquals("v2", filters.versionLabel());
+        assertEquals(VersionSelectionMode.VERSION_LABEL, filters.versionSelectionMode());
+        assertTrue(filters.matches(metadata(null, null, null, DocumentStatus.ACTIVE, "v2")));
+    }
+
+    @Test
+    void isEmptyAndMergeMissingAccountForVersionAndReferenceTimeFilters() {
+        RetrievalFilters manual = new RetrievalFilters(
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            List.of(),
+            null,
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of(),
+            null,
+            null,
+            null,
+            null,
+            null,
+            LocalDate.parse("2026-04-19"),
+            VersionSelectionMode.INCLUDE_HISTORY,
+            null,
+            Instant.parse("2026-04-19T00:00:00Z"),
+            Instant.parse("2026-04-20T00:00:00Z")
+        );
+        RetrievalFilters fallback = new RetrievalFilters(
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            List.of("ops"),
+            null
+        );
+
+        RetrievalFilters merged = manual.mergeMissing(fallback);
+
+        assertTrue(!manual.isEmpty());
+        assertEquals(VersionSelectionMode.INCLUDE_HISTORY, merged.versionSelectionMode());
+        assertEquals(LocalDate.parse("2026-04-19"), merged.effectiveDate());
+        assertEquals(Instant.parse("2026-04-19T00:00:00Z"), merged.uploadedAfterInclusive());
+        assertEquals(List.of("ops"), merged.tags());
+    }
+
     private MaterialMetadataSnapshot metadata(String project, String projectKey) {
         return metadata(project, projectKey, null, DocumentStatus.ACTIVE);
     }
@@ -169,6 +242,40 @@ class RetrievalFiltersTest {
             null,
             null,
             null,
+            null,
+            null,
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of(),
+            SourceTrustLevel.UNKNOWN,
+            project,
+            projectKey,
+            null,
+            null,
+            businessStatus,
+            documentStatus,
+            null,
+            null,
+            MaterialMetadataProvenance.empty()
+        );
+    }
+
+    private MaterialMetadataSnapshot metadata(
+        String project,
+        String projectKey,
+        String businessStatus,
+        DocumentStatus documentStatus,
+        String versionLabel
+    ) {
+        return new MaterialMetadataSnapshot(
+            DocumentType.OTHER,
+            KnowledgeDocumentClass.OTHER,
+            null,
+            null,
+            null,
+            null,
+            versionLabel,
             null,
             null,
             List.of(),

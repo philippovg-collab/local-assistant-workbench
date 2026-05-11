@@ -17,6 +17,7 @@ bash scripts/quality-gates.sh fast
 - `scripts/review-contract.py --skip-body`;
 - targeted backend tests для auth/security, metadata, indexing, durable chat, Context Manager contracts/unit coverage и LLM-provider runtime/contracts;
 - targeted frontend contract tests для API/types/hooks/utils, conversation/context UI, memory review gating и LLM-provider settings UI.
+- Phase 8 targeted proof для strict Elasticsearch mapping, structured-v1 rollout proof gating, lineage override ingestion semantics, generated API contract drift, and health UI exposure.
 
 Полный локальный прогон:
 
@@ -52,6 +53,8 @@ bash scripts/quality-gates.sh ci
 Context Manager regression coverage in `fast` includes disabled feature-state contracts, idempotent `clientTurnId` submission, durable run cancel/lease guards, context assembly/history/prompt placement, sticky state, summary/memory redaction, inspector status payloads, frontend stateless fallback, thread reload, explicit cancel, and memory review UI paths. Docker-backed conversation/context repository checks remain in `full`/targeted `verify` because they require Testcontainers.
 
 LLM-provider regression coverage in `fast` includes the controller contract, service activation/secret behavior, crypto, probe/model fallback, active provider resolution, readiness persistence, prompt policy model resolution, chat/embedding transport clients, frontend API routes, generated DTO/enums, and settings UI flows. Docker-backed LLM provider repository checks remain in `full`/targeted `verify` because they require Testcontainers.
+
+Search rollout regression coverage in `fast` includes `SearchableChunkDocumentTest` for strict mapping/field coverage, `StructuredV1ProofServiceTest` for fail-closed structured-v1 writes, `MaterialServiceTest` lineage override behavior, generated API contract drift checks, and Status Summary health rendering for chunk profile/proof status. Docker-backed unknown-field rejection and alias/index integration remain in `full`/targeted `verify` because they require Testcontainers and Elasticsearch.
 
 ## Coverage Ratchet
 

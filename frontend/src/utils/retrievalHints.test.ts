@@ -76,4 +76,41 @@ describe("retrievalHints", () => {
     expect(filters.documentDateFrom).toBeNull();
     expect(filters.documentDateTo).toBeNull();
   });
+
+  it("merges and dismisses version label hints", () => {
+    const merged = mergeHintFilters(
+      emptyRetrievalFilters(),
+      { versionLabel: "v2" },
+      new Set<RetrievalFilterKey>(),
+    );
+    const dismissed = mergeHintFilters(
+      emptyRetrievalFilters(),
+      { versionLabel: "v2" },
+      new Set<RetrievalFilterKey>(["versionLabel"]),
+    );
+
+    expect(merged.versionLabel).toBe("v2");
+    expect(dismissed.versionLabel).toBeNull();
+  });
+
+  it("normalizes reference-time filters", () => {
+    const filters = mergeHintFilters(
+      {
+        ...emptyRetrievalFilters(),
+        effectiveDate: "19.04.2026",
+        uploadedAfterInclusive: "2026-04-19T00:00:00+05:00",
+        uploadedBeforeExclusive: "invalid",
+        versionSelectionMode: "VERSION_STATE",
+        versionState: "SUPERSEDED",
+      },
+      {},
+      new Set<RetrievalFilterKey>(),
+    );
+
+    expect(filters.effectiveDate).toBe("2026-04-19");
+    expect(filters.uploadedAfterInclusive).toBe("2026-04-18T19:00:00.000Z");
+    expect(filters.uploadedBeforeExclusive).toBeNull();
+    expect(filters.versionSelectionMode).toBe("VERSION_STATE");
+    expect(filters.versionState).toBe("SUPERSEDED");
+  });
 });

@@ -4,6 +4,7 @@ import { RagChatFormSection } from "@/components/RagChatFormSection";
 import { RagResponsePanel } from "@/components/RagResponsePanel";
 import { RagSourceDialog } from "@/components/RagSourceDialog";
 import { StudioScaffold } from "@/components/app/StudioScaffold";
+import type { ChatAuditCandidateAction } from "@/components/ChatAuditPanel";
 import type {
   AnswerMode,
   ChatAuditRunDetail,
@@ -66,6 +67,7 @@ type RagChatPanelProps = {
   chatRuns: ChatAuditRunSummary[];
   selectedChatRun: ChatAuditRunDetail | null;
   chatRunsError: string | null;
+  evalCandidateAction?: ChatAuditCandidateAction | null;
   sourceDialog: MaterialSourceDialogState;
   onLoadChatRun: (runId: string) => Promise<ChatAuditRunDetail | null>;
   onSubmit: () => Promise<unknown>;
@@ -117,6 +119,7 @@ export function RagChatPanel({
   chatRuns,
   selectedChatRun,
   chatRunsError,
+  evalCandidateAction,
   sourceDialog,
   onLoadChatRun,
   onSubmit,
@@ -243,6 +246,7 @@ export function RagChatPanel({
             answerMode={answerMode}
             chatRuns={chatRuns}
             chatRunsError={chatRunsError}
+            evalCandidateAction={evalCandidateAction}
             effectiveRetrievalFilters={effectiveRetrievalFilters}
             queryHints={queryHints}
             response={response}

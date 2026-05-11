@@ -2,6 +2,7 @@ package com.example.demo.service;
 
 import com.example.demo.config.MaterialProperties;
 import com.example.demo.config.RolloutProperties;
+import com.example.demo.model.MaterialLineageOverrideInput;
 import com.example.demo.model.MaterialMetadataInput;
 import com.example.demo.model.MaterialSummary;
 import com.example.demo.service.material.StoredMaterialRecord;
@@ -31,6 +32,7 @@ public class MaterialIngestionService {
         MaterialIndexingService indexingService,
         AfterCommitExecutor afterCommitExecutor,
         RolloutProperties rolloutProperties,
+        StructuredV1ProofService structuredV1ProofService,
         MaterialAutoTaggingLifecycleService autoTaggingLifecycleService,
         MaterialAutoTaggingWorkerService autoTaggingWorkerService,
         PlatformTransactionManager transactionManager
@@ -45,6 +47,7 @@ public class MaterialIngestionService {
             indexingService,
             afterCommitExecutor,
             safeRolloutProperties,
+            structuredV1ProofService,
             autoTaggingLifecycleService,
             autoTaggingWorkerService,
             transactionManager
@@ -89,6 +92,7 @@ public class MaterialIngestionService {
             indexingService,
             afterCommitExecutor,
             rolloutProperties,
+            StructuredV1ProofService.allowAllForTests(rolloutProperties),
             autoTaggingLifecycleService,
             autoTaggingWorkerService,
             null
@@ -119,6 +123,7 @@ public class MaterialIngestionService {
             indexingService,
             afterCommitExecutor,
             rolloutProperties,
+            StructuredV1ProofService.allowAllForTests(rolloutProperties),
             null,
             null,
             null
@@ -148,6 +153,7 @@ public class MaterialIngestionService {
             indexingService,
             afterCommitExecutor,
             rolloutProperties,
+            StructuredV1ProofService.allowAllForTests(rolloutProperties),
             null,
             null,
             null
@@ -176,6 +182,7 @@ public class MaterialIngestionService {
             indexingService,
             afterCommitExecutor,
             RolloutProperties.enabledForTests(),
+            StructuredV1ProofService.allowAllForTests(RolloutProperties.enabledForTests()),
             null,
             null,
             null
@@ -183,11 +190,29 @@ public class MaterialIngestionService {
     }
 
     public MaterialSummary saveText(String title, String content, MaterialMetadataInput metadataInput) {
-        return workflow.saveText(title, content, metadataInput);
+        return saveText(title, content, metadataInput, null);
+    }
+
+    public MaterialSummary saveText(
+        String title,
+        String content,
+        MaterialMetadataInput metadataInput,
+        MaterialLineageOverrideInput lineageOverride
+    ) {
+        return workflow.saveText(title, content, metadataInput, lineageOverride);
     }
 
     public MaterialSummary saveUpload(String title, MultipartFile file, MaterialMetadataInput metadataInput) {
-        return workflow.saveUpload(title, file, metadataInput);
+        return saveUpload(title, file, metadataInput, null);
+    }
+
+    public MaterialSummary saveUpload(
+        String title,
+        MultipartFile file,
+        MaterialMetadataInput metadataInput,
+        MaterialLineageOverrideInput lineageOverride
+    ) {
+        return workflow.saveUpload(title, file, metadataInput, lineageOverride);
     }
 
     public MaterialSummary saveUploadVersion(

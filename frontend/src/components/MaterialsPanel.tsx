@@ -9,6 +9,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import type {
   MaterialLineageResponse,
+  MaterialLineageOverrideInput,
   MaterialMetadataInput,
   MaterialSummary,
   MaterialUploadItemInput,
@@ -46,7 +47,12 @@ type MaterialsPanelProps = {
   referenceDataError: string | null;
   activeWorkspaceKey?: string | null;
   activeWorkspaceName?: string | null;
-  onCreateText: (input: { title: string; content: string; metadata?: MaterialMetadataInput }) => Promise<unknown>;
+  onCreateText: (input: {
+    title: string;
+    content: string;
+    metadata?: MaterialMetadataInput;
+    lineageOverride?: MaterialLineageOverrideInput;
+  }) => Promise<unknown>;
   onUpload: (input: { items: MaterialUploadItemInput[] }) => Promise<unknown>;
   onUploadVersion: (materialId: string, input: MaterialVersionUploadInput) => Promise<unknown>;
   onEditMaterial: (materialId: string, input: UpdateMaterialInput) => Promise<unknown>;

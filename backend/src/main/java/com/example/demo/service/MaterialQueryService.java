@@ -2,12 +2,14 @@ package com.example.demo.service;
 
 import com.example.demo.service.material.ChunkProfile;
 import com.example.demo.service.material.MaterialFormatRegistry;
+import com.example.demo.service.material.MaterialLineageOperatorOverride;
 import com.example.demo.service.material.OcrCapability;
 import com.example.demo.service.material.StoredMaterialChunk;
 import com.example.demo.service.material.StoredMaterialRecord;
 import com.example.demo.service.material.StoredMaterialSegment;
 import com.example.demo.service.material.port.MaterialCatalogRepository;
 import com.example.demo.service.material.port.MaterialChunkingRepository;
+import com.example.demo.service.material.port.MaterialLineageRepository;
 import com.example.demo.service.material.port.OcrCapabilityProvider;
 import com.example.demo.service.MaterialRechunkBatchSupport.NormalizedBatchRequest;
 import com.example.demo.service.MaterialRechunkBatchSupport.RechunkBatchCursor;
@@ -21,6 +23,7 @@ import com.example.demo.model.MaterialChunkDetail;
 import com.example.demo.model.MaterialDetail;
 import com.example.demo.model.MaterialEnrichmentStatus;
 import com.example.demo.model.MaterialListResponse;
+import com.example.demo.model.MaterialLineageOverrideInfo;
 import com.example.demo.model.MaterialLineageResponse;
 import com.example.demo.model.MaterialLineageVersion;
 import com.example.demo.model.MaterialMetadataSnapshot;
@@ -55,6 +58,7 @@ public class MaterialQueryService {
     private static final int MAX_MATERIAL_LIST_LIMIT = 500;
 
     private final MaterialCatalogRepository repository;
+    private final MaterialLineageRepository lineageRepository;
     private final MaterialChunkingRepository chunkingRepository;
     private final MaterialProperties properties;
     private final MaterialFormatRegistry formatRegistry;
@@ -64,6 +68,7 @@ public class MaterialQueryService {
     private final MaterialIndexingService indexingService;
     private final AfterCommitExecutor afterCommitExecutor;
     private final RolloutProperties rolloutProperties;
+    private final StructuredV1ProofService structuredV1ProofService;
     private final MaterialMetadataResolver metadataResolver;
     private final MaterialAutoTaggingLifecycleService autoTaggingLifecycleService;
     private final MaterialRechunkBatchSupport rechunkBatchSupport = new MaterialRechunkBatchSupport();
@@ -71,6 +76,7 @@ public class MaterialQueryService {
     @Autowired
     public MaterialQueryService(
         MaterialCatalogRepository repository,
+        MaterialLineageRepository lineageRepository,
         MaterialChunkingRepository chunkingRepository,
         MaterialProperties properties,
         MaterialFormatRegistry formatRegistry,
@@ -80,10 +86,12 @@ public class MaterialQueryService {
         MaterialIndexingService indexingService,
         AfterCommitExecutor afterCommitExecutor,
         RolloutProperties rolloutProperties,
+        StructuredV1ProofService structuredV1ProofService,
         MaterialMetadataResolver metadataResolver,
         MaterialAutoTaggingLifecycleService autoTaggingLifecycleService
     ) {
         this.repository = repository;
+        this.lineageRepository = lineageRepository;
         this.chunkingRepository = chunkingRepository;
         this.properties = properties;
         this.formatRegistry = formatRegistry;
@@ -93,6 +101,9 @@ public class MaterialQueryService {
         this.indexingService = indexingService;
         this.afterCommitExecutor = afterCommitExecutor;
         this.rolloutProperties = rolloutProperties == null ? new RolloutProperties() : rolloutProperties;
+        this.structuredV1ProofService = structuredV1ProofService == null
+            ? StructuredV1ProofService.allowAllForTests(this.rolloutProperties)
+            : structuredV1ProofService;
         this.metadataResolver = Objects.requireNonNull(metadataResolver, "metadataResolver");
         this.autoTaggingLifecycleService = autoTaggingLifecycleService;
     }
@@ -112,6 +123,7 @@ public class MaterialQueryService {
     ) {
         this(
             repository,
+            repository instanceof MaterialLineageRepository materialLineageRepository ? materialLineageRepository : null,
             chunkingRepository,
             properties,
             formatRegistry,
@@ -121,6 +133,7 @@ public class MaterialQueryService {
             indexingService,
             afterCommitExecutor,
             rolloutProperties,
+            StructuredV1ProofService.allowAllForTests(rolloutProperties),
             metadataResolver,
             null
         );
@@ -140,6 +153,7 @@ public class MaterialQueryService {
     ) {
         this(
             repository,
+            repository instanceof MaterialLineageRepository materialLineageRepository ? materialLineageRepository : null,
             chunkingRepository,
             properties,
             formatRegistry,
@@ -149,6 +163,7 @@ public class MaterialQueryService {
             indexingService,
             afterCommitExecutor,
             RolloutProperties.enabledForTests(),
+            StructuredV1ProofService.allowAllForTests(RolloutProperties.enabledForTests()),
             metadataResolver,
             null
         );
@@ -380,7 +395,12 @@ public class MaterialQueryService {
             .map(record -> contentSupport.toLineageVersion(record, SUPERSEDE_REASON_LEGACY_FALLBACK))
             .toList();
 
-        return new MaterialLineageResponse(requestedRecord.id(), activeMaterialId, versions);
+        return new MaterialLineageResponse(
+            requestedRecord.id(),
+            activeMaterialId,
+            versions,
+            lineageOverrideInfo(requestedRecord.sourceKey())
+        );
     }
 
     public MaterialDetail getDetail(String id) {
@@ -414,6 +434,9 @@ public class MaterialQueryService {
             record.updatedAt(),
             record.metadata(),
             chunks,
+            record.sourceKey(),
+            record.lineageVersion(),
+            lineageOverrideInfo(record.sourceKey()),
             autoTaggingLifecycleService == null
                 ? null
                 : autoTaggingLifecycleService.statusForMaterial(record.id())
@@ -511,15 +534,35 @@ public class MaterialQueryService {
         );
     }
 
-    private void ensureStructuredRolloutEnabled() {
-        if (rolloutProperties.isStructuredV1()) {
-            return;
+    private MaterialLineageOverrideInfo lineageOverrideInfo(String sourceKey) {
+        if (!StringUtils.hasText(sourceKey) || lineageRepository == null) {
+            return null;
         }
-        throw new ApplicationException(
-            ErrorType.CONFLICT,
-            "material.structured_rollout_disabled",
-            "Structured chunking rollout is disabled."
+        return lineageRepository.findActiveOverrideBySourceKey(sourceKey)
+            .map(this::toLineageOverrideInfo)
+            .orElse(null);
+    }
+
+    private MaterialLineageOverrideInfo toLineageOverrideInfo(MaterialLineageOperatorOverride override) {
+        return new MaterialLineageOverrideInfo(
+            override.lineageKey(),
+            override.sourceKey(),
+            override.active(),
+            override.reason(),
+            override.createdBy(),
+            override.createdAt()
         );
+    }
+
+    private void ensureStructuredRolloutEnabled() {
+        if (!rolloutProperties.isStructuredV1()) {
+            throw new ApplicationException(
+                ErrorType.CONFLICT,
+                "material.structured_rollout_disabled",
+                "Structured chunking rollout is disabled."
+            );
+        }
+        structuredV1ProofService.requireWriteAllowed();
     }
 
     private int normalizeMaterialListOffset(Integer offset) {

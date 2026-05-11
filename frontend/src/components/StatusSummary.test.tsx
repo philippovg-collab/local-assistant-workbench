@@ -50,6 +50,12 @@ const health: HealthResponse = {
       rerankerV1: false,
       queryHintsV1: false,
     },
+    configuredChunkProfile: "structured-v1",
+    effectiveChunkProfile: "structured-v1",
+    structuredV1ProofStatus: {
+      status: "COMPATIBLE",
+      compareId: "compare-1",
+    },
     metadataCoverage: {
       activeTotal: 4,
       activeWithEffectiveMetadata: 3,
@@ -106,6 +112,10 @@ describe("StatusSummary", () => {
     expect(screen.getByText(/1\/4 active на structured-v1/)).toBeTruthy();
     expect(screen.getByText(/pending=3/)).toBeTruthy();
     expect(screen.getByText(/partial-ready=1/)).toBeTruthy();
+    expect(screen.getByText("Chunk profile")).toBeTruthy();
+    expect(screen.getByText(/structured-v1 configured/)).toBeTruthy();
+    expect(screen.getByText("Structured-v1 proof")).toBeTruthy();
+    expect(screen.getByText(/COMPATIBLE/)).toBeTruthy();
     expect(screen.getByText("Context layer")).toBeTruthy();
     expect(screen.getAllByText("UP").length).toBeGreaterThan(0);
   });

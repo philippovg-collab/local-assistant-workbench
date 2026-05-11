@@ -1,6 +1,7 @@
 package com.example.demo.service;
 
 import com.example.demo.model.ChatSource;
+import com.example.demo.model.EvidenceLocator;
 import com.example.demo.model.MaterialMetadataSnapshot;
 import com.example.demo.model.MaterialSearchHit;
 import com.example.demo.model.MaterialSearchHitNeighbor;
@@ -33,12 +34,13 @@ final class RetrievalResultMapper {
     List<MaterialSearchHit> buildSearchHits(RetrievalSearchExecution execution, boolean includeNeighbors) {
         Map<String, List<StoredMaterialChunk>> chunksByMaterialId = includeNeighbors
             ? loadChunksForNeighbors(execution.rankedMatches(), execution.chunksByMaterialId())
-            : Map.of();
+            : execution.chunksByMaterialId();
         List<MaterialSearchHit> hits = new ArrayList<>();
         for (HybridChunkRanker.RankedChunk rankedChunk : execution.rankedMatches()) {
             MaterialChunkSearchMatch match = rankedChunk.match();
             StoredMaterialRecord record = execution.recordsById().get(match.materialId());
             MaterialMetadataSnapshot metadata = record == null ? MaterialMetadataSnapshot.empty() : record.metadata();
+            StoredMaterialChunk storedChunk = chunkFor(match.materialId(), match.chunkIndex(), chunksByMaterialId);
             List<MaterialSearchHitNeighbor> neighbors = includeNeighbors
                 ? neighborsFor(match.materialId(), match.chunkIndex(), chunksByMaterialId)
                 : null;
@@ -62,7 +64,8 @@ final class RetrievalResultMapper {
                 ),
                 metadata,
                 neighbors,
-                execution.relevanceProfile() == RelevanceProfile.HYBRID_RERANK_V1 ? rankedChunk.scoreBreakdown() : null
+                execution.relevanceProfile() == RelevanceProfile.HYBRID_RERANK_V1 ? rankedChunk.scoreBreakdown() : null,
+                evidenceLocator(record, match, storedChunk)
             ));
         }
         return List.copyOf(hits);
@@ -131,7 +134,43 @@ final class RetrievalResultMapper {
             metadata,
             match.semanticDistance(),
             match.lexicalScore(),
-            rankedChunk.scoreBreakdown()
+            rankedChunk.scoreBreakdown(),
+            evidenceLocator(record, match, chunkFor(match.materialId(), match.chunkIndex(), Map.of()))
+        );
+    }
+
+    ChatSource buildChatSource(
+        HybridChunkRanker.RankedChunk rankedChunk,
+        Set<String> queryTokens,
+        StoredMaterialRecord record,
+        StoredMaterialChunk storedChunk
+    ) {
+        MaterialChunkSearchMatch match = rankedChunk.match();
+        MaterialMetadataSnapshot metadata = record == null ? MaterialMetadataSnapshot.empty() : record.metadata();
+        return new ChatSource(
+            match.materialId(),
+            match.materialId() + ":" + match.chunkIndex(),
+            match.title(),
+            contentSupport.clip(match.chunkText(), 280),
+            rankedChunk.score(),
+            confidenceOf(match, rankedChunk.score()),
+            matchedTerms(queryTokens, match),
+            answerModePostProcessor.buildOpenSourceUrl(
+                match.materialId(),
+                match.materialId() + ":" + match.chunkIndex(),
+                match.chunkIndex(),
+                match.page()
+            ),
+            match.chunkIndex(),
+            match.page(),
+            match.extractor(),
+            match.ocrUsed(),
+            match.chunkType(),
+            metadata,
+            match.semanticDistance(),
+            match.lexicalScore(),
+            rankedChunk.scoreBreakdown(),
+            evidenceLocator(record, match, storedChunk)
         );
     }
 
@@ -163,6 +202,49 @@ final class RetrievalResultMapper {
             chunk.text(),
             chunk.page(),
             chunk.chunkType()
+        );
+    }
+
+    private StoredMaterialChunk chunkFor(
+        String materialId,
+        int chunkIndex,
+        Map<String, List<StoredMaterialChunk>> chunksByMaterialId
+    ) {
+        if (chunksByMaterialId == null || chunksByMaterialId.isEmpty()) {
+            return null;
+        }
+        return chunksByMaterialId.getOrDefault(materialId, List.of()).stream()
+            .filter(chunk -> chunk.index() == chunkIndex)
+            .findFirst()
+            .orElse(null);
+    }
+
+    private EvidenceLocator evidenceLocator(
+        StoredMaterialRecord record,
+        MaterialChunkSearchMatch match,
+        StoredMaterialChunk chunk
+    ) {
+        if (match == null) {
+            return null;
+        }
+        MaterialMetadataSnapshot metadata = record == null ? MaterialMetadataSnapshot.empty() : record.metadata();
+        return new EvidenceLocator(
+            record == null ? null : record.sourceKey(),
+            match.materialId(),
+            metadata.documentNumber(),
+            metadata.versionLabel(),
+            record == null ? null : record.versionState(),
+            record == null ? null : record.lineageVersion(),
+            match.chunkIndex(),
+            chunk == null ? match.page() : chunk.page(),
+            chunk == null ? List.of() : chunk.sectionPath(),
+            chunk == null ? List.of() : chunk.headingTrail(),
+            chunk == null ? null : chunk.tableId(),
+            chunk == null ? null : chunk.slideId(),
+            null,
+            null,
+            null,
+            null
         );
     }
 
