@@ -30,7 +30,7 @@ export function EvalCompareView({ compareHook, runs }: EvalCompareViewProps) {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
           <GitCompareArrows className="h-4 w-4 text-primary" />
-          Compare
+          Сравнение
         </div>
         <Button
           disabled={!compareHook.baselineRunId || !compareHook.candidateRunId || compareHook.isComparing}
@@ -39,15 +39,15 @@ export function EvalCompareView({ compareHook, runs }: EvalCompareViewProps) {
           onClick={() => void compareHook.createCompare()}
         >
           <ArrowRight className="h-4 w-4" />
-          Compare
+          Сравнить
         </Button>
       </div>
 
       {compareHook.error ? <p className="text-sm leading-6 text-destructive">{compareHook.error}</p> : null}
 
       <div className="grid gap-3 md:grid-cols-2">
-        <RunSelect label="Base run" runs={runs} value={compareHook.baselineRunId} onValueChange={compareHook.setBaselineRunId} />
-        <RunSelect label="Compare run" runs={runs} value={compareHook.candidateRunId} onValueChange={compareHook.setCandidateRunId} />
+        <RunSelect label="Базовый запуск" runs={runs} value={compareHook.baselineRunId} onValueChange={compareHook.setBaselineRunId} />
+        <RunSelect label="Сравниваемый запуск" runs={runs} value={compareHook.candidateRunId} onValueChange={compareHook.setCandidateRunId} />
       </div>
 
       {compareHook.compare ? (
@@ -59,8 +59,8 @@ export function EvalCompareView({ compareHook, runs }: EvalCompareViewProps) {
             <Badge variant={badgeForOverallVerdict(compareHook.overallVerdict)}>
               {compareHook.overallVerdict ?? "NO_VERDICT"}
             </Badge>
-            <Badge variant="secondary">base {shortId(compareHook.compare.baselineRunId)}</Badge>
-            <Badge variant="secondary">compare {shortId(compareHook.compare.candidateRunId)}</Badge>
+            <Badge variant="secondary">база {shortId(compareHook.compare.baselineRunId)}</Badge>
+            <Badge variant="secondary">сравнение {shortId(compareHook.compare.candidateRunId)}</Badge>
           </div>
 
           {compareHook.compatibilityReasons.length > 0 ? (
@@ -74,13 +74,13 @@ export function EvalCompareView({ compareHook, runs }: EvalCompareViewProps) {
           {compareHook.isIncompatible ? (
             <div className="flex items-center gap-2 text-sm font-semibold text-destructive">
               <XCircle className="h-4 w-4" />
-              Release proof is blocked
+              Доказательство релиза заблокировано
             </div>
           ) : (
             <div className="space-y-4">
               <div className="flex items-center gap-2 text-sm font-semibold text-success">
                 <CheckCircle2 className="h-4 w-4" />
-                Comparable release proof
+                Запуски сопоставимы для релиза
               </div>
               {hasMetricRows
                 ? <MetricDeltaTable rows={metricRows} />
@@ -89,7 +89,7 @@ export function EvalCompareView({ compareHook, runs }: EvalCompareViewProps) {
           )}
         </div>
       ) : (
-        <EmptyState description="Выбери два backend eval runs, чтобы получить compatibility и summary." icon={GitCompareArrows} title="Compare не создан" />
+        <EmptyState description="Выбери два backend-запуска оценки, чтобы получить совместимость и сводку." icon={GitCompareArrows} title="Сравнение не создано" />
       )}
     </section>
   );
@@ -110,7 +110,7 @@ function CompatibilityReasons({
     }`}>
       <div className={`flex items-center gap-2 text-sm font-semibold ${isIncompatible ? "text-destructive" : "text-warning"}`}>
         {isIncompatible ? <XCircle className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />}
-        {isIncompatible ? "Blocked" : "Compatibility warnings"}
+        {isIncompatible ? "Заблокировано" : "Предупреждения совместимости"}
       </div>
       {reasons.map((reason) => (
         <div
@@ -120,7 +120,7 @@ function CompatibilityReasons({
           key={reason.code ?? reason.message}
         >
           <div className="flex flex-wrap items-center gap-2">
-            <strong className="block text-sm text-foreground">{reason.code ?? "reason"}</strong>
+            <strong className="block text-sm text-foreground">{reason.code ?? "причина"}</strong>
             <Badge variant={reasonTone}>{reason.status ?? "UNKNOWN"}</Badge>
           </div>
           <p className="mt-1 text-sm leading-6 text-muted-foreground">{reason.message}</p>
@@ -137,12 +137,12 @@ function MetricDeltaTable({ rows }: { rows: ReturnType<typeof metricDeltaRows> }
       <table className="min-w-full divide-y divide-border text-sm">
         <thead className="bg-surface-subtle-strong text-xs uppercase tracking-[0.12em] text-muted-foreground">
           <tr>
-            <th className="px-4 py-3 text-left font-semibold">Metric</th>
-            <th className="px-4 py-3 text-right font-semibold">Base</th>
-            <th className="px-4 py-3 text-right font-semibold">Candidate</th>
-            <th className="px-4 py-3 text-right font-semibold">Delta</th>
-            <th className="px-4 py-3 text-left font-semibold">Verdict</th>
-            <th className="px-4 py-3 text-right font-semibold">Scored</th>
+            <th className="px-4 py-3 text-left font-semibold">Метрика</th>
+            <th className="px-4 py-3 text-right font-semibold">База</th>
+            <th className="px-4 py-3 text-right font-semibold">Кандидат</th>
+            <th className="px-4 py-3 text-right font-semibold">Дельта</th>
+            <th className="px-4 py-3 text-left font-semibold">Вердикт</th>
+            <th className="px-4 py-3 text-right font-semibold">Оценено</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-border">
@@ -158,7 +158,7 @@ function MetricDeltaTable({ rows }: { rows: ReturnType<typeof metricDeltaRows> }
               <td className="px-4 py-3"><Badge variant={badgeForMetricVerdict(row.verdict)}>{row.verdict}</Badge></td>
               <td className="px-4 py-3 text-right tabular-nums text-muted-foreground">
                 {formatMetricValue(row.sampleSize)}
-                {Number(row.nonScorableCount ?? 0) > 0 ? ` / ${formatMetricValue(row.nonScorableCount)} n/a` : ""}
+                {Number(row.nonScorableCount ?? 0) > 0 ? ` / ${formatMetricValue(row.nonScorableCount)} н/д` : ""}
               </td>
             </tr>
           ))}
@@ -181,7 +181,7 @@ function NoMetricDelta({
     }`}>
       <div className={`flex items-center gap-2 text-sm font-semibold ${isError ? "text-destructive" : "text-foreground"}`}>
         <AlertTriangle className={`h-4 w-4 ${isError ? "text-destructive" : "text-warning"}`} />
-        {isError ? "Compatible compare is missing metricSummary" : "Backend returned no metric deltas"}
+        {isError ? "В совместимом сравнении нет metricSummary" : "Backend не вернул изменения метрик"}
       </div>
       <div className="mt-3"><JsonBlock value={summary} /></div>
     </div>
@@ -204,10 +204,10 @@ function RunSelect({
       <Select value={value ?? NONE_VALUE} onValueChange={(nextValue) => onValueChange(nextValue === NONE_VALUE ? null : nextValue)}>
         <SelectTrigger><SelectValue /></SelectTrigger>
         <SelectContent>
-          <SelectItem value={NONE_VALUE}>No run</SelectItem>
+          <SelectItem value={NONE_VALUE}>Запуск не выбран</SelectItem>
           {runs.map((run) => (
             <SelectItem key={run.id} value={run.id ?? NONE_VALUE}>
-              {shortId(run.id)} · {run.runKind ?? "n/a"} · {run.status ?? "n/a"}
+              {shortId(run.id)} · {run.runKind ?? "н/д"} · {run.status ?? "н/д"}
             </SelectItem>
           ))}
         </SelectContent>

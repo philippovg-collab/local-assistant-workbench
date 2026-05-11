@@ -44,37 +44,37 @@ export function EvalArtifactsSheet({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent className="w-[92vw] max-w-3xl overflow-y-auto" side="right">
         <SheetHeader>
-          <SheetTitle>Eval item</SheetTitle>
-          <SheetDescription>{item?.id ? shortId(item.id) : "No item selected"}</SheetDescription>
+          <SheetTitle>Элемент оценки</SheetTitle>
+          <SheetDescription>{item?.id ? shortId(item.id) : "Элемент не выбран"}</SheetDescription>
         </SheetHeader>
         {item ? (
           <div className="mt-6 space-y-4 text-sm leading-6 text-sidebar-foreground">
             <div className="grid gap-3 md:grid-cols-2">
-              <MetricCard label="status" value={item.status ?? "n/a"} />
-              <MetricCard label="failure" value={item.failureCode ?? item.failureMessage ?? "n/a"} />
+              <MetricCard label="статус" value={item.status ?? "н/д"} />
+              <MetricCard label="ошибка" value={item.failureCode ?? item.failureMessage ?? "н/д"} />
               <MetricCard label="chat run" value={shortId(item.chatRunId)} />
-              <MetricCard label="case revision" value={item.caseRevision ?? "n/a"} />
-              <MetricCard label="dataset version" value={String(itemArtifact.datasetVersion ?? "n/a")} />
-              <MetricCard label="case content hash" value={shortId(String(itemArtifact.caseContentHash ?? ""))} />
+              <MetricCard label="ревизия кейса" value={item.caseRevision ?? "н/д"} />
+              <MetricCard label="версия набора" value={String(itemArtifact.datasetVersion ?? "н/д")} />
+              <MetricCard label="хеш содержимого кейса" value={shortId(String(itemArtifact.caseContentHash ?? ""))} />
             </div>
 
             <div className="rounded-[22px] border border-white/10 bg-white/6 px-4 py-4">
-              <strong className="block text-sm font-semibold">Question</strong>
-              <p className="mt-2">{caseDetail?.question ?? "n/a"}</p>
+              <strong className="block text-sm font-semibold">Вопрос</strong>
+              <p className="mt-2">{caseDetail?.question ?? "н/д"}</p>
               <p className="mt-2 text-sidebar-foreground/70">
-                expected mode: {caseDetail?.expectedMode ? expectedModeLabels[caseDetail.expectedMode] : "n/a"}
+                ожидаемый режим: {caseDetail?.expectedMode ? expectedModeLabels[caseDetail.expectedMode] : "н/д"}
               </p>
             </div>
 
             <div className="rounded-[22px] border border-white/10 bg-white/6 px-4 py-4">
-              <strong className="block text-sm font-semibold">Answer</strong>
+              <strong className="block text-sm font-semibold">Ответ</strong>
               <p className="mt-2">
-                {String(resultPayload.answer ?? resultPayload.finalUserAnswer ?? structuredPayload.answer ?? "n/a")}
+                {String(resultPayload.answer ?? resultPayload.finalUserAnswer ?? structuredPayload.answer ?? "н/д")}
               </p>
             </div>
 
             <div className="rounded-[22px] border border-white/10 bg-white/6 px-4 py-4">
-              <strong className="block text-sm font-semibold">Evidence locators</strong>
+              <strong className="block text-sm font-semibold">Локаторы доказательств</strong>
               {claims.length > 0 ? (
                 <div className="mt-3 space-y-3">
                   {claims.map((claim, index) => {
@@ -82,7 +82,7 @@ export function EvalArtifactsSheet({
                     const citations = asArray(record.citations);
                     return (
                       <div className="rounded-[18px] border border-white/10 bg-[#0b243a]/30 px-3 py-3" key={`${record.claimId ?? index}`}>
-                        <p>{String(record.text ?? record.claimId ?? `claim-${index + 1}`)}</p>
+                        <p>{String(record.text ?? record.claimId ?? `утверждение-${index + 1}`)}</p>
                         <div className="mt-2 space-y-2">
                           {citations.map((citation, citationIndex) => (
                             <div className="text-xs text-sidebar-foreground/75" key={citationIndex}>
@@ -95,17 +95,17 @@ export function EvalArtifactsSheet({
                   })}
                 </div>
               ) : (
-                <p className="mt-2 text-sidebar-foreground/70">n/a</p>
+                <p className="mt-2 text-sidebar-foreground/70">н/д</p>
               )}
             </div>
 
             <div className="space-y-3">
-              <ArtifactSummary title="Context assembly" value={contextPayload} />
-              <ArtifactSummary title="Prompt snapshot" value={promptPayload} />
-              <ArtifactSummary title="Retrieval summary" value={retrievalPayload} />
-              <ArtifactSummary title="All artifacts" value={artifacts} />
+              <ArtifactSummary title="Сборка контекста" value={contextPayload} />
+              <ArtifactSummary title="Снимок prompt" value={promptPayload} />
+              <ArtifactSummary title="Сводка retrieval" value={retrievalPayload} />
+              <ArtifactSummary title="Все артефакты" value={artifacts} />
             </div>
-            {isLoading ? <p className="text-sm text-sidebar-foreground/70">Loading artifacts...</p> : null}
+            {isLoading ? <p className="text-sm text-sidebar-foreground/70">Загружаем артефакты...</p> : null}
           </div>
         ) : null}
       </SheetContent>

@@ -69,7 +69,7 @@ export const useEvalRunDetail = (
       return payload;
     } catch (loadError) {
       if (!signal?.aborted) {
-        setLoadError(translateCommonApiError(loadError, "Не удалось загрузить eval run detail"));
+        setLoadError(translateCommonApiError(loadError, "Не удалось загрузить детали запуска оценки"));
       }
       return null;
     } finally {
@@ -91,7 +91,7 @@ export const useEvalRunDetail = (
       return payload;
     } catch (loadError) {
       if (!signal?.aborted) {
-        setArtifactError(translateCommonApiError(loadError, "Не удалось загрузить artifacts eval item"));
+        setArtifactError(translateCommonApiError(loadError, "Не удалось загрузить артефакты элемента оценки"));
       }
       return null;
     } finally {

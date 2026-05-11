@@ -94,7 +94,7 @@ describe("useEvalCompare", () => {
       await result.current.createCompare();
     });
 
-    expect(result.current.metricSummaryError).toContain("missing metricSummary");
+    expect(result.current.metricSummaryError).toContain("нет metricSummary");
     expect(result.current.error).toBe(result.current.metricSummaryError);
   });
 });

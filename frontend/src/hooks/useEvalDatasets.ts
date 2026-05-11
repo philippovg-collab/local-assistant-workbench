@@ -65,7 +65,7 @@ export const useEvalDatasets = ({
       return payload;
     } catch (loadError) {
       if (!signal?.aborted) {
-        setLoadError(translateCommonApiError(loadError, "Не удалось загрузить eval datasets"));
+        setLoadError(translateCommonApiError(loadError, "Не удалось загрузить наборы оценки"));
       }
       return null;
     } finally {
@@ -91,7 +91,7 @@ export const useEvalDatasets = ({
       return detailPayload;
     } catch (loadError) {
       if (!signal?.aborted) {
-        setLoadError(translateCommonApiError(loadError, "Не удалось загрузить dataset detail"));
+        setLoadError(translateCommonApiError(loadError, "Не удалось загрузить детали набора"));
       }
       return null;
     } finally {
@@ -151,25 +151,25 @@ export const useEvalDatasets = ({
   };
 
   const createCase = (datasetId: string, input: CreateEvalCaseRequest) =>
-    mutate(() => evalClient.createEvalCase(datasetId, input), "Backend отклонил создание eval case");
+    mutate(() => evalClient.createEvalCase(datasetId, input), "Backend отклонил создание кейса оценки");
 
   const updateCase = (caseId: string, input: UpdateEvalCaseRequest) =>
-    mutate(() => evalClient.updateEvalCase(caseId, input), "Backend отклонил обновление eval case");
+    mutate(() => evalClient.updateEvalCase(caseId, input), "Backend отклонил обновление кейса оценки");
 
   const archiveCase = (caseId: string) =>
-    mutate(() => evalClient.archiveEvalCase(caseId), "Не удалось архивировать eval case");
+    mutate(() => evalClient.archiveEvalCase(caseId), "Не удалось архивировать кейс оценки");
 
   const submitReview = (caseId: string, input: SubmitEvalCaseReviewRequest = {}) =>
-    mutate(() => evalClient.submitEvalCaseReview(caseId, input), "Backend validation не пропустил case в review");
+    mutate(() => evalClient.submitEvalCaseReview(caseId, input), "Backend validation не пропустил кейс в review");
 
   const reviewCase = (caseId: string, input: CreateEvalCaseReviewRequest) =>
-    mutate(() => evalClient.reviewEvalCase(caseId, input), "Backend отклонил review action");
+    mutate(() => evalClient.reviewEvalCase(caseId, input), "Backend отклонил действие review");
 
   const promoteCase = (caseId: string, input: PromoteEvalCaseRequest) =>
-    mutate(() => evalClient.promoteEvalCase(caseId, input), "Backend отклонил promotion");
+    mutate(() => evalClient.promoteEvalCase(caseId, input), "Backend отклонил продвижение");
 
   const createDatasetVersion = (datasetId: string, input: CreateEvalDatasetVersionRequest = {}) =>
-    mutate(() => evalClient.createEvalDatasetVersion(datasetId, input), "Не удалось создать dataset version");
+    mutate(() => evalClient.createEvalDatasetVersion(datasetId, input), "Не удалось создать версию набора");
 
   const casesById = useMemo(() => {
     const map = new Map<string, EvalCase>();

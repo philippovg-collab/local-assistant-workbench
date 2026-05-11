@@ -29,7 +29,7 @@ export function EvalRunDetailPanel({
   if (!run) {
     return (
       <section className="surface-subtle rounded-[24px] p-5">
-        <EmptyState description="Выбери run из таблицы." icon={ClipboardCheck} title="Run detail не выбран" />
+        <EmptyState description="Выбери запуск из таблицы." icon={ClipboardCheck} title="Детали запуска не выбраны" />
       </section>
     );
   }
@@ -41,15 +41,15 @@ export function EvalRunDetailPanel({
   const executionOptions = asRecord(run.executionConfig?.options);
   const searchSyncOptions = asRecord(executionOptions.searchSync);
   const rolloutFlags = asRecord(run.executionConfig?.rolloutFlags);
-  const datasetVersion = run.executionConfig?.datasetVersion ?? String(summary.datasetVersion ?? "n/a");
+  const datasetVersion = run.executionConfig?.datasetVersion ?? String(summary.datasetVersion ?? "н/д");
   const mappingHash = String(
     summary.mappingHash
       ?? executionOptions.mappingHash
       ?? searchSyncOptions.mappingHash
       ?? rolloutFlags.mappingHash
-      ?? "n/a",
+      ?? "н/д",
   );
-  const caseRevisionRefHash = String(summary.caseRevisionRefHash ?? "n/a");
+  const caseRevisionRefHash = String(summary.caseRevisionRefHash ?? "н/д");
   const blockerRegressions = items.filter((item) => {
     const caseDetail = item.caseId ? casesById.get(item.caseId) : null;
     return caseDetail?.severity === "BLOCKER" && (item.status === "FAILED" || item.failureCode);
@@ -60,26 +60,26 @@ export function EvalRunDetailPanel({
     <section className="surface-subtle space-y-4 rounded-[24px] p-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <p className="text-[11px] font-semibold uppercase text-muted-foreground">Run Detail</p>
-          <h3 className="text-xl font-semibold text-foreground">{shortId(run.id)} · {run.runKind ?? "n/a"}</h3>
+          <p className="text-[11px] font-semibold uppercase text-muted-foreground">Детали запуска</p>
+          <h3 className="text-xl font-semibold text-foreground">{shortId(run.id)} · {run.runKind ?? "н/д"}</h3>
         </div>
-        <Badge variant={badgeForRunStatus(run.status)}>{run.status ?? "n/a"}</Badge>
+        <Badge variant={badgeForRunStatus(run.status)}>{run.status ?? "н/д"}</Badge>
       </div>
 
       {runDetailHook.error ? <p className="text-sm leading-6 text-destructive">{runDetailHook.error}</p> : null}
 
       <div className="grid gap-3 md:grid-cols-4">
-        <MetricCard label="overall verdict" value={String(summary.verdict ?? summary.overallVerdict ?? run.status ?? "n/a")} />
-        <MetricCard label="passed" value={passedCount} />
-        <MetricCard label="failed" value={failedCount} />
-        <MetricCard label="blockers" value={blockerRegressions} />
+        <MetricCard label="общий вердикт" value={String(summary.verdict ?? summary.overallVerdict ?? run.status ?? "н/д")} />
+        <MetricCard label="прошло" value={passedCount} />
+        <MetricCard label="ошибок" value={failedCount} />
+        <MetricCard label="блокеры" value={blockerRegressions} />
       </div>
 
       <div className="grid gap-3 md:grid-cols-4">
-        <MetricCard label="dataset version" value={datasetVersion} />
-        <MetricCard label="config hash" value={run.configHash ?? run.executionConfig?.configHash ?? "n/a"} />
-        <MetricCard label="mapping hash" value={mappingHash} />
-        <MetricCard label="case ref hash" value={caseRevisionRefHash} />
+        <MetricCard label="версия набора" value={datasetVersion} />
+        <MetricCard label="хеш конфигурации" value={run.configHash ?? run.executionConfig?.configHash ?? "н/д"} />
+        <MetricCard label="хеш mapping" value={mappingHash} />
+        <MetricCard label="хеш ревизии кейса" value={caseRevisionRefHash} />
       </div>
 
       {topMetrics.length > 0 ? (
@@ -92,12 +92,12 @@ export function EvalRunDetailPanel({
         <table className="w-full min-w-[920px] text-left text-sm">
           <thead className="text-xs uppercase text-muted-foreground">
             <tr>
-              <th className="px-4 py-3">case</th>
-              <th className="px-4 py-3">status</th>
-              <th className="px-4 py-3">failure</th>
+              <th className="px-4 py-3">кейс</th>
+              <th className="px-4 py-3">статус</th>
+              <th className="px-4 py-3">ошибка</th>
               <th className="px-4 py-3">chat run</th>
-              <th className="px-4 py-3">score</th>
-              <th className="px-4 py-3">artifact</th>
+              <th className="px-4 py-3">оценка</th>
+              <th className="px-4 py-3">артефакт</th>
             </tr>
           </thead>
           <tbody>
@@ -108,17 +108,17 @@ export function EvalRunDetailPanel({
                 <tr className="border-t border-border" key={item.id}>
                   <td className="max-w-[320px] px-4 py-3">
                     <strong className="block text-foreground">{caseDetail?.caseKey ?? shortId(item.caseId)}</strong>
-                    <span className="line-clamp-2 text-muted-foreground">{caseDetail?.question ?? "Case detail not loaded"}</span>
+                    <span className="line-clamp-2 text-muted-foreground">{caseDetail?.question ?? "Детали кейса не загружены"}</span>
                     <span className="mt-1 block text-xs text-muted-foreground">
-                      rev {item.caseRevision ?? "n/a"} · hash {shortId(String(artifact.caseContentHash ?? ""))}
+                      рев. {item.caseRevision ?? "н/д"} · хеш {shortId(String(artifact.caseContentHash ?? ""))}
                     </span>
                   </td>
                   <td className="px-4 py-3">
-                    <Badge variant={badgeForItemStatus(item.status)}>{item.status ?? "n/a"}</Badge>
+                    <Badge variant={badgeForItemStatus(item.status)}>{item.status ?? "н/д"}</Badge>
                   </td>
-                  <td className="px-4 py-3">{item.failureCode ?? item.failureMessage ?? "n/a"}</td>
+                  <td className="px-4 py-3">{item.failureCode ?? item.failureMessage ?? "н/д"}</td>
                   <td className="px-4 py-3">{shortId(item.chatRunId)}</td>
-                  <td className="px-4 py-3">{String(asRecord(item.scoreSummary).passed ?? asRecord(item.scoreSummary).verdict ?? "n/a")}</td>
+                  <td className="px-4 py-3">{String(asRecord(item.scoreSummary).passed ?? asRecord(item.scoreSummary).verdict ?? "н/д")}</td>
                   <td className="px-4 py-3">
                     <Button
                       disabled={!item.id}
@@ -127,7 +127,7 @@ export function EvalRunDetailPanel({
                       variant="outline"
                       onClick={() => item.id ? onOpenItem(item.id) : undefined}
                     >
-                      Open
+                      Открыть
                     </Button>
                   </td>
                 </tr>

@@ -4,31 +4,31 @@ export const ALL_VALUE = "__all__";
 export const NONE_VALUE = "__none__";
 
 export const datasetKindLabels: Record<EvalDatasetKind, string> = {
-  CANDIDATE: "Candidate",
-  GOLDEN: "Golden",
+  CANDIDATE: "Кандидат",
+  GOLDEN: "Эталон",
   SMOKE: "Smoke",
 };
 
 export const severityLabels: Record<EvalCaseSeverity, string> = {
-  BLOCKER: "Blocker",
-  HIGH: "High",
-  LOW: "Low",
-  MEDIUM: "Medium",
+  BLOCKER: "Блокер",
+  HIGH: "Высокая",
+  LOW: "Низкая",
+  MEDIUM: "Средняя",
 };
 
 export const expectedModeLabels: Record<EvalExpectedMode, string> = {
-  ABSTAIN: "Abstain",
-  ANSWER: "Answer",
-  CLARIFY: "Clarify",
+  ABSTAIN: "Воздержаться",
+  ANSWER: "Ответить",
+  CLARIFY: "Уточнить",
 };
 
 export const reviewStatusLabels: Record<EvalReviewStatus, string> = {
-  APPROVED: "Approved",
-  ARCHIVED: "Archived",
-  DRAFT: "Draft",
-  PROMOTED: "Promoted",
-  READY_FOR_REVIEW: "Ready",
-  REJECTED: "Rejected",
+  APPROVED: "Одобрено",
+  ARCHIVED: "Архив",
+  DRAFT: "Черновик",
+  PROMOTED: "Продвинуто",
+  READY_FOR_REVIEW: "Готово к ревью",
+  REJECTED: "Отклонено",
 };
 
 export const asRecord = (value: unknown): Record<string, unknown> =>
@@ -36,15 +36,15 @@ export const asRecord = (value: unknown): Record<string, unknown> =>
 
 export const asArray = (value: unknown): unknown[] => Array.isArray(value) ? value : [];
 
-export const shortId = (value?: string | null) => value ? value.slice(0, 8) : "n/a";
+export const shortId = (value?: string | null) => value ? value.slice(0, 8) : "н/д";
 
 export const formatDuration = (start?: string | null, end?: string | null) => {
   if (!start || !end) {
-    return "n/a";
+    return "н/д";
   }
   const durationMs = new Date(end).getTime() - new Date(start).getTime();
   if (!Number.isFinite(durationMs) || durationMs < 0) {
-    return "n/a";
+    return "н/д";
   }
   return durationMs < 1000 ? `${durationMs} ms` : `${Math.round(durationMs / 1000)} s`;
 };
@@ -113,11 +113,11 @@ export const metricDeltaRows = (metricSummary: Record<string, unknown>): MetricD
         baselineValue: entry.baselineValue,
         candidateValue: entry.candidateValue,
         delta: entry.delta,
-        direction: String(entry.direction ?? "n/a"),
+        direction: String(entry.direction ?? "н/д"),
         metric: String(entry.metric ?? name),
         nonScorableCount: entry.nonScorableCount,
         sampleSize: entry.sampleSize,
-        verdict: String(entry.verdict ?? "n/a"),
+        verdict: String(entry.verdict ?? "н/д"),
       };
     })
     .sort((left, right) => left.metric.localeCompare(right.metric));
@@ -127,7 +127,7 @@ export const formatMetricValue = (value: unknown) => {
     return Number.isInteger(value) ? String(value) : value.toFixed(4).replace(/0+$/, "").replace(/\.$/, "");
   }
   if (value === null || value === undefined) {
-    return "n/a";
+    return "н/д";
   }
   return String(value);
 };

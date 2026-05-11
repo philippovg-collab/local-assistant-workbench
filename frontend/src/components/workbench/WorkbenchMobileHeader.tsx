@@ -66,7 +66,7 @@ export function WorkbenchMobileHeader({
       >
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-primary">
-            Workspace
+            Рабочая область
           </p>
           <strong className="text-lg font-semibold tracking-[-0.03em] text-foreground">
             {activeWorkspace.label}
@@ -93,14 +93,19 @@ export function WorkbenchMobileHeader({
                 <span className="sr-only">Открыть навигацию</span>
               </Button>
             </SheetTrigger>
-            <SheetContent side="left">
-              <SheetHeader className="mb-6">
+            <SheetContent className="flex flex-col" side="left">
+              <SheetHeader className="mb-6 shrink-0">
                 <SheetTitle>KEGOC RAG</SheetTitle>
                 <SheetDescription>
                   Навигация по основным разделам фронтенда.
                 </SheetDescription>
               </SheetHeader>
-              <WorkbenchNavigation activeTab={activeTab} hiddenTabs={hiddenTabs} onSelectTab={onSelectTab} />
+              <WorkbenchNavigation
+                activeTab={activeTab}
+                className="min-h-0 flex-1 overflow-y-auto pr-1"
+                hiddenTabs={hiddenTabs}
+                onSelectTab={onSelectTab}
+              />
             </SheetContent>
           </Sheet>
         </div>

@@ -123,29 +123,29 @@ const validateForm = (form: LlmProviderFormState) => {
     return "Base URL должен быть корректным http:// или https:// URL.";
   }
   const invalidPath = [
-    ["Models path", form.modelsPath],
-    ["Chat completions path", form.chatCompletionsPath],
-    ["Embeddings path", form.embeddingsPath],
+    ["Путь к моделям", form.modelsPath],
+    ["Путь chat completions", form.chatCompletionsPath],
+    ["Путь embeddings", form.embeddingsPath],
   ].find(([, value]) => !isProviderPath(String(value).trim()));
   if (invalidPath) {
     return `${invalidPath[0]} должен начинаться с "/" и не быть абсолютным URL.`;
   }
   if (!isAuthHeaderName(form.authHeaderName.trim() || "Authorization")) {
-    return "Auth header name должен быть корректным HTTP header token.";
+    return "Название auth-заголовка должно быть корректным HTTP header token.";
   }
   if (hasLineBreak(form.authScheme)) {
-    return "Auth scheme не должен содержать переносы строк.";
+    return "Схема auth не должна содержать переносы строк.";
   }
   if (form.clearApiKey && form.apiKey.trim()) {
     return "Нельзя одновременно очистить API key и передать новый ключ.";
   }
-  return validateNumber(form.temperature, "Temperature", 0, 2)
-    ?? validateNumber(form.timeoutSeconds, "Timeout seconds", 1, 3600, true)
-    ?? validateNumber(form.expectedEmbeddingDimension, "Expected embedding dimension", 1, undefined, true);
+  return validateNumber(form.temperature, "Температура", 0, 2)
+    ?? validateNumber(form.timeoutSeconds, "Timeout, сек.", 1, 3600, true)
+    ?? validateNumber(form.expectedEmbeddingDimension, "Ожидаемая размерность embeddings", 1, undefined, true);
 };
 
 const confirmEmbeddingReindex = () =>
-  window.confirm("Смена embedding provider отправит активные материалы на повторную индексацию. Продолжить?");
+  window.confirm("Смена embedding-провайдера отправит активные материалы на повторную индексацию. Продолжить?");
 
 const confirmProviderDelete = (provider: LlmProviderConfigResponse) => {
   const providerName = provider.name?.trim() || provider.id || "это подключение";
@@ -274,7 +274,7 @@ export const useLlmProviders = () => {
       setMessage(result.status === "UP"
         ? "Подключение доступно."
         : result.status === "DEGRADED"
-          ? "Models endpoint недоступен, chat/embeddings OK."
+          ? "Endpoint моделей недоступен, chat/embeddings работают."
           : result.errorMessage ?? "Подключение недоступно.");
       await loadProviders();
     } catch (probeError) {
@@ -293,7 +293,7 @@ export const useLlmProviders = () => {
     try {
       const models = await apiClient.fetchLlmProviderModels(provider.id);
       setModelResults((current) => ({ ...current, [provider.id ?? ""]: models }));
-      setMessage(models.length > 0 ? `Получено моделей: ${models.length}` : "Endpoint не вернул модели.");
+      setMessage(models.length > 0 ? `Получено моделей: ${models.length}` : "Endpoint не вернул список моделей.");
     } catch (modelsError) {
       setError(getErrorMessage(modelsError, "Не удалось получить список моделей"));
     } finally {
@@ -312,10 +312,10 @@ export const useLlmProviders = () => {
     setError(null);
     try {
       await apiClient.activateLlmProvider(provider.id, { purpose });
-      setMessage(purpose === "CHAT" ? "Chat provider активирован." : "Embedding provider активирован.");
+      setMessage(purpose === "CHAT" ? "Chat-провайдер активирован." : "Embedding-провайдер активирован.");
       await loadProviders();
     } catch (activateError) {
-      setError(getErrorMessage(activateError, "Не удалось активировать provider"));
+      setError(getErrorMessage(activateError, "Не удалось активировать подключение"));
     } finally {
       setIsMutating(false);
     }
@@ -329,7 +329,7 @@ export const useLlmProviders = () => {
     setError(null);
     try {
       await apiClient.activateLlmFallback({ purpose });
-      setMessage(purpose === "CHAT" ? "Chat переключен на env fallback." : "Embeddings переключены на env fallback.");
+      setMessage(purpose === "CHAT" ? "Chat переключен на fallback из env." : "Embeddings переключены на fallback из env.");
       await loadProviders();
     } catch (fallbackError) {
       setError(getErrorMessage(fallbackError, "Не удалось переключиться на fallback"));
@@ -343,7 +343,7 @@ export const useLlmProviders = () => {
       return;
     }
     if (provider.activeChat || provider.activeEmbedding) {
-      setError("Активное LLM подключение нельзя удалить. Сначала переключите active provider.");
+      setError("Активное LLM подключение нельзя удалить. Сначала переключите активное подключение.");
       return;
     }
     if (!confirmProviderDelete(provider)) {

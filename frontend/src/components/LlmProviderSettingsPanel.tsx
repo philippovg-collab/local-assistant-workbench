@@ -56,13 +56,13 @@ const statusVariant = (status?: LlmProviderStatus | null): BadgeProps["variant"]
 
 const purposeLabel = (purpose?: LlmProviderPurpose | null) => {
   if (purpose === "CHAT") {
-    return "Chat";
+    return "Чат";
   }
   if (purpose === "EMBEDDING") {
-    return "Embeddings";
+    return "Эмбеддинги";
   }
   if (purpose === "CHAT_AND_EMBEDDING") {
-    return "Chat + Embeddings";
+    return "Чат + эмбеддинги";
   }
   return "Не задано";
 };
@@ -110,16 +110,16 @@ export function LlmProviderSettingsPanel() {
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div className="space-y-2">
           <div className="flex flex-wrap items-center gap-2">
-            <Badge variant="default">LLM подключения</Badge>
+            <Badge variant="default">LLM-подключения</Badge>
             <Badge variant={activeChatProvider ? "success" : "secondary"}>
-              Chat: {activeChatProvider?.name ?? "env fallback"}
+              Чат: {activeChatProvider?.name ?? "fallback из env"}
             </Badge>
             <Badge variant={activeEmbeddingProvider ? "success" : "secondary"}>
-              Embeddings: {activeEmbeddingProvider?.name ?? "env fallback"}
+              Эмбеддинги: {activeEmbeddingProvider?.name ?? "fallback из env"}
             </Badge>
           </div>
           <h2 className="text-2xl font-semibold text-foreground">
-            Корпоративные OpenAI-compatible endpoints
+            Корпоративные OpenAI-compatible подключения
           </h2>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -184,7 +184,7 @@ export function LlmProviderSettingsPanel() {
                           {provider.hasApiKey ? (
                             <Badge variant="secondary">
                               <KeyRound className="h-3 w-3" />
-                              key
+                              ключ
                             </Badge>
                           ) : null}
                         </div>
@@ -194,11 +194,11 @@ export function LlmProviderSettingsPanel() {
                     <td className="max-w-[220px] break-all px-4 py-4 text-muted-foreground">{provider.baseUrl}</td>
                     <td className="px-4 py-4">
                       <div className="space-y-1 text-muted-foreground">
-                        <div>{provider.defaultModel || "chat model не задана"}</div>
-                        <div>{provider.embeddingModel || "embedding model не задана"}</div>
+                        <div>{provider.defaultModel || "модель чата не задана"}</div>
+                        <div>{provider.embeddingModel || "модель эмбеддингов не задана"}</div>
                         {models ? (
                           <div className="space-y-2">
-                            <Badge variant="secondary">{models.length} remote</Badge>
+                            <Badge variant="secondary">{models.length} из endpoint</Badge>
                             {remoteModelNames.length > 0 ? (
                               <ul className="max-w-[260px] space-y-1 text-xs normal-case tracking-normal text-foreground">
                                 {remoteModelNames.slice(0, 6).map((name, index) => (
@@ -225,9 +225,9 @@ export function LlmProviderSettingsPanel() {
                     </td>
                     <td className="px-4 py-4">
                       <div className="flex flex-col gap-2">
-                        {provider.activeChat ? <Badge variant="success">Chat active</Badge> : null}
-                        {provider.activeEmbedding ? <Badge variant="success">Embedding active</Badge> : null}
-                        {!provider.activeChat && !provider.activeEmbedding ? <Badge variant="secondary">inactive</Badge> : null}
+                        {provider.activeChat ? <Badge variant="success">Chat активен</Badge> : null}
+                        {provider.activeEmbedding ? <Badge variant="success">Embeddings активны</Badge> : null}
+                        {!provider.activeChat && !provider.activeEmbedding ? <Badge variant="secondary">неактивно</Badge> : null}
                       </div>
                     </td>
                     <td className="px-4 py-4 text-muted-foreground">
@@ -238,21 +238,21 @@ export function LlmProviderSettingsPanel() {
                       <div className="flex flex-wrap justify-end gap-2">
                         <Button disabled={isMutating} onClick={() => openEditDialog(provider)} size="sm" type="button" variant="secondary">
                           <Pencil />
-                          Edit
+                          Изменить
                         </Button>
                         <Button disabled={isMutating} onClick={() => void probeProvider(provider)} size="sm" type="button" variant="secondary">
                           <PlugZap />
-                          Probe
+                          Проверить
                         </Button>
                         <Button disabled={isMutating} onClick={() => void fetchProviderModels(provider)} size="sm" type="button" variant="secondary">
                           <ListChecks />
-                          Models
+                          Модели
                         </Button>
                         <Button
                           disabled={isMutating || !canActivateChat}
                           onClick={() => void activateProvider(provider, "CHAT")}
                           size="sm"
-                          title={canActivateChat ? "Активировать provider для Chat" : "Provider не поддерживает Chat activation"}
+                          title={canActivateChat ? "Активировать подключение для Chat" : "Подключение не поддерживает активацию Chat"}
                           type="button"
                           variant="outline"
                         >
@@ -263,7 +263,7 @@ export function LlmProviderSettingsPanel() {
                           disabled={isMutating || !canActivateEmbedding}
                           onClick={() => void activateProvider(provider, "EMBEDDING")}
                           size="sm"
-                          title={canActivateEmbedding ? "Активировать provider для Embeddings" : "Provider не поддерживает Embeddings activation"}
+                          title={canActivateEmbedding ? "Активировать подключение для Embeddings" : "Подключение не поддерживает активацию Embeddings"}
                           type="button"
                           variant="outline"
                         >
@@ -279,7 +279,7 @@ export function LlmProviderSettingsPanel() {
                           variant="destructive"
                         >
                           <Trash2 />
-                          Delete
+                          Удалить
                         </Button>
                       </div>
                     </td>
@@ -289,7 +289,7 @@ export function LlmProviderSettingsPanel() {
               {!isLoading && providers.length === 0 ? (
                 <tr>
                   <td className="px-4 py-10 text-center text-muted-foreground" colSpan={8}>
-                    Подключения не созданы. Используется env fallback.
+                    Подключения не созданы. Используется fallback из env.
                   </td>
                 </tr>
               ) : null}
@@ -308,18 +308,18 @@ export function LlmProviderSettingsPanel() {
       <div className="flex flex-wrap gap-2">
         <Button disabled={isMutating} onClick={() => void activateFallback("CHAT")} type="button" variant="secondary">
           <RotateCcw />
-          Chat env fallback
+          Chat fallback из env
         </Button>
         <Button disabled={isMutating} onClick={() => void activateFallback("EMBEDDING")} type="button" variant="secondary">
           <RotateCcw />
-          Embeddings env fallback
+          Embeddings fallback из env
         </Button>
       </div>
 
       <Dialog onOpenChange={setDialogOpen} open={dialogOpen}>
         <DialogContent className="max-h-[92vh] w-[calc(100vw-2rem)] max-w-5xl overflow-y-auto p-4 sm:p-6">
           <DialogHeader>
-            <DialogTitle>{editingProvider ? "Редактировать подключение" : "Новое LLM подключение"}</DialogTitle>
+            <DialogTitle>{editingProvider ? "Редактировать подключение" : "Новое LLM-подключение"}</DialogTitle>
             <DialogDescription>
               API key не возвращается после сохранения; пустое поле при редактировании оставит текущий ключ.
             </DialogDescription>
@@ -335,9 +335,9 @@ export function LlmProviderSettingsPanel() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="CHAT">Chat</SelectItem>
-                  <SelectItem value="EMBEDDING">Embeddings</SelectItem>
-                  <SelectItem value="CHAT_AND_EMBEDDING">Chat + Embeddings</SelectItem>
+                  <SelectItem value="CHAT">Чат</SelectItem>
+                  <SelectItem value="EMBEDDING">Эмбеддинги</SelectItem>
+                  <SelectItem value="CHAT_AND_EMBEDDING">Чат + эмбеддинги</SelectItem>
                 </SelectContent>
               </Select>
             </Field>
@@ -354,13 +354,13 @@ export function LlmProviderSettingsPanel() {
                 onChange={(event) => updateForm("apiKey", event.target.value)}
               />
             </Field>
-            <Field htmlFor="llm-provider-auth-scheme" label="Auth scheme">
+            <Field htmlFor="llm-provider-auth-scheme" label="Схема auth">
               <Input id="llm-provider-auth-scheme" value={form.authScheme} onChange={(event) => updateForm("authScheme", event.target.value)} />
             </Field>
-            <Field htmlFor="llm-provider-auth-header" label="Auth header name">
+            <Field htmlFor="llm-provider-auth-header" label="Название auth-заголовка">
               <Input id="llm-provider-auth-header" value={form.authHeaderName} onChange={(event) => updateForm("authHeaderName", event.target.value)} />
             </Field>
-            <Field htmlFor="llm-provider-type" label="Provider type">
+            <Field htmlFor="llm-provider-type" label="Тип провайдера">
               <Select value={form.providerType} onValueChange={() => updateForm("providerType", "OPENAI_COMPATIBLE")}>
                 <SelectTrigger id="llm-provider-type">
                   <SelectValue />
@@ -370,28 +370,28 @@ export function LlmProviderSettingsPanel() {
                 </SelectContent>
               </Select>
             </Field>
-            <Field htmlFor="llm-provider-models-path" label="Models path">
+            <Field htmlFor="llm-provider-models-path" label="Путь к моделям">
               <Input id="llm-provider-models-path" value={form.modelsPath} onChange={(event) => updateForm("modelsPath", event.target.value)} />
             </Field>
-            <Field htmlFor="llm-provider-chat-path" label="Chat completions path">
+            <Field htmlFor="llm-provider-chat-path" label="Путь chat completions">
               <Input id="llm-provider-chat-path" value={form.chatCompletionsPath} onChange={(event) => updateForm("chatCompletionsPath", event.target.value)} />
             </Field>
-            <Field htmlFor="llm-provider-embeddings-path" label="Embeddings path">
+            <Field htmlFor="llm-provider-embeddings-path" label="Путь embeddings">
               <Input id="llm-provider-embeddings-path" value={form.embeddingsPath} onChange={(event) => updateForm("embeddingsPath", event.target.value)} />
             </Field>
-            <Field htmlFor="llm-provider-chat-model" label="Default chat model">
+            <Field htmlFor="llm-provider-chat-model" label="Модель чата по умолчанию">
               <Input id="llm-provider-chat-model" value={form.defaultModel} onChange={(event) => updateForm("defaultModel", event.target.value)} />
             </Field>
-            <Field htmlFor="llm-provider-embedding-model" label="Embedding model">
+            <Field htmlFor="llm-provider-embedding-model" label="Модель embeddings">
               <Input id="llm-provider-embedding-model" value={form.embeddingModel} onChange={(event) => updateForm("embeddingModel", event.target.value)} />
             </Field>
-            <Field htmlFor="llm-provider-temperature" label="Temperature">
+            <Field htmlFor="llm-provider-temperature" label="Температура">
               <Input id="llm-provider-temperature" min="0" max="2" step="0.1" type="number" value={form.temperature} onChange={(event) => updateForm("temperature", event.target.value)} />
             </Field>
-            <Field htmlFor="llm-provider-timeout" label="Timeout seconds">
+            <Field htmlFor="llm-provider-timeout" label="Timeout, сек.">
               <Input id="llm-provider-timeout" min="1" max="3600" type="number" value={form.timeoutSeconds} onChange={(event) => updateForm("timeoutSeconds", event.target.value)} />
             </Field>
-            <Field htmlFor="llm-provider-dimension" label="Expected embedding dimension">
+            <Field htmlFor="llm-provider-dimension" label="Ожидаемая размерность embeddings">
               <Input id="llm-provider-dimension" min="1" type="number" value={form.expectedEmbeddingDimension} onChange={(event) => updateForm("expectedEmbeddingDimension", event.target.value)} />
             </Field>
           </div>

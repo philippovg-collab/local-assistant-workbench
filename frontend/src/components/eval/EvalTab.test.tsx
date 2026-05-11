@@ -58,21 +58,21 @@ describe("EvalTab", () => {
     render(<EvalTab />);
 
     await waitFor(() => expect(screen.getAllByText("Golden QA").length).toBeGreaterThan(0));
-    expect(screen.getByText("active cases")).toBeTruthy();
+    expect(screen.getByText("активные кейсы")).toBeTruthy();
     expect(await screen.findByText("case-exact")).toBeTruthy();
-    await user.click(screen.getAllByRole("button", { name: "Approve" })[0]);
+    await user.click(screen.getAllByRole("button", { name: "Одобрить" })[0]);
     await waitFor(() => expect(evalClient.reviewEvalCase).toHaveBeenCalledWith("case-1", {
       note: "Approved from Eval UI",
       status: "APPROVED",
     }));
 
-    await user.click(screen.getByRole("button", { name: "Runs" }));
+    await user.click(screen.getByRole("button", { name: "Запуски" }));
     expect(await screen.findByText("OUTPUT_FORMAT_ERROR")).toBeTruthy();
-    expect(screen.getAllByText("failed").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("ошибок").length).toBeGreaterThan(0);
 
-    await user.click(screen.getByRole("button", { name: "Start" }));
-    expect(await screen.findByText("Start eval run")).toBeTruthy();
-    const startButtons = screen.getAllByRole("button", { name: "Start" });
+    await user.click(screen.getByRole("button", { name: "Запустить" }));
+    expect(await screen.findByText("Запустить оценку")).toBeTruthy();
+    const startButtons = screen.getAllByRole("button", { name: "Запустить" });
     await user.click(startButtons[startButtons.length - 1]);
     await waitFor(() => expect(evalClient.createRetrievalEvalRun).toHaveBeenCalledWith(expect.objectContaining({
       corpusSnapshotId: "snapshot-1",
@@ -80,14 +80,13 @@ describe("EvalTab", () => {
       datasetVersion: "v1",
     })));
 
-    await user.click(screen.getAllByRole("button", { name: "Open" })[0]);
+    await user.click(screen.getAllByRole("button", { name: "Открыть" })[0]);
     expect(await screen.findByText("Structured answer")).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Закрыть" }));
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Eval item" })).toBeNull());
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Элемент оценки" })).toBeNull());
 
-    await user.click(screen.getAllByRole("button", { name: "Compare" })[0]);
-    const compareButtons = screen.getAllByRole("button", { name: "Compare" });
-    await user.click(compareButtons[compareButtons.length - 1]);
+    await user.click(screen.getByRole("button", { name: "Сравнение" }));
+    await user.click(screen.getByRole("button", { name: "Сравнить" }));
 
     await waitFor(() => expect(evalClient.createEvalCompare).toHaveBeenCalledWith({
       baselineRunId: "run-1",
@@ -133,9 +132,7 @@ describe("EvalTab", () => {
     const user = userEvent.setup();
     render(<EvalTab focus={{ view: "compare", nonce: 1 }} />);
 
-    await waitFor(() => expect(screen.getAllByRole("button", { name: "Compare" }).length).toBeGreaterThan(1));
-    const compareButtons = screen.getAllByRole("button", { name: "Compare" });
-    await user.click(compareButtons[compareButtons.length - 1]);
+    await user.click(await screen.findByRole("button", { name: "Сравнить" }));
 
     expect(await screen.findByText("FAIL")).toBeTruthy();
     expect(await screen.findByText("mrr")).toBeTruthy();
@@ -157,12 +154,10 @@ describe("EvalTab", () => {
     const user = userEvent.setup();
     render(<EvalTab focus={{ view: "compare", nonce: 2 }} />);
 
-    await waitFor(() => expect(screen.getAllByRole("button", { name: "Compare" }).length).toBeGreaterThan(1));
-    const compareButtons = screen.getAllByRole("button", { name: "Compare" });
-    await user.click(compareButtons[compareButtons.length - 1]);
+    await user.click(await screen.findByRole("button", { name: "Сравнить" }));
 
-    expect(await screen.findByText("Compatible compare is missing metricSummary")).toBeTruthy();
-    expect(await screen.findByText(/release proof is incomplete/i)).toBeTruthy();
+    expect(await screen.findByText("В совместимом сравнении нет metricSummary")).toBeTruthy();
+    expect(await screen.findByText(/доказательство релиза неполное/i)).toBeTruthy();
   });
 });
 

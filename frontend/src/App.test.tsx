@@ -1113,7 +1113,7 @@ describe("App", () => {
       expect.stringContaining("Direct Studio"),
       expect.stringContaining("Справочники"),
       expect.stringContaining("Память"),
-      expect.stringContaining("Eval"),
+      expect.stringContaining("Оценка"),
       expect.stringContaining("Настройки"),
     ]);
     const desktopSidebar = container.querySelector("aside") as HTMLElement;
@@ -1209,9 +1209,9 @@ describe("App", () => {
     expect(directPanel.hidden).toBe(true);
     expect(settingsPanel.hidden).toBe(false);
     expect(within(settingsPanel).getByRole("heading", {
-      name: "Корпоративные OpenAI-compatible endpoints",
+      name: "Корпоративные OpenAI-compatible подключения",
     })).toBeTruthy();
-    expect(await within(settingsPanel).findByText("Подключения не созданы. Используется env fallback.")).toBeTruthy();
+    expect(await within(settingsPanel).findByText("Подключения не созданы. Используется fallback из env.")).toBeTruthy();
   });
 
   it("creates a RAG-project and locks materials metadata to it", async () => {

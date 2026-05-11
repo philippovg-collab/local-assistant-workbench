@@ -64,7 +64,7 @@ describe("LlmProviderSettingsPanel", () => {
 
     expect(screen.getByText("Загружаем подключения...")).toBeTruthy();
     resolveProviders([]);
-    expect(await screen.findByText("Подключения не созданы. Используется env fallback.")).toBeTruthy();
+    expect(await screen.findByText("Подключения не созданы. Используется fallback из env.")).toBeTruthy();
 
     cleanup();
     vi.mocked(apiClient.fetchLlmProviders).mockResolvedValue([
@@ -76,8 +76,8 @@ describe("LlmProviderSettingsPanel", () => {
 
     expect(await screen.findByText("Corp LLM VM 01")).toBeTruthy();
     expect(screen.getByText("Embedding VM")).toBeTruthy();
-    expect(screen.getByText("Chat active")).toBeTruthy();
-    expect(screen.getByText("Embedding active")).toBeTruthy();
+    expect(screen.getByText("Chat активен")).toBeTruthy();
+    expect(screen.getByText("Embeddings активны")).toBeTruthy();
   });
 
   it("renders providers and probe result", async () => {
@@ -95,9 +95,9 @@ describe("LlmProviderSettingsPanel", () => {
     render(<LlmProviderSettingsPanel />);
 
     expect(await screen.findByText("Corp LLM VM 01")).toBeTruthy();
-    expect(screen.getByText("Chat active")).toBeTruthy();
+    expect(screen.getByText("Chat активен")).toBeTruthy();
 
-    await userEvent.click(screen.getByRole("button", { name: /Probe/i }));
+    await userEvent.click(screen.getByRole("button", { name: /Проверить/i }));
 
     await waitFor(() => {
       expect(apiClient.probeLlmProvider).toHaveBeenCalledWith("provider-1");
@@ -159,7 +159,7 @@ describe("LlmProviderSettingsPanel", () => {
 
     const { rerender } = render(<LlmProviderSettingsPanel />);
 
-    await userEvent.click(await screen.findByRole("button", { name: /Edit/i }));
+    await userEvent.click(await screen.findByRole("button", { name: /Изменить/i }));
     const firstApiKeyInput = screen.getByLabelText("API key") as HTMLInputElement;
     expect(firstApiKeyInput.value).toBe("");
     await userEvent.click(screen.getByRole("button", { name: /Сохранить/i }));
@@ -172,7 +172,7 @@ describe("LlmProviderSettingsPanel", () => {
     });
 
     vi.mocked(apiClient.updateLlmProvider).mockClear();
-    await userEvent.click(await screen.findByRole("button", { name: /Edit/i }));
+    await userEvent.click(await screen.findByRole("button", { name: /Изменить/i }));
     await userEvent.type(screen.getByLabelText("API key"), "replacement-secret");
     await userEvent.click(screen.getByRole("button", { name: /Сохранить/i }));
 
@@ -185,7 +185,7 @@ describe("LlmProviderSettingsPanel", () => {
 
     vi.mocked(apiClient.updateLlmProvider).mockClear();
     rerender(<LlmProviderSettingsPanel />);
-    await userEvent.click(await screen.findByRole("button", { name: /Edit/i }));
+    await userEvent.click(await screen.findByRole("button", { name: /Изменить/i }));
     await userEvent.click(screen.getByLabelText("Очистить сохраненный API key"));
     await userEvent.click(screen.getByRole("button", { name: /Сохранить/i }));
 
@@ -205,12 +205,12 @@ describe("LlmProviderSettingsPanel", () => {
     await userEvent.click(await screen.findByRole("button", { name: /Добавить/i }));
     await userEvent.type(screen.getByLabelText("Название подключения"), "Corp LLM");
     await userEvent.type(screen.getByLabelText("Base URL"), "http://10.10.20.15:8000");
-    await userEvent.clear(screen.getByLabelText("Models path"));
-    await userEvent.type(screen.getByLabelText("Models path"), "https://evil.internal/v1/models");
+    await userEvent.clear(screen.getByLabelText("Путь к моделям"));
+    await userEvent.type(screen.getByLabelText("Путь к моделям"), "https://evil.internal/v1/models");
     await userEvent.click(screen.getByRole("button", { name: /Сохранить/i }));
 
     expect(apiClient.createLlmProvider).not.toHaveBeenCalled();
-    expect(await screen.findByText('Models path должен начинаться с "/" и не быть абсолютным URL.')).toBeTruthy();
+    expect(await screen.findByText('Путь к моделям должен начинаться с "/" и не быть абсолютным URL.')).toBeTruthy();
   });
 
   it("validates auth header names before submit", async () => {
@@ -221,12 +221,12 @@ describe("LlmProviderSettingsPanel", () => {
     await userEvent.click(await screen.findByRole("button", { name: /Добавить/i }));
     await userEvent.type(screen.getByLabelText("Название подключения"), "Corp LLM");
     await userEvent.type(screen.getByLabelText("Base URL"), "http://10.10.20.15:8000");
-    await userEvent.clear(screen.getByLabelText("Auth header name"));
-    await userEvent.type(screen.getByLabelText("Auth header name"), "Authorization Bad");
+    await userEvent.clear(screen.getByLabelText("Название auth-заголовка"));
+    await userEvent.type(screen.getByLabelText("Название auth-заголовка"), "Authorization Bad");
     await userEvent.click(screen.getByRole("button", { name: /Сохранить/i }));
 
     expect(apiClient.createLlmProvider).not.toHaveBeenCalled();
-    expect(await screen.findByText("Auth header name должен быть корректным HTTP header token.")).toBeTruthy();
+    expect(await screen.findByText("Название auth-заголовка должно быть корректным HTTP header token.")).toBeTruthy();
   });
 
   it("validates base URL and numeric ranges before submit", async () => {
@@ -244,12 +244,12 @@ describe("LlmProviderSettingsPanel", () => {
 
     await userEvent.clear(screen.getByLabelText("Base URL"));
     await userEvent.type(screen.getByLabelText("Base URL"), "http://10.10.20.15:8000");
-    await userEvent.clear(screen.getByLabelText("Temperature"));
-    await userEvent.type(screen.getByLabelText("Temperature"), "3");
+    await userEvent.clear(screen.getByLabelText("Температура"));
+    await userEvent.type(screen.getByLabelText("Температура"), "3");
     await userEvent.click(screen.getByRole("button", { name: /Сохранить/i }));
 
     expect(apiClient.createLlmProvider).not.toHaveBeenCalled();
-    expect(await screen.findByText("Temperature: укажите число от 0 до 2.")).toBeTruthy();
+    expect(await screen.findByText("Температура: укажите число от 0 до 2.")).toBeTruthy();
   });
 
   it("renders degraded probe state distinctly", async () => {
@@ -268,9 +268,9 @@ describe("LlmProviderSettingsPanel", () => {
 
     render(<LlmProviderSettingsPanel />);
 
-    await userEvent.click(await screen.findByRole("button", { name: /Probe/i }));
+    await userEvent.click(await screen.findByRole("button", { name: /Проверить/i }));
 
-    expect(await screen.findByText("Models endpoint недоступен, chat/embeddings OK.")).toBeTruthy();
+    expect(await screen.findByText("Endpoint моделей недоступен, chat/embeddings работают.")).toBeTruthy();
     expect(await screen.findByText("DEGRADED")).toBeTruthy();
     expect(await screen.findByText("840 ms")).toBeTruthy();
     expect(await screen.findByText("Provider models endpoint is unavailable or unsupported")).toBeTruthy();
@@ -292,7 +292,7 @@ describe("LlmProviderSettingsPanel", () => {
 
     render(<LlmProviderSettingsPanel />);
 
-    await userEvent.click(await screen.findByRole("button", { name: /Probe/i }));
+    await userEvent.click(await screen.findByRole("button", { name: /Проверить/i }));
 
     expect(await screen.findByText("DOWN")).toBeTruthy();
     expect(await screen.findByText("0 ms")).toBeTruthy();
@@ -308,10 +308,10 @@ describe("LlmProviderSettingsPanel", () => {
 
     render(<LlmProviderSettingsPanel />);
 
-    await userEvent.click(await screen.findByRole("button", { name: /Models/i }));
+    await userEvent.click(await screen.findByRole("button", { name: /Модели/i }));
 
     expect(await screen.findByText("Получено моделей: 2")).toBeTruthy();
-    expect(await screen.findByText("2 remote")).toBeTruthy();
+    expect(await screen.findByText("2 из endpoint")).toBeTruthy();
     expect((await screen.findAllByText("qwen2.5:32b")).length).toBeGreaterThan(1);
     expect((await screen.findAllByText("bge-m3")).length).toBeGreaterThan(1);
   });
@@ -338,7 +338,7 @@ describe("LlmProviderSettingsPanel", () => {
 
     render(<LlmProviderSettingsPanel />);
 
-    await userEvent.click(await screen.findByRole("button", { name: /Edit/i }));
+    await userEvent.click(await screen.findByRole("button", { name: /Изменить/i }));
     const apiKeyInput = screen.getByLabelText("API key");
     await userEvent.type(apiKeyInput, "replacement-secret");
     await userEvent.click(screen.getByLabelText("Очистить сохраненный API key"));
@@ -368,7 +368,7 @@ describe("LlmProviderSettingsPanel", () => {
 
     render(<LlmProviderSettingsPanel />);
 
-    await userEvent.click(await screen.findByRole("button", { name: /Embeddings env fallback/i }));
+    await userEvent.click(await screen.findByRole("button", { name: /Embeddings fallback из env/i }));
 
     expect(confirmSpy).toHaveBeenCalled();
     expect(apiClient.activateLlmFallback).not.toHaveBeenCalled();
@@ -387,14 +387,14 @@ describe("LlmProviderSettingsPanel", () => {
     const activeRow = (await screen.findByText("Corp LLM VM 01")).closest("tr") as HTMLElement;
     const inactiveRow = screen.getByText("Inactive VM").closest("tr") as HTMLElement;
 
-    expect((within(activeRow).getByRole("button", { name: /Delete/i }) as HTMLButtonElement).disabled)
+    expect((within(activeRow).getByRole("button", { name: /Удалить/i }) as HTMLButtonElement).disabled)
       .toBe(true);
-    await userEvent.click(within(inactiveRow).getByRole("button", { name: /Delete/i }));
+    await userEvent.click(within(inactiveRow).getByRole("button", { name: /Удалить/i }));
 
     expect(confirmSpy).toHaveBeenCalledWith(expect.stringContaining("Inactive VM"));
     expect(apiClient.deleteLlmProvider).not.toHaveBeenCalled();
 
-    await userEvent.click(within(inactiveRow).getByRole("button", { name: /Delete/i }));
+    await userEvent.click(within(inactiveRow).getByRole("button", { name: /Удалить/i }));
 
     await waitFor(() => {
       expect(apiClient.deleteLlmProvider).toHaveBeenCalledWith("provider-2");

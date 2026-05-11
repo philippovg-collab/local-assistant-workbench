@@ -29,16 +29,16 @@ export function EvalRunsView({ datasetsHook, runDetailHook, runsHook }: EvalRuns
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
             <Play className="h-4 w-4 text-primary" />
-            Runs
+            Запуски
           </div>
           <div className="flex flex-wrap gap-2">
             <Button size="sm" type="button" variant="outline" onClick={() => void runsHook.loadRuns()}>
               <RefreshCw className="h-4 w-4" />
-              Refresh
+              Обновить
             </Button>
             <Button size="sm" type="button" onClick={() => setStartOpen(true)}>
               <Play className="h-4 w-4" />
-              Start
+              Запустить
             </Button>
           </div>
         </div>
@@ -49,14 +49,14 @@ export function EvalRunsView({ datasetsHook, runDetailHook, runsHook }: EvalRuns
           <table className="w-full min-w-[940px] text-left text-sm">
             <thead className="text-xs uppercase text-muted-foreground">
               <tr>
-                <th className="px-4 py-3">run</th>
-                <th className="px-4 py-3">kind</th>
-                <th className="px-4 py-3">dataset version</th>
+                <th className="px-4 py-3">запуск</th>
+                <th className="px-4 py-3">тип</th>
+                <th className="px-4 py-3">версия набора</th>
                 <th className="px-4 py-3">snapshot</th>
-                <th className="px-4 py-3">status</th>
-                <th className="px-4 py-3">started</th>
-                <th className="px-4 py-3">duration</th>
-                <th className="px-4 py-3">verdict</th>
+                <th className="px-4 py-3">статус</th>
+                <th className="px-4 py-3">старт</th>
+                <th className="px-4 py-3">длительность</th>
+                <th className="px-4 py-3">вердикт</th>
               </tr>
             </thead>
             <tbody>
@@ -67,15 +67,15 @@ export function EvalRunsView({ datasetsHook, runDetailHook, runsHook }: EvalRuns
                   onClick={() => runsHook.setSelectedRunId(run.id ?? null)}
                 >
                   <td className="px-4 py-3 font-medium text-foreground">{shortId(run.id)}</td>
-                  <td className="px-4 py-3">{run.runKind ?? "n/a"}</td>
-                  <td className="px-4 py-3">{run.executionConfig?.datasetVersion ?? "n/a"}</td>
+                  <td className="px-4 py-3">{run.runKind ?? "н/д"}</td>
+                  <td className="px-4 py-3">{run.executionConfig?.datasetVersion ?? "н/д"}</td>
                   <td className="px-4 py-3">{shortId(run.snapshotId ?? run.executionConfig?.corpusSnapshotId)}</td>
                   <td className="px-4 py-3">
-                    <Badge variant={badgeForRunStatus(run.status)}>{run.status ?? "n/a"}</Badge>
+                    <Badge variant={badgeForRunStatus(run.status)}>{run.status ?? "н/д"}</Badge>
                   </td>
-                  <td className="px-4 py-3">{run.startedAt || run.createdAt ? formatDate(run.startedAt ?? run.createdAt ?? "") : "n/a"}</td>
+                  <td className="px-4 py-3">{run.startedAt || run.createdAt ? formatDate(run.startedAt ?? run.createdAt ?? "") : "н/д"}</td>
                   <td className="px-4 py-3">{formatDuration(run.startedAt, run.completedAt)}</td>
-                  <td className="px-4 py-3">{String(asRecord(run.summary).verdict ?? asRecord(run.summary).overallVerdict ?? "n/a")}</td>
+                  <td className="px-4 py-3">{String(asRecord(run.summary).verdict ?? asRecord(run.summary).overallVerdict ?? "н/д")}</td>
                 </tr>
               ))}
             </tbody>
@@ -83,7 +83,7 @@ export function EvalRunsView({ datasetsHook, runDetailHook, runsHook }: EvalRuns
         </div>
 
         {runsHook.runs.length === 0 ? (
-          <EmptyState description="Eval runs появятся после запуска retrieval или E2E workflow." icon={Play} title="Runs пока пусты" />
+          <EmptyState description="Запуски оценки появятся после запуска retrieval или E2E workflow." icon={Play} title="Запусков пока нет" />
         ) : null}
       </section>
 

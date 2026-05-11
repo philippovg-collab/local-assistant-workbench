@@ -53,7 +53,7 @@ export function EvalDatasetDetailPanel({
         <>
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <p className="text-[11px] font-semibold uppercase text-muted-foreground">Dataset Detail</p>
+              <p className="text-[11px] font-semibold uppercase text-muted-foreground">Детали набора</p>
               <h3 className="text-xl font-semibold text-foreground">
                 {datasetsHook.selectedDataset.name ?? datasetsHook.selectedDataset.datasetKey}
               </h3>
@@ -61,7 +61,7 @@ export function EvalDatasetDetailPanel({
             <div className="flex flex-wrap gap-2">
               <Button size="sm" type="button" variant="outline" onClick={onCreateCase}>
                 <Plus className="h-4 w-4" />
-                Case
+                Кейс
               </Button>
               <Button
                 disabled={!datasetsHook.selectedDatasetId || datasetsHook.isMutating}
@@ -72,28 +72,28 @@ export function EvalDatasetDetailPanel({
                   ? void datasetsHook.createDatasetVersion(datasetsHook.selectedDatasetId, { note: "Created from Eval UI" })
                   : undefined}
               >
-                Version
+                Версия
               </Button>
             </div>
           </div>
 
           <div className="grid gap-3 md:grid-cols-4">
-            <MetricCard label="version" value={latestVersion?.version ?? datasetsHook.selectedDataset.version ?? "n/a"} />
-            <MetricCard label="active cases" value={activeCaseCount} />
-            <MetricCard label="review queue" value={reviewQueue.length} />
-            <MetricCard label="versions" value={datasetsHook.versions.length} />
+            <MetricCard label="версия" value={latestVersion?.version ?? datasetsHook.selectedDataset.version ?? "н/д"} />
+            <MetricCard label="активные кейсы" value={activeCaseCount} />
+            <MetricCard label="очередь ревью" value={reviewQueue.length} />
+            <MetricCard label="версии" value={datasetsHook.versions.length} />
           </div>
 
           <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_260px]">
             <div className="rounded-[22px] border border-field-border bg-field px-4 py-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <strong className="text-sm font-semibold text-foreground">Cases</strong>
+                <strong className="text-sm font-semibold text-foreground">Кейсы</strong>
                 <Select value={severityFilter} onValueChange={onSeverityFilterChange}>
-                  <SelectTrigger aria-label="Case severity filter" className="max-w-[220px]">
+                  <SelectTrigger aria-label="Фильтр кейсов по критичности" className="max-w-[220px]">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value={ALL_VALUE}>All severities</SelectItem>
+                    <SelectItem value={ALL_VALUE}>Любая критичность</SelectItem>
                     {evalCaseSeverityValues.map((severity) => (
                       <SelectItem key={severity} value={severity}>{severityLabels[severity]}</SelectItem>
                     ))}
@@ -105,11 +105,11 @@ export function EvalDatasetDetailPanel({
                 <table className="w-full min-w-[760px] text-left text-sm">
                   <thead className="text-xs uppercase text-muted-foreground">
                     <tr>
-                      <th className="px-3 py-2">case</th>
-                      <th className="px-3 py-2">mode</th>
-                      <th className="px-3 py-2">severity</th>
-                      <th className="px-3 py-2">review</th>
-                      <th className="px-3 py-2">actions</th>
+                      <th className="px-3 py-2">кейс</th>
+                      <th className="px-3 py-2">режим</th>
+                      <th className="px-3 py-2">критичность</th>
+                      <th className="px-3 py-2">ревью</th>
+                      <th className="px-3 py-2">действия</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -119,16 +119,16 @@ export function EvalDatasetDetailPanel({
                           <strong className="block text-foreground">{evalCase.caseKey}</strong>
                           <span className="line-clamp-2 text-muted-foreground">{evalCase.question}</span>
                         </td>
-                        <td className="px-3 py-3">{evalCase.expectedMode ? expectedModeLabels[evalCase.expectedMode] : "n/a"}</td>
+                        <td className="px-3 py-3">{evalCase.expectedMode ? expectedModeLabels[evalCase.expectedMode] : "н/д"}</td>
                         <td className="px-3 py-3">
                           <Badge variant={evalCase.severity === "BLOCKER" ? "destructive" : "secondary"}>
-                            {evalCase.severity ? severityLabels[evalCase.severity] : "n/a"}
+                            {evalCase.severity ? severityLabels[evalCase.severity] : "н/д"}
                           </Badge>
                         </td>
-                        <td className="px-3 py-3">{evalCase.reviewStatus ? reviewStatusLabels[evalCase.reviewStatus] : "n/a"}</td>
+                        <td className="px-3 py-3">{evalCase.reviewStatus ? reviewStatusLabels[evalCase.reviewStatus] : "н/д"}</td>
                         <td className="px-3 py-3">
                           <div className="flex flex-wrap gap-2">
-                            <Button size="sm" type="button" variant="outline" onClick={() => onEditCase(evalCase)}>Edit</Button>
+                            <Button size="sm" type="button" variant="outline" onClick={() => onEditCase(evalCase)}>Изменить</Button>
                             <Button
                               disabled={datasetsHook.isMutating}
                               size="sm"
@@ -136,7 +136,7 @@ export function EvalDatasetDetailPanel({
                               variant="secondary"
                               onClick={() => evalCase.id ? void datasetsHook.submitReview(evalCase.id, { note: "Submitted from Eval UI" }) : undefined}
                             >
-                              Review
+                              На ревью
                             </Button>
                             <Button
                               disabled={datasetsHook.isMutating}
@@ -147,7 +147,7 @@ export function EvalDatasetDetailPanel({
                                 ? void datasetsHook.reviewCase(evalCase.id, { status: "APPROVED", note: "Approved from Eval UI" })
                                 : undefined}
                             >
-                              Approve
+                              Одобрить
                             </Button>
                             <Button
                               disabled={!promotionTargetDatasetId || datasetsHook.isMutating}
@@ -162,7 +162,7 @@ export function EvalDatasetDetailPanel({
                                   })
                                 : undefined}
                             >
-                              Promote
+                              Продвинуть
                             </Button>
                           </div>
                         </td>
@@ -174,23 +174,23 @@ export function EvalDatasetDetailPanel({
             </div>
 
             <aside className="space-y-3 rounded-[22px] border border-field-border bg-field px-4 py-4">
-              <strong className="text-sm font-semibold text-foreground">Promotion target</strong>
+              <strong className="text-sm font-semibold text-foreground">Целевой набор</strong>
               <Select
                 value={promotionTargetDatasetId ?? NONE_VALUE}
                 onValueChange={(value) => onPromotionTargetChange(value === NONE_VALUE ? null : value)}
               >
-                <SelectTrigger aria-label="Promotion target dataset">
+                <SelectTrigger aria-label="Целевой набор для продвижения">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value={NONE_VALUE}>No target</SelectItem>
+                  <SelectItem value={NONE_VALUE}>Цель не выбрана</SelectItem>
                   {promotionTargets.map((dataset) => (
                     <SelectItem key={dataset.id} value={dataset.id ?? NONE_VALUE}>{dataset.name ?? dataset.datasetKey}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
               <Separator />
-              <strong className="block text-sm font-semibold text-foreground">Review queue</strong>
+              <strong className="block text-sm font-semibold text-foreground">Очередь ревью</strong>
               <div className="space-y-2">
                 {reviewQueue.slice(0, 6).map((evalCase) => (
                   <div className="rounded-[18px] border border-border bg-background px-3 py-2" key={evalCase.id}>
@@ -198,13 +198,13 @@ export function EvalDatasetDetailPanel({
                     <p className="text-xs text-muted-foreground">{evalCase.reviewStatus}</p>
                   </div>
                 ))}
-                {reviewQueue.length === 0 ? <p className="text-sm leading-6 text-muted-foreground">Queue is empty.</p> : null}
+                {reviewQueue.length === 0 ? <p className="text-sm leading-6 text-muted-foreground">Очередь пуста.</p> : null}
               </div>
             </aside>
           </div>
         </>
       ) : (
-        <EmptyState description="Eval datasets появятся здесь после backend seed или audit promotion." icon={ClipboardCheck} title="Dataset не выбран" />
+        <EmptyState description="Наборы оценки появятся здесь после backend seed или продвижения из аудита." icon={ClipboardCheck} title="Набор не выбран" />
       )}
     </section>
   );

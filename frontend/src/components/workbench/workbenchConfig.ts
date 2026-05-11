@@ -69,14 +69,14 @@ export const workspaceTabs: WorkspaceTabConfig[] = [
   },
   {
     id: "eval",
-    label: "Eval",
-    description: "Регрессии, golden sets и сравнение запусков",
+    label: "Оценка",
+    description: "Регрессионные наборы, эталонные кейсы и сравнение запусков",
     icon: ClipboardCheck,
   },
   {
     id: "settings",
     label: "Настройки",
-    description: "LLM подключения и runtime provider",
+    description: "Подключения LLM и провайдер выполнения",
     icon: Settings,
   },
 ];

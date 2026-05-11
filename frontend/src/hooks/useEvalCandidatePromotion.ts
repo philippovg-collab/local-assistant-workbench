@@ -47,7 +47,7 @@ export const useEvalCandidatePromotion = () => {
       setCandidate(payload);
       return payload;
     } catch (createError) {
-      setMutationError(translateCommonApiError(createError, "Не удалось создать CANDIDATE из audit run"));
+      setMutationError(translateCommonApiError(createError, "Не удалось создать CANDIDATE из аудиторского запуска"));
       return null;
     } finally {
       setIsCreating(false);

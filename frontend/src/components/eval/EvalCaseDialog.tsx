@@ -73,7 +73,7 @@ export function EvalCaseDialog({
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     if (!datasetId && !caseToEdit?.id) {
-      setLocalError("Dataset is required.");
+      setLocalError("Требуется набор.");
       return;
     }
 
@@ -100,7 +100,7 @@ export function EvalCaseDialog({
         onClose();
       }
     } catch (error) {
-      setLocalError(error instanceof Error ? error.message : "Invalid case JSON fields.");
+      setLocalError(error instanceof Error ? error.message : "Некорректные JSON-поля кейса.");
     }
   };
 
@@ -108,18 +108,18 @@ export function EvalCaseDialog({
     <Dialog open={isOpen} onOpenChange={(open) => !open ? onClose() : undefined}>
       <DialogContent className="max-h-[92vh] max-w-4xl overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{caseToEdit ? "Edit eval case" : "Create eval case"}</DialogTitle>
-          <DialogDescription>Case fields follow the backend dataset lifecycle contract.</DialogDescription>
+          <DialogTitle>{caseToEdit ? "Редактировать кейс оценки" : "Создать кейс оценки"}</DialogTitle>
+          <DialogDescription>Поля кейса соответствуют backend-контракту жизненного цикла набора.</DialogDescription>
         </DialogHeader>
         <form className="space-y-4" onSubmit={(event) => void submit(event)}>
           <div className="grid gap-3 md:grid-cols-2">
-            <Field label="Case key">
+            <Field label="Ключ кейса">
               <Input required value={caseKey} onChange={(event) => setCaseKey(event.target.value)} />
             </Field>
-            <Field label="Question">
+            <Field label="Вопрос">
               <Input required value={question} onChange={(event) => setQuestion(event.target.value)} />
             </Field>
-            <Field label="Type">
+            <Field label="Тип">
               <Select value={caseType} onValueChange={setCaseType}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
@@ -127,7 +127,7 @@ export function EvalCaseDialog({
                 </SelectContent>
               </Select>
             </Field>
-            <Field label="Expected mode">
+            <Field label="Ожидаемый режим">
               <Select value={expectedMode} onValueChange={setExpectedMode}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
@@ -137,7 +137,7 @@ export function EvalCaseDialog({
                 </SelectContent>
               </Select>
             </Field>
-            <Field label="Severity">
+            <Field label="Критичность">
               <Select value={severity} onValueChange={setSeverity}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
@@ -145,42 +145,42 @@ export function EvalCaseDialog({
                 </SelectContent>
               </Select>
             </Field>
-            <Field label="Tags">
+            <Field label="Теги">
               <Input value={tags} onChange={(event) => setTags(event.target.value)} />
             </Field>
           </div>
 
           <div className="grid gap-3 md:grid-cols-3">
-            <Field label="Gold facts">
+            <Field label="Эталонные факты">
               <Textarea value={goldFacts} onChange={(event) => setGoldFacts(event.target.value)} />
             </Field>
-            <Field label="Accepted answers">
+            <Field label="Допустимые ответы">
               <Textarea value={acceptedAnswers} onChange={(event) => setAcceptedAnswers(event.target.value)} />
             </Field>
-            <Field label="Forbidden doc refs">
+            <Field label="Запрещенные ссылки на документы">
               <Textarea value={forbiddenDocumentRefs} onChange={(event) => setForbiddenDocumentRefs(event.target.value)} />
             </Field>
           </div>
 
           <div className="grid gap-3 md:grid-cols-2">
-            <Field label="Knowledge scope JSON">
+            <Field label="JSON scope знаний">
               <Textarea value={knowledgeScope} onChange={(event) => setKnowledgeScope(event.target.value)} />
             </Field>
-            <Field label="Retrieval filters JSON">
+            <Field label="JSON фильтры retrieval">
               <Textarea value={retrievalFilters} onChange={(event) => setRetrievalFilters(event.target.value)} />
             </Field>
-            <Field label="Gold evidence locators JSON">
+            <Field label="JSON локаторы доказательств">
               <Textarea value={goldEvidenceLocators} onChange={(event) => setGoldEvidenceLocators(event.target.value)} />
             </Field>
-            <Field label="Required doc groups JSON">
+            <Field label="JSON группы обязательных документов">
               <Textarea value={requiredDocGroups} onChange={(event) => setRequiredDocGroups(event.target.value)} />
             </Field>
           </div>
 
           {localError ? <p className="text-sm leading-6 text-destructive">{localError}</p> : null}
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
-            <Button disabled={isSaving} type="submit">{isSaving ? "Saving..." : "Save"}</Button>
+            <Button type="button" variant="outline" onClick={onClose}>Отмена</Button>
+            <Button disabled={isSaving} type="submit">{isSaving ? "Сохраняем..." : "Сохранить"}</Button>
           </DialogFooter>
         </form>
       </DialogContent>

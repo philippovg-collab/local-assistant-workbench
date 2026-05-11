@@ -34,21 +34,21 @@ export function EvalDatasetList({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
           <ListFilter className="h-4 w-4 text-primary" />
-          Datasets
+          Наборы
         </div>
         <Button size="sm" type="button" variant="outline" onClick={() => void datasetsHook.loadDatasets()}>
           <RefreshCw className="h-4 w-4" />
-          Refresh
+          Обновить
         </Button>
       </div>
 
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-1">
         <Select value={kindFilter} onValueChange={onKindFilterChange}>
-          <SelectTrigger aria-label="Dataset kind filter">
+          <SelectTrigger aria-label="Фильтр наборов по типу">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value={ALL_VALUE}>All kinds</SelectItem>
+            <SelectItem value={ALL_VALUE}>Все типы</SelectItem>
             {evalDatasetKindValues.map((kind) => (
               <SelectItem key={kind} value={kind}>{datasetKindLabels[kind]}</SelectItem>
             ))}
@@ -56,11 +56,11 @@ export function EvalDatasetList({
         </Select>
 
         <Select value={statusFilter} onValueChange={onStatusFilterChange}>
-          <SelectTrigger aria-label="Dataset status filter">
+          <SelectTrigger aria-label="Фильтр наборов по статусу">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value={ALL_VALUE}>All statuses</SelectItem>
+            <SelectItem value={ALL_VALUE}>Все статусы</SelectItem>
             {evalLifecycleStatusValues.map((status) => (
               <SelectItem key={status} value={status}>{status}</SelectItem>
             ))}
@@ -68,8 +68,8 @@ export function EvalDatasetList({
         </Select>
 
         <Input
-          aria-label="Dataset tag filter"
-          placeholder="tag"
+          aria-label="Фильтр наборов по тегу"
+          placeholder="тег"
           value={tagFilter}
           onChange={(event) => onTagFilterChange(event.target.value)}
         />
@@ -91,19 +91,19 @@ export function EvalDatasetList({
           >
             <div className="flex flex-wrap items-center justify-between gap-2">
               <strong className="text-sm font-semibold text-foreground">{dataset.name ?? dataset.datasetKey}</strong>
-              <Badge variant={dataset.status === "ACTIVE" ? "success" : "secondary"}>{dataset.status ?? "n/a"}</Badge>
+              <Badge variant={dataset.status === "ACTIVE" ? "success" : "secondary"}>{dataset.status ?? "н/д"}</Badge>
             </div>
-            <p className="mt-2 text-sm leading-6 text-muted-foreground">{dataset.description ?? "No description"}</p>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">{dataset.description ?? "Нет описания"}</p>
             <div className="mt-3 flex flex-wrap gap-2">
-              <Badge variant="outline">{dataset.kind ? datasetKindLabels[dataset.kind] : "kind n/a"}</Badge>
-              <Badge variant="secondary">{dataset.caseCount} cases</Badge>
+              <Badge variant="outline">{dataset.kind ? datasetKindLabels[dataset.kind] : "тип н/д"}</Badge>
+              <Badge variant="secondary">{dataset.caseCount} кейсов</Badge>
               {dataset.version ? <Badge variant="secondary">v {dataset.version}</Badge> : null}
             </div>
           </button>
         ))}
 
         {filteredDatasets.length === 0 ? (
-          <EmptyState description="Фильтры не нашли dataset." icon={Search} title="Datasets не найдены" />
+          <EmptyState description="Фильтры не нашли подходящие наборы." icon={Search} title="Наборы не найдены" />
         ) : null}
       </div>
     </section>

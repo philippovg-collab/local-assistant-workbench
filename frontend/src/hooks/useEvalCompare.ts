@@ -54,7 +54,7 @@ export const useEvalCompare = ({ enabled = true, runs }: UseEvalCompareOptions) 
       setCompare(payload);
       return payload;
     } catch (compareError) {
-      setMutationError(translateCommonApiError(compareError, "Не удалось создать eval compare"));
+      setMutationError(translateCommonApiError(compareError, "Не удалось создать сравнение запусков оценки"));
       return null;
     } finally {
       setIsComparing(false);
@@ -68,7 +68,7 @@ export const useEvalCompare = ({ enabled = true, runs }: UseEvalCompareOptions) 
   const metricSummary = asRecord(summary.metricSummary);
   const overallVerdict = typeof summary.overallVerdict === "string" ? summary.overallVerdict : null;
   const metricSummaryError = compare && !isIncompatible && Object.keys(metricSummary).length === 0
-    ? "Compatible compare is missing metricSummary; release proof is incomplete."
+    ? "В совместимом сравнении нет metricSummary; доказательство релиза неполное."
     : null;
   const error = mutationError ?? metricSummaryError;
 

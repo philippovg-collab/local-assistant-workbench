@@ -57,7 +57,7 @@ export const useEvalRuns = ({ enabled = true, pollingEnabled = true }: UseEvalRu
       return payload;
     } catch (loadError) {
       if (!signal?.aborted) {
-        setLoadError(translateCommonApiError(loadError, "Не удалось загрузить eval runs"));
+        setLoadError(translateCommonApiError(loadError, "Не удалось загрузить запуски оценки"));
       }
       return null;
     } finally {
@@ -79,7 +79,7 @@ export const useEvalRuns = ({ enabled = true, pollingEnabled = true }: UseEvalRu
       return payload;
     } catch (loadError) {
       if (!signal?.aborted) {
-        setLoadError(translateCommonApiError(loadError, "Не удалось загрузить corpus snapshots"));
+        setLoadError(translateCommonApiError(loadError, "Не удалось загрузить снимки корпуса"));
       }
       return null;
     } finally {
@@ -145,13 +145,13 @@ export const useEvalRuns = ({ enabled = true, pollingEnabled = true }: UseEvalRu
   };
 
   const startRetrievalRun = (input: CreateRetrievalEvalRunRequest) =>
-    mutateRun(() => evalClient.createRetrievalEvalRun(input), "Не удалось запустить retrieval eval");
+    mutateRun(() => evalClient.createRetrievalEvalRun(input), "Не удалось запустить retrieval-оценку");
 
   const startE2ERun = (input: CreateE2EEvalRunRequest) =>
-    mutateRun(() => evalClient.createE2EEvalRun(input), "Не удалось запустить E2E eval");
+    mutateRun(() => evalClient.createE2EEvalRun(input), "Не удалось запустить E2E-оценку");
 
   const reconcileRun = (runId: string) =>
-    mutateRun(() => evalClient.reconcileEvalRun(runId), "Не удалось reconcile eval run");
+    mutateRun(() => evalClient.reconcileEvalRun(runId), "Не удалось reconcile запуск оценки");
 
   const resolveExecutionConfig = async (input: ResolveEvalExecutionConfigRequest = {}) => {
     if (!enabled) {
@@ -164,7 +164,7 @@ export const useEvalRuns = ({ enabled = true, pollingEnabled = true }: UseEvalRu
       setResolvedConfigHash(result.configHash ?? result.executionConfig?.configHash ?? null);
       return result;
     } catch (resolveError) {
-      setMutationError(translateCommonApiError(resolveError, "Не удалось resolve execution config"));
+      setMutationError(translateCommonApiError(resolveError, "Не удалось рассчитать execution config"));
       return null;
     } finally {
       setIsMutating(false);

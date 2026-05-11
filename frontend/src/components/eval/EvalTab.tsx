@@ -53,21 +53,21 @@ export function EvalTab({ focus }: EvalTabProps) {
   return (
     <div className="space-y-5">
       <SectionIntro
-        badge="Eval"
+        badge="Оценка"
         badgeVariant="default"
-        description="Regression datasets, golden cases, eval runs and backend compare verdicts live here."
-        eyebrow="Regression Control"
-        title="Eval"
+        description="Здесь собраны регрессионные наборы, эталонные кейсы, запуски оценки и вердикты сравнения от backend."
+        eyebrow="Контроль регрессий"
+        title="Оценка"
       />
 
       <div className="surface-subtle flex flex-wrap items-center gap-2 rounded-[24px] p-2">
-        <EvalViewButton active={view === "datasets"} label="Datasets" onClick={() => setView("datasets")} />
-        <EvalViewButton active={view === "runs"} label="Runs" onClick={() => setView("runs")} />
-        <EvalViewButton active={view === "compare"} label="Compare" onClick={() => setView("compare")} />
+        <EvalViewButton active={view === "datasets"} label="Наборы" onClick={() => setView("datasets")} />
+        <EvalViewButton active={view === "runs"} label="Запуски" onClick={() => setView("runs")} />
+        <EvalViewButton active={view === "compare"} label="Сравнение" onClick={() => setView("compare")} />
         <div className="ml-auto flex flex-wrap gap-2">
-          <Badge variant="secondary">{datasets.datasets.length} datasets</Badge>
+          <Badge variant="secondary">{datasets.datasets.length} наборов</Badge>
           <Badge variant={runs.hasActiveRuns ? "warning" : "secondary"}>
-            {runs.hasActiveRuns ? "active run" : `${runs.runs.length} runs`}
+            {runs.hasActiveRuns ? "активный запуск" : `${runs.runs.length} запусков`}
           </Badge>
         </div>
       </div>

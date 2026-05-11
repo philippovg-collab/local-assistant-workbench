@@ -108,12 +108,12 @@ export function StartEvalRunDialog({
     <Dialog open={isOpen} onOpenChange={(open) => !open ? onClose() : undefined}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Start eval run</DialogTitle>
-          <DialogDescription>Backend executes retrieval or E2E workflows and computes verdicts.</DialogDescription>
+          <DialogTitle>Запустить оценку</DialogTitle>
+          <DialogDescription>Backend выполняет retrieval или E2E workflow и рассчитывает вердикты.</DialogDescription>
         </DialogHeader>
         <form className="space-y-4" onSubmit={(event) => void submit(event)}>
           <div className="grid gap-3 md:grid-cols-2">
-            <Field label="Run type">
+            <Field label="Тип запуска">
               <Select value={runType} onValueChange={(value) => setRunType(value as "RETRIEVAL" | "E2E")}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
@@ -122,25 +122,25 @@ export function StartEvalRunDialog({
                 </SelectContent>
               </Select>
             </Field>
-            <Field label="Dataset">
+            <Field label="Набор">
               <Select value={datasetId || NONE_VALUE} onValueChange={(value) => setDatasetId(value === NONE_VALUE ? "" : value)}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value={NONE_VALUE}>No dataset</SelectItem>
+                  <SelectItem value={NONE_VALUE}>Набор не выбран</SelectItem>
                   {datasets.map((dataset) => (
                     <SelectItem key={dataset.id} value={dataset.id ?? NONE_VALUE}>{dataset.name ?? dataset.datasetKey}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </Field>
-            <Field label="Dataset version">
+            <Field label="Версия набора">
               <Input value={datasetVersion} onChange={(event) => setDatasetVersion(event.target.value)} />
             </Field>
-            <Field label="Corpus snapshot">
+            <Field label="Снимок корпуса">
               <Select value={snapshotId || NONE_VALUE} onValueChange={(value) => setSnapshotId(value === NONE_VALUE ? "" : value)}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value={NONE_VALUE}>No snapshot</SelectItem>
+                  <SelectItem value={NONE_VALUE}>Снимок не выбран</SelectItem>
                   {snapshots.map((snapshot) => (
                     <SelectItem key={snapshot.id} value={snapshot.id ?? NONE_VALUE}>
                       {snapshot.snapshotKey ?? shortId(snapshot.id)}
@@ -149,21 +149,21 @@ export function StartEvalRunDialog({
                 </SelectContent>
               </Select>
             </Field>
-            <Field label="Execution config hash">
+            <Field label="Хеш config">
               <Input value={executionConfigHash} onChange={(event) => setExecutionConfigHash(event.target.value)} />
             </Field>
-            <Field label="Reference instant">
+            <Field label="Контрольный момент">
               <Input placeholder="2026-05-11T00:00:00Z" value={referenceInstant} onChange={(event) => setReferenceInstant(event.target.value)} />
             </Field>
-            <Field label="Limit">
+            <Field label="Лимит">
               <Input min={1} type="number" value={limit} onChange={(event) => setLimit(event.target.value)} />
             </Field>
             {runType === "E2E" ? (
               <>
-                <Field label="Model">
+                <Field label="Модель">
                   <Input value={model} onChange={(event) => setModel(event.target.value)} />
                 </Field>
-                <Field label="Judge mode">
+                <Field label="Режим судьи">
                   <Select value={judgeMode} onValueChange={setJudgeMode}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
@@ -175,9 +175,9 @@ export function StartEvalRunDialog({
             ) : null}
           </div>
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => void resolve()}>Resolve config</Button>
-            <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
-            <Button disabled={isSaving} type="submit">{isSaving ? "Starting..." : "Start"}</Button>
+            <Button type="button" variant="outline" onClick={() => void resolve()}>Рассчитать config</Button>
+            <Button type="button" variant="outline" onClick={onClose}>Отмена</Button>
+            <Button disabled={isSaving} type="submit">{isSaving ? "Запускаем..." : "Запустить"}</Button>
           </DialogFooter>
         </form>
       </DialogContent>
