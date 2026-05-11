@@ -65,7 +65,7 @@ public class HealthStatusService {
     public HealthResponse currentHealth() {
         OcrCapability capability = ocrCapabilityProvider.currentCapability();
         RagStorageHealthService.StorageHealth storageHealth = ragStorageHealthService.currentHealth();
-        RuntimeReadinessService.RuntimeReadiness runtimeReadiness = runtimeReadinessService.currentReadiness();
+        RuntimeReadinessService.RuntimeReadiness runtimeReadiness = runtimeReadinessService.snapshot();
         MaterialIndexingQueueRepository.IndexingQueueSnapshot indexingQueueSnapshot = null;
         KnowledgeReadiness knowledgeReadiness;
         if (!"UP".equals(storageHealth.databaseStatus())) {

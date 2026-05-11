@@ -78,7 +78,7 @@ class HealthControllerTest {
     @Test
     void reportsEmptyCorpusAsRuntimeUpButRagDown() throws Exception {
         stubHealthyOcrAndStorage();
-        when(runtimeReadinessService.currentReadiness()).thenReturn(runtimeReadiness("UP", null, null, "UP", null, "UP", null));
+        when(runtimeReadinessService.snapshot()).thenReturn(runtimeReadiness("UP", null, null, "UP", null, "UP", null));
         when(materialCatalogRepository.countMaterials()).thenReturn(0);
         when(materialCatalogRepository.countActiveMaterials()).thenReturn(0);
         when(materialCatalogRepository.countReadyMaterials()).thenReturn(0);
@@ -116,7 +116,7 @@ class HealthControllerTest {
     @Test
     void reportsHistoricalOnlyCorpusSeparatelyFromRuntimeHealth() throws Exception {
         stubHealthyOcrAndStorage();
-        when(runtimeReadinessService.currentReadiness()).thenReturn(runtimeReadiness("UP", null, null, "UP", null, "UP", null));
+        when(runtimeReadinessService.snapshot()).thenReturn(runtimeReadiness("UP", null, null, "UP", null, "UP", null));
         when(materialCatalogRepository.countMaterials()).thenReturn(3);
         when(materialCatalogRepository.countActiveMaterials()).thenReturn(0);
         when(materialCatalogRepository.countReadyMaterials()).thenReturn(0);
@@ -146,7 +146,7 @@ class HealthControllerTest {
     @Test
     void reportsIndexingCorpusAsNotReadyYetWithoutDegradingBackend() throws Exception {
         stubHealthyOcrAndStorage();
-        when(runtimeReadinessService.currentReadiness()).thenReturn(runtimeReadiness("UP", null, null, "UP", null, "UP", null));
+        when(runtimeReadinessService.snapshot()).thenReturn(runtimeReadiness("UP", null, null, "UP", null, "UP", null));
         when(materialCatalogRepository.countMaterials()).thenReturn(1);
         when(materialCatalogRepository.countActiveMaterials()).thenReturn(1);
         when(materialCatalogRepository.countReadyMaterials()).thenReturn(0);
@@ -194,7 +194,7 @@ class HealthControllerTest {
     @Test
     void reportsHealthyReadyCorpusUsingBackendTruthModel() throws Exception {
         stubHealthyOcrAndStorage();
-        when(runtimeReadinessService.currentReadiness()).thenReturn(runtimeReadiness("UP", null, null, "UP", null, "UP", null));
+        when(runtimeReadinessService.snapshot()).thenReturn(runtimeReadiness("UP", null, null, "UP", null, "UP", null));
         when(materialCatalogRepository.countMaterials()).thenReturn(2);
         when(materialCatalogRepository.countActiveMaterials()).thenReturn(1);
         when(materialCatalogRepository.countReadyMaterials()).thenReturn(1);
@@ -239,7 +239,7 @@ class HealthControllerTest {
     @Test
     void treatsDisabledSearchSyncBacklogAsNeutralBackendHealth() throws Exception {
         stubHealthyOcrAndStorage();
-        when(runtimeReadinessService.currentReadiness()).thenReturn(runtimeReadiness("UP", null, null, "UP", null, "UP", null));
+        when(runtimeReadinessService.snapshot()).thenReturn(runtimeReadiness("UP", null, null, "UP", null, "UP", null));
         when(materialCatalogRepository.countMaterials()).thenReturn(6);
         when(materialCatalogRepository.countActiveMaterials()).thenReturn(6);
         when(materialCatalogRepository.countReadyMaterials()).thenReturn(6);
@@ -288,7 +288,7 @@ class HealthControllerTest {
         contextProperties.setSummaryEnabled(true);
         contextProperties.setLongTermMemoryEnabled(true);
         stubHealthyOcrAndStorage();
-        when(runtimeReadinessService.currentReadiness()).thenReturn(runtimeReadiness("UP", null, null, "UP", null, "UP", null));
+        when(runtimeReadinessService.snapshot()).thenReturn(runtimeReadiness("UP", null, null, "UP", null, "UP", null));
         when(materialCatalogRepository.countMaterials()).thenReturn(1);
         when(materialCatalogRepository.countActiveMaterials()).thenReturn(1);
         when(materialCatalogRepository.countReadyMaterials()).thenReturn(1);
@@ -318,7 +318,7 @@ class HealthControllerTest {
     @Test
     void reportsDirectChatFailureSeparatelyFromModelCatalogAvailability() throws Exception {
         stubHealthyOcrAndStorage();
-        when(runtimeReadinessService.currentReadiness()).thenReturn(runtimeReadiness(
+        when(runtimeReadinessService.snapshot()).thenReturn(runtimeReadiness(
             "DOWN",
             "llm.chat_probe_failed",
             "Direct chat probe failed: timeout",
@@ -381,7 +381,7 @@ class HealthControllerTest {
                 "pgvector is unavailable because PostgreSQL is unreachable"
             )
         );
-        when(runtimeReadinessService.currentReadiness()).thenReturn(runtimeReadiness("UP", null, null, "UP", null, "UP", null));
+        when(runtimeReadinessService.snapshot()).thenReturn(runtimeReadiness("UP", null, null, "UP", null, "UP", null));
         stubRoutingDecision(
             LexicalProviderMode.POSTGRES,
             LexicalProviderType.POSTGRES,
