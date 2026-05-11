@@ -59,7 +59,8 @@ public class SecurityProperties {
         }
 
         String normalizedPassword = adminPassword.trim().toLowerCase(Locale.ROOT);
-        if (!testRuntime && (WEAK_ADMIN_PASSWORDS.contains(normalizedPassword) || normalizedPassword.startsWith("replace-with-"))) {
+        if (!testRuntime && !hasDevLikeProfile()
+            && (WEAK_ADMIN_PASSWORDS.contains(normalizedPassword) || normalizedPassword.startsWith("replace-with-"))) {
             throw new IllegalStateException(
                 "app.security.admin-password must not use a weak default password"
             );

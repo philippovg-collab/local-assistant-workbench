@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import org.junit.jupiter.api.Test;
+import org.springframework.mock.env.MockEnvironment;
 
 class SecurityPropertiesTest {
 
@@ -22,7 +23,7 @@ class SecurityPropertiesTest {
     }
 
     @Test
-    void rejectsWeakAdminPasswordsOutsideTestRuntime() {
+    void rejectsWeakAdminPasswordsOutsideTestRuntimeAndDevProfiles() {
         for (String weakPassword : new String[] {
             "admin",
             "password",
@@ -44,6 +45,16 @@ class SecurityPropertiesTest {
         SecurityProperties properties = properties("admin", "secret");
 
         assertDoesNotThrow(() -> properties.validateForRuntime(true));
+    }
+
+    @Test
+    void allowsWeakAdminPasswordsForDevLikeProfiles() {
+        SecurityProperties properties = properties("admin", "change-me-admin");
+        MockEnvironment environment = new MockEnvironment();
+        environment.setActiveProfiles("local");
+        properties.setEnvironment(environment);
+
+        assertDoesNotThrow(() -> properties.validateForRuntime(false));
     }
 
     @Test
