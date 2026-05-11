@@ -67,6 +67,12 @@ export const resolveApiBaseUrl = () => {
 
 const buildApiUrl = (path: string) => `${resolveApiBaseUrl()}${path}`;
 
+const buildStatusMessage = (response: Response) =>
+  `API responded with status ${response.status}${response.statusText ? ` ${response.statusText}` : ""}`;
+
+const looksLikeHtml = (contentType: string, text: string) =>
+  contentType.includes("text/html") || /^\s*<(?:!doctype\s+html|html|head|body)\b/i.test(text);
+
 const readErrorPayload = async (response: Response): Promise<ApiErrorPayload> => {
   const contentType = response.headers.get("content-type") ?? "";
 
@@ -79,14 +85,20 @@ const readErrorPayload = async (response: Response): Promise<ApiErrorPayload> =>
   }
 
   const text = await response.text();
+  if (!text || looksLikeHtml(contentType, text)) {
+    return {
+      message: buildStatusMessage(response),
+    };
+  }
+
   return {
-    message: text || `API responded with status ${response.status}`,
+    message: text,
   };
 };
 
 const buildApiClientError = async (response: Response) => {
   const payload = await readErrorPayload(response);
-  const message = payload.message ?? payload.error ?? `API responded with status ${response.status}`;
+  const message = payload.message ?? payload.error ?? buildStatusMessage(response);
 
   return new ApiClientError(message, {
     code: payload.code,

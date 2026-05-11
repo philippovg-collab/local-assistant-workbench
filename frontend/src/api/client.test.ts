@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { apiClient, isApiClientError } from "./client";
+import { ApiClientError, apiClient, isApiClientError } from "./client";
 import { buildChatRunCurlExample } from "./curlExample";
+import { translateCommonApiError } from "./errorMessages";
 
 describe("apiClient", () => {
   beforeEach(() => {
@@ -169,6 +170,33 @@ describe("apiClient", () => {
       "http://127.0.0.1:8080/api/health",
       expect.objectContaining({ credentials: "include", signal: undefined }),
     );
+  });
+
+  it("does not expose HTML gateway error bodies in API errors", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response("<html><body><h1>502 Bad Gateway</h1></body></html>", {
+        status: 502,
+        statusText: "Bad Gateway",
+        headers: {
+          "Content-Type": "text/html",
+        },
+      }),
+    );
+
+    await expect(apiClient.fetchHealth()).rejects.toMatchObject({
+      message: "API responded with status 502 Bad Gateway",
+      status: 502,
+    });
+  });
+
+  it("translates temporary gateway failures without surfacing raw HTML", () => {
+    const message = translateCommonApiError(
+      new ApiClientError("API responded with status 502 Bad Gateway", { status: 502 }),
+      "Не удалось проверить сессию",
+    );
+
+    expect(message).toBe("Backend временно недоступен. Подожди несколько секунд и обнови страницу.");
+    expect(message).not.toContain("<html>");
   });
 
   it("requests paginated materials instead of treating the catalog as an unbounded array", async () => {

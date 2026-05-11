@@ -5,8 +5,14 @@ const buildUnexpectedErrorMessage = (error: ApiClientError) =>
     ? `Сервер вернул непредвиденную ошибку. requestId: ${error.requestId}.`
     : "Сервер вернул непредвиденную ошибку.";
 
+const isTemporaryGatewayStatus = (status: number) => status === 502 || status === 503 || status === 504;
+
 export const translateCommonApiError = (error: unknown, fallback: string) => {
   if (isApiClientError(error)) {
+    if (isTemporaryGatewayStatus(error.status)) {
+      return "Backend временно недоступен. Подожди несколько секунд и обнови страницу.";
+    }
+
     switch (error.code) {
       case "internal.unexpected_error":
         return buildUnexpectedErrorMessage(error);
