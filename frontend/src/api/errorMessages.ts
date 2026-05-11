@@ -9,10 +9,6 @@ const isTemporaryGatewayStatus = (status: number) => status === 502 || status ==
 
 export const translateCommonApiError = (error: unknown, fallback: string) => {
   if (isApiClientError(error)) {
-    if (isTemporaryGatewayStatus(error.status)) {
-      return "Backend временно недоступен. Подожди несколько секунд и обнови страницу.";
-    }
-
     switch (error.code) {
       case "internal.unexpected_error":
         return buildUnexpectedErrorMessage(error);
@@ -69,6 +65,9 @@ export const translateCommonApiError = (error: unknown, fallback: string) => {
       case "knowledge_preset.inactive":
         return "Выбранный knowledge preset сейчас неактивен и не может ограничивать корпус.";
       default:
+        if (isTemporaryGatewayStatus(error.status)) {
+          return "Backend временно недоступен. Подожди несколько секунд и обнови страницу.";
+        }
         return error.message || fallback;
     }
   }

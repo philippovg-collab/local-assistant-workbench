@@ -237,6 +237,48 @@ class HealthControllerTest {
     }
 
     @Test
+    void treatsDisabledSearchSyncBacklogAsNeutralBackendHealth() throws Exception {
+        stubHealthyOcrAndStorage();
+        when(runtimeReadinessService.currentReadiness()).thenReturn(runtimeReadiness("UP", null, null, "UP", null, "UP", null));
+        when(materialCatalogRepository.countMaterials()).thenReturn(6);
+        when(materialCatalogRepository.countActiveMaterials()).thenReturn(6);
+        when(materialCatalogRepository.countReadyMaterials()).thenReturn(6);
+        when(indexingQueueRepository.getIndexingQueueSnapshot()).thenReturn(
+            new MaterialIndexingQueueRepository.IndexingQueueSnapshot(0, 0, 0, null)
+        );
+        stubRoutingDecision(
+            LexicalProviderMode.POSTGRES,
+            LexicalProviderType.POSTGRES,
+            false,
+            "search.sync_disabled",
+            "Elasticsearch search sync is disabled by configuration.",
+            new ElasticsearchHealthService.SearchSyncHealth(
+                "DISABLED",
+                "search.sync_disabled",
+                "Elasticsearch search sync is disabled by configuration.",
+                6,
+                0,
+                0,
+                null,
+                Instant.parse("2026-05-08T07:14:07.614047Z"),
+                null
+            )
+        );
+
+        mockMvc.perform(get("/api/health"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.status").value("UP"))
+            .andExpect(jsonPath("$.ragStatus").value("UP"))
+            .andExpect(jsonPath("$.knowledgeStatus").value("READY"))
+            .andExpect(jsonPath("$.searchStatus").value("DISABLED"))
+            .andExpect(jsonPath("$.searchReasonCode").value("search.sync_disabled"))
+            .andExpect(jsonPath("$.searchSyncBacklog.pendingCount").value(6))
+            .andExpect(jsonPath("$.readiness.index-sync.status").value("DISABLED"))
+            .andExpect(jsonPath("$.readiness.index-sync.reasonCode").value("search.sync_disabled"))
+            .andExpect(jsonPath("$.readiness.index-sync.reasonMessage").value("Elasticsearch search sync is disabled by configuration."));
+    }
+
+    @Test
     void publishesEffectiveContextFeatureState() throws Exception {
         contextProperties.setEnabled(true);
         contextProperties.setConversationsEnabled(true);

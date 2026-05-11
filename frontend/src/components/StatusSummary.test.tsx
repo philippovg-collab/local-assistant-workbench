@@ -119,4 +119,47 @@ describe("StatusSummary", () => {
     expect(screen.getByText("Context layer")).toBeTruthy();
     expect(screen.getAllByText("UP").length).toBeGreaterThan(0);
   });
+
+  it("presents disabled PostgreSQL search sync as healthy backend state", () => {
+    render(
+      <StatusSummary
+        health={{
+          ...health,
+          application: "spring-backend",
+          status: "UP",
+          searchStatus: "DISABLED",
+          searchMode: "postgres",
+          searchProvider: "postgres",
+          searchReasonCode: "search.sync_disabled",
+          searchReasonMessage: "Elasticsearch search sync is disabled by configuration.",
+          searchSyncBacklog: {
+            pendingCount: 6,
+            inProgressCount: 0,
+            failedCount: 0,
+            oldestOutstandingAt: "2026-05-08T07:14:07.614047Z",
+          },
+          readiness: {
+            ...health.readiness,
+            "index-sync": {
+              status: "DISABLED",
+              reasonCode: "search.sync_disabled",
+              reasonMessage: "Elasticsearch search sync is disabled by configuration.",
+            },
+          },
+        }}
+        healthError={null}
+        models={[]}
+        modelsError={null}
+        ragPresentation={ragPresentation}
+        instructionsCount={2}
+      />,
+    );
+
+    expect(screen.getByText("spring-backend")).toBeTruthy();
+    expect(screen.getAllByText("UP").length).toBeGreaterThan(0);
+    expect(screen.getByText("PostgreSQL lexical")).toBeTruthy();
+    expect(screen.getAllByText("Elasticsearch sync: выключен").length).toBeGreaterThan(0);
+    expect(screen.getByText("6 pending / 0 in progress / 0 failed")).toBeTruthy();
+    expect(screen.queryByText("DEGRADED")).toBeNull();
+  });
 });

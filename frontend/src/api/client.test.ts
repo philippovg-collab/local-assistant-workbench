@@ -199,6 +199,18 @@ describe("apiClient", () => {
     expect(message).not.toContain("<html>");
   });
 
+  it("keeps known backend error codes more specific than temporary gateway status", () => {
+    const message = translateCommonApiError(
+      new ApiClientError("Unable to reach the local LLM provider", {
+        code: "llm.provider_unavailable",
+        status: 503,
+      }),
+      "Не удалось выполнить запрос",
+    );
+
+    expect(message).toContain("Ollama запущен");
+  });
+
   it("requests paginated materials instead of treating the catalog as an unbounded array", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(

@@ -345,8 +345,8 @@ public class HealthStatusService {
         ));
         components.put("index-sync", new HealthResponse.ReadinessComponent(
             indexSyncStatus(searchHealth),
-            searchHealth.failedCount() > 0 ? "search.index_sync_failed" : null,
-            searchHealth.failedCount() > 0 ? "Search sync has failed queue entries." : null,
+            indexSyncReasonCode(searchHealth),
+            indexSyncReasonMessage(searchHealth),
             searchHealth.lastSuccessfulSyncAt() == null ? null : searchHealth.lastSuccessfulSyncAt().toString()
         ));
         components.put("knowledge", new HealthResponse.ReadinessComponent(
@@ -378,10 +378,14 @@ public class HealthStatusService {
     }
 
     private boolean indexSyncReady(ElasticsearchHealthService.SearchSyncHealth searchHealth) {
-        return "UP".equals(indexSyncStatus(searchHealth));
+        String status = indexSyncStatus(searchHealth);
+        return "UP".equals(status) || "DISABLED".equals(status);
     }
 
     private String indexSyncStatus(ElasticsearchHealthService.SearchSyncHealth searchHealth) {
+        if (indexSyncDisabled(searchHealth)) {
+            return "DISABLED";
+        }
         if (searchHealth.failedCount() > 0) {
             return "DEGRADED";
         }
@@ -389,6 +393,25 @@ public class HealthStatusService {
             return "DEGRADED";
         }
         return "UP";
+    }
+
+    private String indexSyncReasonCode(ElasticsearchHealthService.SearchSyncHealth searchHealth) {
+        if (indexSyncDisabled(searchHealth)) {
+            return searchHealth.reasonCode();
+        }
+        return searchHealth.failedCount() > 0 ? "search.index_sync_failed" : null;
+    }
+
+    private String indexSyncReasonMessage(ElasticsearchHealthService.SearchSyncHealth searchHealth) {
+        if (indexSyncDisabled(searchHealth)) {
+            return searchHealth.reasonMessage();
+        }
+        return searchHealth.failedCount() > 0 ? "Search sync has failed queue entries." : null;
+    }
+
+    private boolean indexSyncDisabled(ElasticsearchHealthService.SearchSyncHealth searchHealth) {
+        return "DISABLED".equals(searchHealth.clusterStatus())
+            || "search.sync_disabled".equals(searchHealth.reasonCode());
     }
 
     private String firstNonNull(String primary, String fallback) {
