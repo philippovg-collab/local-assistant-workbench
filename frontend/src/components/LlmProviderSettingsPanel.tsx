@@ -12,6 +12,7 @@ import {
   Trash2,
   XCircle,
 } from "lucide-react";
+import { PageHeaderPanel } from "@/components/app/PageHeaderPanel";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge, type BadgeProps } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -107,32 +108,31 @@ export function LlmProviderSettingsPanel() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-        <div className="space-y-2">
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge variant="default">LLM-подключения</Badge>
+      <PageHeaderPanel
+        actions={
+          <div className="flex flex-wrap items-center gap-2 sm:justify-end">
             <Badge variant={activeChatProvider ? "success" : "secondary"}>
               Чат: {activeChatProvider?.name ?? "fallback из env"}
             </Badge>
             <Badge variant={activeEmbeddingProvider ? "success" : "secondary"}>
               Эмбеддинги: {activeEmbeddingProvider?.name ?? "fallback из env"}
             </Badge>
+            <Button disabled={isMutating} onClick={() => void loadProviders()} type="button" variant="secondary">
+              <RefreshCw />
+              Обновить
+            </Button>
+            <Button onClick={openCreateDialog} type="button">
+              <Plus />
+              Добавить
+            </Button>
           </div>
-          <h2 className="text-2xl font-semibold text-foreground">
-            Корпоративные OpenAI-compatible подключения
-          </h2>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button disabled={isMutating} onClick={() => void loadProviders()} type="button" variant="secondary">
-            <RefreshCw />
-            Обновить
-          </Button>
-          <Button onClick={openCreateDialog} type="button">
-            <Plus />
-            Добавить
-          </Button>
-        </div>
-      </div>
+        }
+        badge="LLM-подключения"
+        badgeVariant="default"
+        description="Управление корпоративными OpenAI-compatible endpoints, проверкой доступности, активным chat provider и embedding provider."
+        eyebrow="Настройки"
+        title="Корпоративные OpenAI-compatible подключения"
+      />
 
       {error ? (
         <Alert variant="destructive">
@@ -147,7 +147,7 @@ export function LlmProviderSettingsPanel() {
         </Alert>
       ) : null}
 
-      <div className="overflow-hidden rounded-[28px] border border-border bg-card shadow-soft">
+      <div className="surface-panel overflow-hidden rounded-[28px] border p-0">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[1120px] text-left text-sm">
             <thead className="border-b border-border bg-surface-subtle text-xs uppercase tracking-[0.14em] text-muted-foreground">
@@ -305,7 +305,7 @@ export function LlmProviderSettingsPanel() {
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-2">
+      <div className="surface-subtle flex flex-wrap gap-2 rounded-[24px] p-3">
         <Button disabled={isMutating} onClick={() => void activateFallback("CHAT")} type="button" variant="secondary">
           <RotateCcw />
           Chat fallback из env

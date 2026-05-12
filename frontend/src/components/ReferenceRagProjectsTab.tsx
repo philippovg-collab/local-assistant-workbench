@@ -42,7 +42,7 @@ export function ReferenceRagProjectsTab({
           <PlusCircle className="h-4 w-4 text-primary" />
           Создать RAG-проект
         </div>
-        <div className="grid gap-4 lg:grid-cols-[minmax(180px,0.8fr)_minmax(220px,1fr)_minmax(240px,1.2fr)_120px_auto_auto] lg:items-end">
+        <div className="grid gap-4 md:grid-cols-2 md:items-end 2xl:grid-cols-[minmax(180px,0.8fr)_minmax(220px,1fr)_minmax(240px,1.2fr)_120px_auto_auto]">
           <div className="space-y-2">
             <Label htmlFor="rag-project-create-key">Ключ</Label>
             <Input
@@ -111,7 +111,7 @@ export function ReferenceRagProjectsTab({
             const isEditing = state.editingRagProjectKey === project.key;
             const isActiveSelection = activeRagProjectKey === project.key;
             return (
-              <article className="rounded-[24px] border bg-card p-5 shadow-soft" key={project.key}>
+              <article className="surface-subtle space-y-4 rounded-[24px] p-5" key={project.key}>
                 {isEditing ? (
                   <div className="space-y-4">
                     <div className="flex flex-wrap items-center gap-2">
@@ -120,7 +120,7 @@ export function ReferenceRagProjectsTab({
                         {state.ragProjectEditForm.active ? "активен" : "неактивен"}
                       </Badge>
                     </div>
-                    <div className="grid gap-4 md:grid-cols-[minmax(220px,1fr)_minmax(260px,1.2fr)_120px_auto_auto] md:items-end">
+                    <div className="grid gap-4 md:grid-cols-2 md:items-end 2xl:grid-cols-[minmax(220px,1fr)_minmax(260px,1.2fr)_120px_auto_auto]">
                       <div className="space-y-2">
                         <Label htmlFor={`rag-project-name-${project.key}`}>Название</Label>
                         <Input

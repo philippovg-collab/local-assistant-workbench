@@ -1,6 +1,7 @@
 import { type ComponentProps } from "react";
 import { Database, RefreshCw } from "lucide-react";
-import { SectionIntro } from "@/components/app/SectionIntro";
+import { PageHeaderPanel } from "@/components/app/PageHeaderPanel";
+import { SegmentedControl } from "@/components/app/SegmentedControl";
 import { KnowledgePresetLibraryPanel } from "@/components/KnowledgePresetLibraryPanel";
 import { ReferenceProjectsTab } from "@/components/ReferenceProjectsTab";
 import { ReferenceRagProjectsTab } from "@/components/ReferenceRagProjectsTab";
@@ -11,6 +12,7 @@ import { useReferenceDataPanelState } from "@/hooks/useReferenceDataPanelState";
 import type {
   RagProjectController,
   ReferenceDataController,
+  ReferenceTab,
 } from "@/components/referenceDataPresentation";
 
 type ReferenceDataPanelProps = {
@@ -21,6 +23,24 @@ type ReferenceDataPanelProps = {
   activeRagProjectKey?: string | null;
   onActiveRagProjectChange?: (projectKey: string) => void;
   showRagProjectSwitcher?: boolean;
+};
+
+const referenceTabItems: Array<{
+  value: Extract<ReferenceTab, "ragProjects" | "presets" | "facets">;
+  label: string;
+  icon: typeof Database;
+}> = [
+  { value: "ragProjects", label: "RAG-проекты", icon: Database },
+  { value: "presets", label: "Пресеты проекта", icon: Database },
+  { value: "facets", label: "Фасеты проекта", icon: Database },
+];
+
+const referenceBadgeByTab: Record<ReferenceTab, string> = {
+  ragProjects: "/api/rag-projects",
+  presets: "/api/knowledge-presets",
+  facets: "/api/knowledge-facets",
+  workspaces: "/api/reference",
+  projects: "/api/reference",
 };
 
 export function ReferenceDataPanel({
@@ -45,7 +65,7 @@ export function ReferenceDataPanel({
 
   return (
     <div className="space-y-6">
-      <SectionIntro
+      <PageHeaderPanel
         actions={isReferenceDirectoryTab ? (
           <Button
             disabled={state.activeTab === "ragProjects" ? state.ragProjects.isLoading : referenceData.isLoading}
@@ -63,39 +83,19 @@ export function ReferenceDataPanel({
             Обновить
           </Button>
         ) : undefined}
-        badge={state.activeTab === "presets" ? "/api/knowledge-presets" : state.activeTab === "facets" ? "/api/knowledge-facets" : state.activeTab === "ragProjects" ? "/api/rag-projects" : "/api/reference"}
+        badge={referenceBadgeByTab[state.activeTab]}
         badgeVariant="default"
         description="RAG-проект выбирает отдельный корпус материалов, пресетов, проектных инструкций и историю запусков. Legacy business projects скрыты из основного v1 UI."
         eyebrow="Справочники"
         title="Пресеты и справочники"
       />
 
-      <div className="flex flex-wrap gap-2">
-        <Button
-          type="button"
-          variant={state.activeTab === "ragProjects" ? "default" : "secondary"}
-          onClick={() => state.setActiveTab("ragProjects")}
-        >
-          <Database className="h-4 w-4" />
-          RAG-проекты
-        </Button>
-        <Button
-          type="button"
-          variant={state.activeTab === "presets" ? "default" : "secondary"}
-          onClick={() => state.setActiveTab("presets")}
-        >
-          <Database className="h-4 w-4" />
-          Пресеты проекта
-        </Button>
-        <Button
-          type="button"
-          variant={state.activeTab === "facets" ? "default" : "secondary"}
-          onClick={() => state.setActiveTab("facets")}
-        >
-          <Database className="h-4 w-4" />
-          Фасеты проекта
-        </Button>
-      </div>
+      <SegmentedControl
+        ariaLabel="Разделы справочников"
+        items={referenceTabItems}
+        value={state.activeTab === "workspaces" || state.activeTab === "projects" ? "ragProjects" : state.activeTab}
+        onValueChange={state.setActiveTab}
+      />
 
       <ReferenceDataAlerts
         activeTab={state.activeTab}

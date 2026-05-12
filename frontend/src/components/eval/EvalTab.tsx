@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { SectionIntro } from "@/components/app/SectionIntro";
+import { PageHeaderPanel } from "@/components/app/PageHeaderPanel";
+import { SegmentedControl } from "@/components/app/SegmentedControl";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { useEvalCompare } from "@/hooks/useEvalCompare";
 import { useEvalDatasets } from "@/hooks/useEvalDatasets";
 import { useEvalRunDetail } from "@/hooks/useEvalRunDetail";
@@ -11,6 +11,12 @@ import { EvalDatasetsView } from "./EvalDatasetsView";
 import { EvalRunsView } from "./EvalRunsView";
 
 type EvalView = "datasets" | "runs" | "compare";
+
+const evalViewItems: Array<{ value: EvalView; label: string }> = [
+  { value: "datasets", label: "Наборы" },
+  { value: "runs", label: "Запуски" },
+  { value: "compare", label: "Сравнение" },
+];
 
 export type EvalFocus = {
   view?: EvalView;
@@ -52,7 +58,7 @@ export function EvalTab({ focus }: EvalTabProps) {
 
   return (
     <div className="space-y-5">
-      <SectionIntro
+      <PageHeaderPanel
         badge="Оценка"
         badgeVariant="default"
         description="Здесь собраны регрессионные наборы, эталонные кейсы, запуски оценки и вердикты сравнения от backend."
@@ -60,17 +66,20 @@ export function EvalTab({ focus }: EvalTabProps) {
         title="Оценка"
       />
 
-      <div className="surface-subtle flex flex-wrap items-center gap-2 rounded-[24px] p-2">
-        <EvalViewButton active={view === "datasets"} label="Наборы" onClick={() => setView("datasets")} />
-        <EvalViewButton active={view === "runs"} label="Запуски" onClick={() => setView("runs")} />
-        <EvalViewButton active={view === "compare"} label="Сравнение" onClick={() => setView("compare")} />
-        <div className="ml-auto flex flex-wrap gap-2">
-          <Badge variant="secondary">{datasets.datasets.length} наборов</Badge>
-          <Badge variant={runs.hasActiveRuns ? "warning" : "secondary"}>
-            {runs.hasActiveRuns ? "активный запуск" : `${runs.runs.length} запусков`}
-          </Badge>
-        </div>
-      </div>
+      <SegmentedControl
+        ariaLabel="Разделы оценки"
+        items={evalViewItems}
+        value={view}
+        trailing={
+          <>
+            <Badge variant="secondary">{datasets.datasets.length} наборов</Badge>
+            <Badge variant={runs.hasActiveRuns ? "warning" : "secondary"}>
+              {runs.hasActiveRuns ? "активный запуск" : `${runs.runs.length} запусков`}
+            </Badge>
+          </>
+        }
+        onValueChange={setView}
+      />
 
       {view === "datasets" ? (
         <EvalDatasetsView datasetsHook={datasets} focusCaseId={focus?.caseId ?? null} />
@@ -84,21 +93,5 @@ export function EvalTab({ focus }: EvalTabProps) {
         <EvalCompareView compareHook={compare} runs={runs.runs} />
       ) : null}
     </div>
-  );
-}
-
-function EvalViewButton({
-  active,
-  label,
-  onClick,
-}: {
-  active: boolean;
-  label: string;
-  onClick: () => void;
-}) {
-  return (
-    <Button size="sm" type="button" variant={active ? "default" : "ghost"} onClick={onClick}>
-      {label}
-    </Button>
   );
 }

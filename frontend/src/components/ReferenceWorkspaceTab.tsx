@@ -20,7 +20,7 @@ export function ReferenceWorkspaceTab({ state, isLoading }: ReferenceWorkspaceTa
           <PlusCircle className="h-4 w-4 text-primary" />
           Создать рабочую область
         </div>
-        <div className="grid gap-4 lg:grid-cols-[minmax(180px,0.8fr)_minmax(220px,1fr)_120px_auto_auto] lg:items-end">
+        <div className="grid gap-4 md:grid-cols-2 md:items-end 2xl:grid-cols-[minmax(180px,0.8fr)_minmax(220px,1fr)_120px_auto_auto]">
           <div className="space-y-2">
             <Label htmlFor="reference-workspace-key">Ключ рабочей области</Label>
             <Input
@@ -79,7 +79,7 @@ export function ReferenceWorkspaceTab({ state, isLoading }: ReferenceWorkspaceTa
           {state.workspaces.map((workspace) => {
             const isEditing = state.editingWorkspaceKey === workspace.key;
             return (
-              <article className="rounded-[24px] border bg-card p-5 shadow-soft" key={workspace.key}>
+              <article className="surface-subtle space-y-4 rounded-[24px] p-5" key={workspace.key}>
                 {isEditing ? (
                   <div className="space-y-4">
                     <div className="flex flex-wrap items-center gap-2">
@@ -88,7 +88,7 @@ export function ReferenceWorkspaceTab({ state, isLoading }: ReferenceWorkspaceTa
                         {state.workspaceEditForm.active ? "активна" : "неактивна"}
                       </Badge>
                     </div>
-                    <div className="grid gap-4 md:grid-cols-[minmax(220px,1fr)_120px_auto_auto] md:items-end">
+                    <div className="grid gap-4 md:grid-cols-2 md:items-end 2xl:grid-cols-[minmax(220px,1fr)_120px_auto_auto]">
                       <div className="space-y-2">
                         <Label htmlFor={`workspace-name-${workspace.key}`}>Название рабочей области</Label>
                         <Input

@@ -33,7 +33,7 @@ export function SectionIntro({
         </div>
       </div>
 
-      <div className="flex items-center gap-3 self-start">
+      <div className="flex flex-wrap items-center gap-3 self-start sm:justify-end">
         {badge ? <Badge variant={badgeVariant}>{badge}</Badge> : null}
         {actions}
       </div>

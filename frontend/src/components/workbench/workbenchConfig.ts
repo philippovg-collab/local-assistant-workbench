@@ -10,7 +10,7 @@ import {
   Settings,
   type LucideIcon,
 } from "lucide-react";
-import kegocLogoAsset from "@/assets/logo-kegoc.png";
+import kegocLogoAsset from "@/assets/logo-kegoc.svg";
 
 export const kegocLogo = kegocLogoAsset;
 export const ACTIVE_RAG_PROJECT_STORAGE_KEY = "kegoc.activeRagProjectKey";

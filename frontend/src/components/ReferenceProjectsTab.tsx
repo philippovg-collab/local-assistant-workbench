@@ -28,7 +28,7 @@ export function ReferenceProjectsTab({ state, isLoading }: ReferenceProjectsTabP
           <PlusCircle className="h-4 w-4 text-primary" />
           Создать проект
         </div>
-        <div className="grid gap-4 lg:grid-cols-[minmax(180px,0.8fr)_minmax(200px,1fr)_minmax(220px,1fr)_120px_auto] lg:items-end">
+        <div className="grid gap-4 md:grid-cols-2 md:items-end 2xl:grid-cols-[minmax(180px,0.8fr)_minmax(200px,1fr)_minmax(220px,1fr)_120px_auto]">
           <div className="space-y-2">
             <Label htmlFor="reference-project-key">Ключ проекта</Label>
             <Input
@@ -89,7 +89,7 @@ export function ReferenceProjectsTab({ state, isLoading }: ReferenceProjectsTabP
         </Button>
       </form>
 
-      <div className="max-w-sm space-y-2">
+      <div className="surface-subtle max-w-sm space-y-2 rounded-[24px] p-4">
         <Label htmlFor="project-workspace-filter">Фильтр по рабочей области</Label>
         <Select value={state.projectWorkspaceFilter} onValueChange={state.setProjectWorkspaceFilter}>
           <SelectTrigger aria-label="Фильтр по рабочей области" id="project-workspace-filter">
@@ -128,7 +128,7 @@ export function ReferenceProjectsTab({ state, isLoading }: ReferenceProjectsTabP
                   {workspaceProjects.map((project) => {
                     const isEditing = state.editingProjectKey === project.key;
                     return (
-                      <article className="rounded-[24px] border bg-card p-5 shadow-soft" key={project.key}>
+                      <article className="surface-subtle space-y-4 rounded-[24px] p-5" key={project.key}>
                         {isEditing ? (
                           <div className="space-y-4">
                             <div className="flex flex-wrap items-center gap-2">
@@ -137,7 +137,7 @@ export function ReferenceProjectsTab({ state, isLoading }: ReferenceProjectsTabP
                                 {state.projectEditForm.active ? "активен" : "неактивен"}
                               </Badge>
                             </div>
-                            <div className="grid gap-4 md:grid-cols-[minmax(200px,1fr)_minmax(220px,1fr)_120px_auto] md:items-end">
+                            <div className="grid gap-4 md:grid-cols-2 md:items-end 2xl:grid-cols-[minmax(200px,1fr)_minmax(220px,1fr)_120px_auto]">
                               <div className="space-y-2">
                                 <Label htmlFor={`project-workspace-${project.key}`}>Рабочая область проекта</Label>
                                 <Select
