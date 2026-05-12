@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { useEvalCompare } from "@/hooks/useEvalCompare";
 import type { EvalCompatibilityReason, EvalRun } from "@/types";
-import { Field, JsonBlock } from "./EvalShared";
+import { evalInnerPanelClassName, Field, JsonBlock } from "./EvalShared";
 import {
   badgeForMetricVerdict,
   badgeForOverallVerdict,
@@ -26,7 +26,7 @@ export function EvalCompareView({ compareHook, runs }: EvalCompareViewProps) {
   const reasonTone = compareHook.isIncompatible ? "destructive" : "warning";
 
   return (
-    <section className="surface-subtle space-y-4 rounded-[24px] p-5">
+    <section className={`${evalInnerPanelClassName} space-y-4 rounded-[26px] p-4 sm:p-5`}>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
           <GitCompareArrows className="h-4 w-4 text-primary" />

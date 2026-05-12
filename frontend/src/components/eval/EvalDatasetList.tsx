@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { useEvalDatasets } from "@/hooks/useEvalDatasets";
 import { evalDatasetKindValues, evalLifecycleStatusValues } from "@/types";
+import { evalInnerPanelClassName } from "./EvalShared";
 import { ALL_VALUE, datasetKindLabels } from "./evalPresentation";
 
 type EvalDatasetListProps = {
@@ -30,7 +31,7 @@ export function EvalDatasetList({
   tagFilter,
 }: EvalDatasetListProps) {
   return (
-    <section className="surface-subtle space-y-4 rounded-[24px] p-5">
+    <section className={`${evalInnerPanelClassName} space-y-4 rounded-[26px] p-4 sm:p-5`}>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
           <ListFilter className="h-4 w-4 text-primary" />

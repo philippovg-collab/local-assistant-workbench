@@ -8,6 +8,7 @@ import type { useEvalRunDetail } from "@/hooks/useEvalRunDetail";
 import type { useEvalRuns } from "@/hooks/useEvalRuns";
 import { formatDate } from "@/utils/format";
 import { EvalArtifactsSheet } from "./EvalArtifactsSheet";
+import { evalInnerPanelClassName } from "./EvalShared";
 import { EvalRunDetailPanel } from "./EvalRunDetailPanel";
 import { StartEvalRunDialog } from "./StartEvalRunDialog";
 import { asRecord, badgeForRunStatus, formatDuration, shortId } from "./evalPresentation";
@@ -25,7 +26,7 @@ export function EvalRunsView({ datasetsHook, runDetailHook, runsHook }: EvalRuns
 
   return (
     <div className="space-y-4">
-      <section className="surface-subtle space-y-4 rounded-[24px] p-5">
+      <section className={`${evalInnerPanelClassName} space-y-4 rounded-[26px] p-4 sm:p-5`}>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
             <Play className="h-4 w-4 text-primary" />

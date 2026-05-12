@@ -7,7 +7,7 @@ import { Separator } from "@/components/ui/separator";
 import type { useEvalDatasets } from "@/hooks/useEvalDatasets";
 import { evalCaseSeverityValues } from "@/types";
 import type { EvalCase, EvalDatasetSummary, EvalDatasetVersion } from "@/types";
-import { MetricCard } from "./EvalShared";
+import { evalInnerPanelClassName, MetricCard } from "./EvalShared";
 import {
   ALL_VALUE,
   expectedModeLabels,
@@ -48,7 +48,7 @@ export function EvalDatasetDetailPanel({
   severityFilter,
 }: EvalDatasetDetailPanelProps) {
   return (
-    <section className="surface-subtle space-y-4 rounded-[24px] p-5">
+    <section className={`${evalInnerPanelClassName} space-y-4 rounded-[26px] p-4 sm:p-5`}>
       {datasetsHook.selectedDataset ? (
         <>
           <div className="flex flex-wrap items-start justify-between gap-3">

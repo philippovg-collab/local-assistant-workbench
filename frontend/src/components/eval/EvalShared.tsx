@@ -1,6 +1,8 @@
 import type { ReactNode } from "react";
 import { Label } from "@/components/ui/label";
 
+export const evalInnerPanelClassName = "border border-border/70 bg-background/35 backdrop-blur-sm";
+
 export function MetricCard({ label, value }: { label: string; value: string | number }) {
   return (
     <div className="rounded-[20px] border border-field-border bg-field px-4 py-3">

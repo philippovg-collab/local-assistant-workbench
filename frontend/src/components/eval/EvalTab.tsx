@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { PageHeaderPanel } from "@/components/app/PageHeaderPanel";
 import { SegmentedControl } from "@/components/app/SegmentedControl";
+import { SectionIntro } from "@/components/app/SectionIntro";
 import { Badge } from "@/components/ui/badge";
 import { useEvalCompare } from "@/hooks/useEvalCompare";
 import { useEvalDatasets } from "@/hooks/useEvalDatasets";
@@ -57,8 +57,9 @@ export function EvalTab({ focus }: EvalTabProps) {
   }, [runs.selectedRun?.datasetId, view]);
 
   return (
-    <div className="space-y-5">
-      <PageHeaderPanel
+    <section className="surface-panel space-y-5 rounded-[34px] border p-4 sm:p-5 lg:p-6">
+      <SectionIntro
+        className="px-1 pt-1 sm:px-2"
         badge="Оценка"
         badgeVariant="default"
         description="Здесь собраны регрессионные наборы, эталонные кейсы, запуски оценки и вердикты сравнения от backend."
@@ -68,6 +69,7 @@ export function EvalTab({ focus }: EvalTabProps) {
 
       <SegmentedControl
         ariaLabel="Разделы оценки"
+        className="border border-border/70 bg-surface-subtle/80"
         items={evalViewItems}
         value={view}
         trailing={
@@ -81,17 +83,19 @@ export function EvalTab({ focus }: EvalTabProps) {
         onValueChange={setView}
       />
 
-      {view === "datasets" ? (
-        <EvalDatasetsView datasetsHook={datasets} focusCaseId={focus?.caseId ?? null} />
-      ) : null}
+      <div className="min-w-0">
+        {view === "datasets" ? (
+          <EvalDatasetsView datasetsHook={datasets} focusCaseId={focus?.caseId ?? null} />
+        ) : null}
 
-      {view === "runs" ? (
-        <EvalRunsView datasetsHook={datasets} runDetailHook={runDetail} runsHook={runs} />
-      ) : null}
+        {view === "runs" ? (
+          <EvalRunsView datasetsHook={datasets} runDetailHook={runDetail} runsHook={runs} />
+        ) : null}
 
-      {view === "compare" ? (
-        <EvalCompareView compareHook={compare} runs={runs.runs} />
-      ) : null}
-    </div>
+        {view === "compare" ? (
+          <EvalCompareView compareHook={compare} runs={runs.runs} />
+        ) : null}
+      </div>
+    </section>
   );
 }

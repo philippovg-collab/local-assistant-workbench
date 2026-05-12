@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { useEvalRunDetail } from "@/hooks/useEvalRunDetail";
 import type { EvalCase, EvalRun } from "@/types";
-import { MetricCard } from "./EvalShared";
+import { evalInnerPanelClassName, MetricCard } from "./EvalShared";
 import {
   asRecord,
   badgeForItemStatus,
@@ -28,7 +28,7 @@ export function EvalRunDetailPanel({
 }: EvalRunDetailPanelProps) {
   if (!run) {
     return (
-      <section className="surface-subtle rounded-[24px] p-5">
+      <section className={`${evalInnerPanelClassName} rounded-[26px] p-4 sm:p-5`}>
         <EmptyState description="Выбери запуск из таблицы." icon={ClipboardCheck} title="Детали запуска не выбраны" />
       </section>
     );
@@ -57,7 +57,7 @@ export function EvalRunDetailPanel({
   const topMetrics = metricEntries(summary.metrics ?? summary.metricSummary ?? run.summary);
 
   return (
-    <section className="surface-subtle space-y-4 rounded-[24px] p-5">
+    <section className={`${evalInnerPanelClassName} space-y-4 rounded-[26px] p-4 sm:p-5`}>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <p className="text-[11px] font-semibold uppercase text-muted-foreground">Детали запуска</p>
