@@ -33,6 +33,8 @@ type UseReferenceDataPanelStateParams = {
   ragProjectsController: RagProjectController;
   activeRagProjectKey: string | null;
   onActiveRagProjectChange: (projectKey: string) => void;
+  activeTab?: ReferenceTab;
+  onActiveTabChange?: (tab: ReferenceTab) => void;
 };
 
 export function useReferenceDataPanelState({
@@ -40,9 +42,18 @@ export function useReferenceDataPanelState({
   ragProjectsController,
   activeRagProjectKey,
   onActiveRagProjectChange,
+  activeTab: controlledActiveTab,
+  onActiveTabChange,
 }: UseReferenceDataPanelStateParams) {
   const ragProjects = ragProjectsController;
-  const [activeTab, setActiveTab] = useState<ReferenceTab>("ragProjects");
+  const [uncontrolledActiveTab, setUncontrolledActiveTab] = useState<ReferenceTab>("ragProjects");
+  const activeTab = controlledActiveTab ?? uncontrolledActiveTab;
+  const setActiveTab = (nextTab: ReferenceTab) => {
+    if (controlledActiveTab === undefined) {
+      setUncontrolledActiveTab(nextTab);
+    }
+    onActiveTabChange?.(nextTab);
+  };
   const [ragProjectCreateForm, setRagProjectCreateForm] = useState<RagProjectFormState>(initialRagProjectForm);
   const [editingRagProjectKey, setEditingRagProjectKey] = useState<string | null>(null);
   const [ragProjectEditForm, setRagProjectEditForm] = useState<RagProjectFormState>(initialRagProjectForm);

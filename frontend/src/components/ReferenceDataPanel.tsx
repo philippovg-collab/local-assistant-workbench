@@ -20,8 +20,11 @@ type ReferenceDataPanelProps = {
   knowledgeFacets?: ComponentProps<typeof KnowledgePresetLibraryPanel>;
   referenceData: ReferenceDataController;
   ragProjects: RagProjectController;
+  activeTab?: ReferenceTab;
   activeRagProjectKey?: string | null;
   onActiveRagProjectChange?: (projectKey: string) => void;
+  onActiveTabChange?: (tab: ReferenceTab) => void;
+  showReferenceTabs?: boolean;
   showRagProjectSwitcher?: boolean;
 };
 
@@ -48,8 +51,11 @@ export function ReferenceDataPanel({
   knowledgeFacets,
   referenceData,
   ragProjects,
+  activeTab,
   activeRagProjectKey = "general",
   onActiveRagProjectChange = () => undefined,
+  onActiveTabChange,
+  showReferenceTabs = true,
   showRagProjectSwitcher = true,
 }: ReferenceDataPanelProps) {
   const state = useReferenceDataPanelState({
@@ -57,6 +63,8 @@ export function ReferenceDataPanel({
     ragProjectsController: ragProjects,
     activeRagProjectKey,
     onActiveRagProjectChange,
+    activeTab,
+    onActiveTabChange,
   });
 
   const isReferenceDirectoryTab = state.activeTab !== "presets" && state.activeTab !== "facets";
@@ -90,12 +98,14 @@ export function ReferenceDataPanel({
         title="Пресеты и справочники"
       />
 
-      <SegmentedControl
-        ariaLabel="Разделы справочников"
-        items={referenceTabItems}
-        value={state.activeTab === "workspaces" || state.activeTab === "projects" ? "ragProjects" : state.activeTab}
-        onValueChange={state.setActiveTab}
-      />
+      {showReferenceTabs ? (
+        <SegmentedControl
+          ariaLabel="Разделы справочников"
+          items={referenceTabItems}
+          value={state.activeTab === "workspaces" || state.activeTab === "projects" ? "ragProjects" : state.activeTab}
+          onValueChange={state.setActiveTab}
+        />
+      ) : null}
 
       <ReferenceDataAlerts
         activeTab={state.activeTab}

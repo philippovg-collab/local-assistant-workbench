@@ -22,6 +22,7 @@ import {
   ACTIVE_RAG_PROJECT_STORAGE_KEY,
   getFallbackRagProjectName,
   workspaceTabs,
+  type SettingsTabId,
   type WorkspaceTab,
 } from "@/components/workbench/workbenchConfig";
 
@@ -29,6 +30,7 @@ type ActiveRagProjectResolution = "loading" | "ready" | "empty" | "error";
 
 type UseWorkbenchResourcesOptions = {
   activeTab: WorkspaceTab;
+  activeSettingsTab: SettingsTabId;
   activeRagProjectKey: string;
   setActiveRagProjectKey: Dispatch<SetStateAction<string>>;
   ragInstructionIds: string[];
@@ -39,6 +41,7 @@ type UseWorkbenchResourcesOptions = {
 
 export const useWorkbenchResources = ({
   activeTab,
+  activeSettingsTab,
   activeRagProjectKey,
   setActiveRagProjectKey,
   ragInstructionIds,
@@ -53,13 +56,13 @@ export const useWorkbenchResources = ({
   const metadataV1Enabled = health?.qualityLayer?.flags.metadataV1 === true;
   const isMaterialsActive = activeTab === "materials";
   const isInstructionsActive = activeTab === "instructions";
-  const isReferencesActive = activeTab === "references";
+  const isSettingsReferenceActive = activeTab === "settings" && activeSettingsTab !== "llm";
   const isMemoryActive = activeTab === "memory" && isLongTermMemoryEnabled;
   const isRagActive = activeTab === "rag";
   const isDirectActive = activeTab === "direct";
   const needsInstructions = isInstructionsActive || isRagActive || isDirectActive;
   const needsModels = isRagActive || isDirectActive;
-  const needsKnowledgeScopeData = isReferencesActive || isRagActive || isMemoryActive;
+  const needsKnowledgeScopeData = isSettingsReferenceActive || isRagActive || isMemoryActive;
 
   const { models, error: modelsError } = useModels({ enabled: needsModels });
   const instructions = useInstructions({ enabled: needsInstructions });
@@ -136,7 +139,7 @@ export const useWorkbenchResources = ({
   });
   const referenceData = useReferenceData({
     activeOnly: false,
-    enabled: isReferencesActive || (metadataV1Enabled && isMaterialsActive),
+    enabled: isSettingsReferenceActive || (metadataV1Enabled && isMaterialsActive),
   });
   const ragChatRuns = useChatRuns(requestActiveRagProjectKey, {
     enabled: isRagActive && isActiveRagProjectReady,
@@ -336,7 +339,6 @@ export const useWorkbenchResources = ({
     conversationsEnabled,
     isLongTermMemoryEnabled,
     metadataV1Enabled,
-    isReferencesActive,
     models,
     modelsError,
     instructions,

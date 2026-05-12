@@ -316,7 +316,7 @@ const crossTabRequestPathnames = [
   "/api/llm-providers",
 ];
 
-const getPanel = (panelId: "overview" | "materials" | "instructions" | "references" | "rag" | "direct" | "settings") =>
+const getPanel = (panelId: "overview" | "materials" | "instructions" | "rag" | "direct" | "settings") =>
   document.querySelector(`#panel-${panelId}`) as HTMLElement;
 
 const openSection = async (user: ReturnType<typeof userEvent.setup>, sectionName: RegExp) => {
@@ -945,7 +945,25 @@ describe("App", () => {
     ]);
 
     vi.mocked(globalThis.fetch).mockClear();
-    await openSection(user, /справочники/i);
+    await openSection(user, /настройки/i);
+    await waitFor(() => {
+      expect(getRequestPathnames()).toContain("/api/llm-providers");
+    });
+    expectNoRequestsTo([
+      "/api/materials",
+      "/api/materials/policy",
+      "/api/models",
+      "/api/instructions",
+      "/api/knowledge-presets",
+      "/api/knowledge-facets",
+      "/api/reference/workspaces",
+      "/api/reference/projects",
+      "/api/rag-projects",
+      "/api/chat-runs",
+    ]);
+
+    vi.mocked(globalThis.fetch).mockClear();
+    await user.click(within(getPanel("settings")).getByRole("button", { name: "RAG-проекты" }));
     await waitFor(() => {
       expect(getRequestPathnames()).toContain("/api/reference/workspaces");
     });
@@ -955,7 +973,7 @@ describe("App", () => {
       "/api/reference/workspaces",
       "/api/reference/projects",
     ]));
-    expectNoRequestsTo(["/api/materials", "/api/materials/policy", "/api/models", "/api/instructions", "/api/rag-projects", "/api/chat-runs"]);
+    expectNoRequestsTo(["/api/materials", "/api/materials/policy", "/api/models", "/api/instructions", "/api/rag-projects", "/api/chat-runs", "/api/llm-providers"]);
 
     vi.mocked(globalThis.fetch).mockClear();
     await openSection(user, /direct studio/i);
@@ -1097,7 +1115,6 @@ describe("App", () => {
     const overviewButton = screen.getByRole("button", { name: /дашборд/i });
     const materialsButton = screen.getByRole("button", { name: /материалы/i });
     const instructionsButton = screen.getByRole("button", { name: /инструкции/i });
-    const referencesButton = screen.getByRole("button", { name: /справочники/i });
     const ragButton = screen.getByRole("button", { name: /rag studio/i });
     const directButton = screen.getByRole("button", { name: /direct studio/i });
     const memoryButton = screen.getByRole("button", { name: /память/i });
@@ -1111,11 +1128,11 @@ describe("App", () => {
       expect.stringContaining("Инструкции"),
       expect.stringContaining("RAG Studio"),
       expect.stringContaining("Direct Studio"),
-      expect.stringContaining("Справочники"),
       expect.stringContaining("Память"),
       expect.stringContaining("Оценка"),
       expect.stringContaining("Настройки"),
     ]);
+    expect(within(desktopNavigation).queryByRole("button", { name: /справочники/i })).toBeNull();
     const desktopSidebar = container.querySelector("aside") as HTMLElement;
     expect(within(desktopSidebar).queryByText("Models")).toBeNull();
     expect(within(desktopSidebar).queryByText("Active KB")).toBeNull();
@@ -1124,7 +1141,6 @@ describe("App", () => {
     expect(overviewButton.getAttribute("aria-current")).toBe("page");
     expect(materialsButton.getAttribute("aria-current")).toBeNull();
     expect(instructionsButton.getAttribute("aria-current")).toBeNull();
-    expect(referencesButton.getAttribute("aria-current")).toBeNull();
     expect(ragButton.getAttribute("aria-current")).toBeNull();
     expect(directButton.getAttribute("aria-current")).toBeNull();
     expect(memoryButton.getAttribute("aria-current")).toBeNull();
@@ -1134,7 +1150,6 @@ describe("App", () => {
     const overviewPanel = container.querySelector("#panel-overview") as HTMLElement;
     const materialsPanel = container.querySelector("#panel-materials") as HTMLElement;
     const instructionsPanel = container.querySelector("#panel-instructions") as HTMLElement;
-    const referencesPanel = container.querySelector("#panel-references") as HTMLElement;
     const ragPanel = container.querySelector("#panel-rag") as HTMLElement;
     const directPanel = container.querySelector("#panel-direct") as HTMLElement;
     const settingsPanel = container.querySelector("#panel-settings") as HTMLElement;
@@ -1143,7 +1158,6 @@ describe("App", () => {
     expect(overviewPanel.hidden).toBe(false);
     expect(materialsPanel.hidden).toBe(true);
     expect(instructionsPanel.hidden).toBe(true);
-    expect(referencesPanel.hidden).toBe(true);
     expect(ragPanel.hidden).toBe(true);
     expect(directPanel.hidden).toBe(true);
     expect(settingsPanel.hidden).toBe(true);
@@ -1169,21 +1183,6 @@ describe("App", () => {
     expect(within(instructionsPanel).getByText("Инструкции RAG-проекта")).toBeTruthy();
     expect(within(instructionsPanel).queryByText("Сохранённые наборы знаний")).toBeNull();
 
-    await user.click(referencesButton);
-    expect(referencesButton.getAttribute("aria-current")).toBe("page");
-    expect(instructionsPanel.hidden).toBe(true);
-    expect(referencesPanel.hidden).toBe(false);
-    expect(within(referencesPanel).getByText("Активный RAG-проект")).toBeTruthy();
-    expect(within(referencesPanel).getByRole("heading", { name: "Пресеты и справочники" })).toBeTruthy();
-    expect(within(referencesPanel).getByRole("button", { name: "RAG-проекты" })).toBeTruthy();
-    expect(within(referencesPanel).getByRole("button", { name: "Пресеты проекта" })).toBeTruthy();
-    expect(within(referencesPanel).queryByRole("button", { name: "Проекты" })).toBeNull();
-    await user.click(within(referencesPanel).getByRole("button", { name: "Пресеты проекта" }));
-    expect(within(referencesPanel).queryByText("Активный RAG-проект")).toBeNull();
-    expect(within(referencesPanel).getByText("Создать preset проекта")).toBeTruthy();
-    expect(within(referencesPanel).getByText("Пресеты проекта: Общая")).toBeTruthy();
-    expect(within(referencesPanel).getByText("Scope и история выбранного набора знаний")).toBeTruthy();
-
     await user.click(ragButton);
     expect(ragPanel.hidden).toBe(false);
     expect(screen.queryByText("Активный RAG-проект")).toBeNull();
@@ -1208,10 +1207,29 @@ describe("App", () => {
     expect(settingsButton.getAttribute("aria-current")).toBe("page");
     expect(directPanel.hidden).toBe(true);
     expect(settingsPanel.hidden).toBe(false);
+    expect(within(settingsPanel).getByRole("button", { name: "LLM-подключения" }).getAttribute("aria-pressed")).toBe("true");
+    expect(within(settingsPanel).getByRole("button", { name: "RAG-проекты" })).toBeTruthy();
+    expect(within(settingsPanel).getByRole("button", { name: "Пресеты проекта" })).toBeTruthy();
+    expect(within(settingsPanel).getByRole("button", { name: "Фасеты проекта" })).toBeTruthy();
     expect(within(settingsPanel).getByRole("heading", {
       name: "Корпоративные OpenAI-compatible подключения",
     })).toBeTruthy();
     expect(await within(settingsPanel).findByText("Подключения не созданы. Используется fallback из env.")).toBeTruthy();
+
+    await user.click(within(settingsPanel).getByRole("button", { name: "RAG-проекты" }));
+    expect(within(settingsPanel).getByText("Активный RAG-проект")).toBeTruthy();
+    expect(within(settingsPanel).getByRole("heading", { name: "Пресеты и справочники" })).toBeTruthy();
+    expect(within(settingsPanel).queryByRole("button", { name: "Проекты" })).toBeNull();
+
+    await user.click(within(settingsPanel).getByRole("button", { name: "Пресеты проекта" }));
+    expect(within(settingsPanel).queryByText("Активный RAG-проект")).toBeNull();
+    expect(within(settingsPanel).getByText("Создать preset проекта")).toBeTruthy();
+    expect(within(settingsPanel).getByText("Пресеты проекта: Общая")).toBeTruthy();
+    expect(within(settingsPanel).getByText("Scope и история выбранного набора знаний")).toBeTruthy();
+
+    await user.click(within(settingsPanel).getByRole("button", { name: "Фасеты проекта" }));
+    expect(within(settingsPanel).getByText("Создать фасет проекта")).toBeTruthy();
+    expect(within(settingsPanel).getByText("Фасеты проекта: Общая")).toBeTruthy();
   });
 
   it("creates a RAG-project and locks materials metadata to it", async () => {
@@ -1222,23 +1240,24 @@ describe("App", () => {
     render(<App />);
 
     await screen.findByRole("button", { name: /дашборд/i });
-    await openSection(user, /справочники/i);
-    const referencesPanel = getPanel("references");
+    await openSection(user, /настройки/i);
+    const settingsPanel = getPanel("settings");
+    await user.click(within(settingsPanel).getByRole("button", { name: "RAG-проекты" }));
 
     await waitFor(() => {
-      expect(within(referencesPanel).getAllByText("Общая").length).toBeGreaterThan(0);
+      expect(within(settingsPanel).getAllByText("Общая").length).toBeGreaterThan(0);
     });
 
-    await user.type(within(referencesPanel).getByLabelText("Ключ"), "south-grid");
-    await user.type(within(referencesPanel).getByLabelText("Название"), "Южная сеть");
-    const createRagProjectButton = within(referencesPanel)
+    await user.type(within(settingsPanel).getByLabelText("Ключ"), "south-grid");
+    await user.type(within(settingsPanel).getByLabelText("Название"), "Южная сеть");
+    const createRagProjectButton = within(settingsPanel)
       .getAllByRole("button", { name: "Создать RAG-проект" })
       .find((button) => button.getAttribute("type") === "submit");
     expect(createRagProjectButton).toBeTruthy();
     await user.click(createRagProjectButton as HTMLButtonElement);
 
     await waitFor(() => {
-      expect(within(referencesPanel).getAllByText("Южная сеть").length).toBeGreaterThan(0);
+      expect(within(settingsPanel).getAllByText("Южная сеть").length).toBeGreaterThan(0);
     });
 
     await openSection(user, /материалы/i);

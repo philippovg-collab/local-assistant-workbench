@@ -6,13 +6,12 @@ import type { AuthSession, ChatAuditRunDetail } from "@/types";
 import { DirectStudioTab } from "./DirectStudioTab";
 import { EvalTab, type EvalFocus } from "@/components/eval/EvalTab";
 import { InstructionsTab } from "./InstructionsTab";
-import { LlmProviderSettingsPanel } from "@/components/LlmProviderSettingsPanel";
 import { MaterialsTab } from "./MaterialsTab";
 import { MemoryTab } from "./MemoryTab";
 import { OverviewTab } from "./OverviewTab";
 import { RagStudioTab } from "./RagStudioTab";
-import { ReferencesTab } from "./ReferencesTab";
-import type { WorkspaceTab } from "./workbenchConfig";
+import { SettingsTab } from "./SettingsTab";
+import type { SettingsTabId, WorkspaceTab } from "./workbenchConfig";
 import { WorkbenchMobileHeader } from "./WorkbenchMobileHeader";
 import { WorkbenchSidebar } from "./WorkbenchSidebar";
 
@@ -25,6 +24,7 @@ type WorkbenchShellProps = {
 export function WorkbenchShell({ session, isLoggingOut, onLogout }: WorkbenchShellProps) {
   const state = useWorkbenchState();
   const [evalFocus, setEvalFocus] = useState<EvalFocus | null>(null);
+  const [activeSettingsTab, setActiveSettingsTab] = useState<SettingsTabId>("llm");
   const evalCandidatePromotion = useEvalCandidatePromotion();
   const {
     activeTab,
@@ -40,6 +40,7 @@ export function WorkbenchShell({ session, isLoggingOut, onLogout }: WorkbenchShe
   } = state;
   const resources = useWorkbenchResources({
     activeTab,
+    activeSettingsTab,
     activeRagProjectKey,
     setActiveRagProjectKey,
     ragInstructionIds,
@@ -53,7 +54,6 @@ export function WorkbenchShell({ session, isLoggingOut, onLogout }: WorkbenchShe
     conversationsEnabled,
     isLongTermMemoryEnabled,
     metadataV1Enabled,
-    isReferencesActive,
     models,
     modelsError,
     instructions,
@@ -193,23 +193,6 @@ export function WorkbenchShell({ session, isLoggingOut, onLogout }: WorkbenchShe
           </section>
 
           <section
-            aria-labelledby="nav-references"
-            hidden={activeTab !== "references"}
-            id="panel-references"
-            role="region"
-          >
-            <ReferencesTab
-              activeRagProjectKey={resolvedActiveRagProjectKey}
-              knowledgeFacets={knowledgeFacets}
-              knowledgePresets={knowledgePresets}
-              ragProjects={ragProjects}
-              referenceData={referenceData}
-              showRagProjectSwitcher={isReferencesActive}
-              onActiveRagProjectChange={setActiveRagProjectKey}
-            />
-          </section>
-
-          <section
             aria-labelledby="nav-memory"
             hidden={activeTab !== "memory" || !isLongTermMemoryEnabled}
             id="panel-memory"
@@ -299,7 +282,18 @@ export function WorkbenchShell({ session, isLoggingOut, onLogout }: WorkbenchShe
             id="panel-settings"
             role="region"
           >
-            {activeTab === "settings" ? <LlmProviderSettingsPanel /> : null}
+            {activeTab === "settings" ? (
+              <SettingsTab
+                activeRagProjectKey={resolvedActiveRagProjectKey}
+                activeSettingsTab={activeSettingsTab}
+                knowledgeFacets={knowledgeFacets}
+                knowledgePresets={knowledgePresets}
+                ragProjects={ragProjects}
+                referenceData={referenceData}
+                onActiveRagProjectChange={setActiveRagProjectKey}
+                onSettingsTabChange={setActiveSettingsTab}
+              />
+            ) : null}
           </section>
         </main>
       </div>

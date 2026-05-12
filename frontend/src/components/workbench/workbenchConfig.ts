@@ -1,5 +1,4 @@
 import {
-  Database,
   Brain,
   ClipboardCheck,
   Files,
@@ -15,7 +14,8 @@ import kegocLogoAsset from "@/assets/logo-kegoc.svg";
 export const kegocLogo = kegocLogoAsset;
 export const ACTIVE_RAG_PROJECT_STORAGE_KEY = "kegoc.activeRagProjectKey";
 
-export type WorkspaceTab = "overview" | "materials" | "instructions" | "references" | "memory" | "rag" | "direct" | "eval" | "settings";
+export type WorkspaceTab = "overview" | "materials" | "instructions" | "memory" | "rag" | "direct" | "eval" | "settings";
+export type SettingsTabId = "llm" | "ragProjects" | "presets" | "facets";
 
 export type WorkspaceTabConfig = {
   id: WorkspaceTab;
@@ -54,12 +54,6 @@ export const workspaceTabs: WorkspaceTabConfig[] = [
     label: "Direct Studio",
     description: "Прямые запросы к модели без retrieval",
     icon: MessageCircleCode,
-  },
-  {
-    id: "references",
-    label: "Справочники",
-    description: "Пресеты корпуса, рабочие области и проекты",
-    icon: Database,
   },
   {
     id: "memory",
